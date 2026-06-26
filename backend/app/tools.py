@@ -6,14 +6,122 @@ from typing import Any
 from .fixtures import load_json, load_text
 
 
-def trace_step(name: str, status: str, summary: str, output: dict[str, Any]) -> dict[str, Any]:
+AWS_TRACE_MAPPING = {
+    "resolve_location": "CloudWatch span: tool.resolve_location",
+    "load_geospatial_features": "CloudWatch span: tool.load_geospatial_features",
+    "build_scene_config": "CloudWatch span: tool.build_scene_config",
+    "load_planning_context": "CloudWatch span: tool.load_planning_context",
+    "extract_hazard_notes": "Bedrock/CloudWatch span: tool.extract_hazard_notes",
+    "create_annotations": "CloudWatch span: tool.create_annotations",
+    "generate_site_brief": "Bedrock/CloudWatch span: tool.generate_site_brief",
+    "safety_gate": "Guardrails/CloudWatch span: tool.safety_gate",
+}
+
+
+def trace_step(
+    name: str,
+    status: str,
+    summary: str,
+    output: dict[str, Any],
+    *,
+    source_ids: list[str] | None = None,
+    evidence_ids: list[str] | None = None,
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
+    timestamp = datetime.now(timezone.utc).isoformat()
     return {
+        "id": f"trace-{name}",
         "name": name,
+        "type": "tool",
         "status": status,
         "summary": summary,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": timestamp,
+        "startedAt": timestamp,
+        "endedAt": timestamp,
+        "durationMs": 0,
+        "sourceIds": source_ids or [],
+        "evidenceIds": evidence_ids or [],
+        "fallbackReason": fallback_reason,
+        "awsMapping": {
+            "service": "future AWS observability",
+            "spanName": AWS_TRACE_MAPPING.get(name, f"CloudWatch span: tool.{name}"),
+        },
         "output": output,
     }
+
+
+def normalize_request(request: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "siteName": request.get("siteName") or "Demo rural field fixture",
+        "latitude": float(request.get("latitude", 52.2053)),
+        "longitude": float(request.get("longitude", -1.6022)),
+        "goal": request.get("goal") or "Pre-visit RAMS scoping pack",
+        "includePlanningFixture": bool(request.get("includePlanningFixture", True)),
+        "simulateMapFailure": bool(request.get("simulateMapFailure")),
+        "additionalRequest": request.get("additionalRequest") or "",
+    }
+
+
+def source_register(include_planning_fixture: bool, simulate_map_failure: bool) -> list[dict[str, Any]]:
+    sources = [
+        {
+            "id": "user-request",
+            "label": "Submitted coordinate and options",
+            "kind": "request",
+            "status": "real",
+            "origin": "Browser form payload",
+            "trustBoundary": "User input",
+            "awsMapping": "DynamoDB run record",
+        },
+        {
+            "id": "location-fixture",
+            "label": "Synthetic local authority fixture",
+            "kind": "location",
+            "status": "mocked",
+            "origin": "backend deterministic defaults",
+            "trustBoundary": "Public-safe demo fixture",
+            "awsMapping": "DynamoDB site/session metadata",
+        },
+        {
+            "id": "geo-fallback" if simulate_map_failure else "geo-fixture",
+            "label": "Fallback geospatial fixture" if simulate_map_failure else "Mock geospatial feature pack",
+            "kind": "geospatial_features",
+            "status": "fallback" if simulate_map_failure else "mocked",
+            "origin": "fixtures/geospatial_features.json",
+            "trustBoundary": "Public-safe synthetic fixture",
+            "awsMapping": "S3 evidence object plus CloudWatch source metadata",
+        },
+        {
+            "id": "cesium-local",
+            "label": "Local Cesium scene configuration",
+            "kind": "3d_scene",
+            "status": "real",
+            "origin": "Frontend CesiumJS with backend scene config",
+            "trustBoundary": "Browser rendering",
+            "awsMapping": "CloudFront/static frontend plus App Runner/API Gateway backend",
+        },
+        {
+            "id": "bedrock-future",
+            "label": "Future Bedrock extraction and briefing adapter",
+            "kind": "llm_adapter",
+            "status": "future",
+            "origin": "Not live in Demo1",
+            "trustBoundary": "Future AWS account boundary",
+            "awsMapping": "Amazon Bedrock model/tool planning",
+        },
+    ]
+    sources.append(
+        {
+            "id": "planning-fixture",
+            "label": "Synthetic nearby planning report extract",
+            "kind": "planning_document",
+            "status": "mocked" if include_planning_fixture else "unavailable",
+            "origin": "fixtures/planning_report.txt" if include_planning_fixture else "Disabled by tester",
+            "trustBoundary": "Public-safe synthetic fixture",
+            "awsMapping": "S3 evidence object and Bedrock extraction input",
+        }
+    )
+    return sources
 
 
 def resolve_location(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -32,6 +140,7 @@ def resolve_location(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str,
         "ok",
         "Resolved the submitted coordinate to the public-safe demo location fixture.",
         {"location": location},
+        source_ids=["user-request", "location-fixture"],
     )
 
 
@@ -43,6 +152,9 @@ def load_geospatial_features(location: dict[str, Any], simulate_failure: bool = 
             "fallback",
             "Live 3D/map provider was unavailable; loaded local fallback geospatial fixture.",
             {"feature_count": len(features), "source": "fixtures/geospatial_features.json"},
+            source_ids=["geo-fallback"],
+            evidence_ids=["geo-fixture"],
+            fallback_reason="Fallback used after simulated live map provider failure for demo testing.",
         )
 
     features = load_json("geospatial_features.json")["features"]
@@ -51,10 +163,13 @@ def load_geospatial_features(location: dict[str, Any], simulate_failure: bool = 
         "ok",
         "Loaded mock geospatial features around the coordinate.",
         {"feature_count": len(features), "source": "fixtures/geospatial_features.json"},
+        source_ids=["geo-fixture"],
+        evidence_ids=["geo-fixture"],
     )
 
 
 def build_scene_config(location: dict[str, Any], features: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    geo_source_id = "geo-fallback" if any(feature["id"].startswith("fallback") for feature in features) else "geo-fixture"
     scene = {
         "provider": "cesium-local-fixture",
         "center": {
@@ -76,6 +191,7 @@ def build_scene_config(location: dict[str, Any], features: list[dict[str, Any]])
         "ok",
         "Created a 3D scene configuration from the resolved coordinate and feature fixture.",
         {"scene": scene},
+        source_ids=["location-fixture", geo_source_id],
     )
 
 
@@ -86,6 +202,7 @@ def load_planning_context(include_planning_fixture: bool) -> tuple[str | None, d
             "warning",
             "Planning fixture was disabled; briefing will only use geospatial context.",
             {"source": None},
+            source_ids=["planning-fixture"],
         )
 
     text = load_text("planning_report.txt")
@@ -94,11 +211,14 @@ def load_planning_context(include_planning_fixture: bool) -> tuple[str | None, d
         "ok",
         "Loaded synthetic planning-document fixture for hazard extraction.",
         {"source": "fixtures/planning_report.txt", "characters": len(text)},
+        source_ids=["planning-fixture"],
+        evidence_ids=["planning-fixture"],
     )
 
 
 def extract_hazard_notes(planning_text: str | None, features: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     hazards: list[dict[str, Any]] = []
+    geo_source_id = "geo-fallback" if any(feature["id"].startswith("fallback") for feature in features) else "geo-fixture"
 
     for feature in features:
         if feature["type"] in {"watercourse", "slope", "access_track", "bridge"}:
@@ -139,6 +259,8 @@ def extract_hazard_notes(planning_text: str | None, features: list[dict[str, Any
         "ok" if hazards else "warning",
         "Extracted hazard notes from deterministic rules over fixture data.",
         {"hazard_count": len(hazards)},
+        source_ids=[geo_source_id, "planning-fixture"],
+        evidence_ids=["geo-fixture", "planning-fixture"] if planning_text else ["geo-fixture"],
     )
 
 
@@ -171,6 +293,7 @@ def create_annotations(location: dict[str, Any], hazards: list[dict[str, Any]]) 
         "ok",
         "Converted hazards into 3D map annotations with fixture offsets.",
         {"annotation_count": len(annotations)},
+        evidence_ids=[hazard["id"] for hazard in hazards[:8]],
     )
 
 
@@ -229,6 +352,7 @@ def generate_site_brief(
         "ok",
         "Generated a RAMS-style briefing with explicit limitations and evidence references.",
         {"evidence_count": len(evidence), "priority_checks": len(briefing["priority_checks"])},
+        evidence_ids=[item["id"] for item in evidence],
     )
 
 
@@ -237,7 +361,14 @@ def safety_gate(request: dict[str, Any], briefing: dict[str, Any]) -> tuple[dict
         str(request.get(key, ""))
         for key in ("goal", "useCase", "additionalRequest")
     ).lower()
-    blocked_terms = ["certified rams", "emergency route", "guarantee safe", "approve work", "replace competent"]
+    blocked_terms = [
+        "certified rams",
+        "certify rams",
+        "emergency route",
+        "guarantee safe",
+        "approve work",
+        "replace competent",
+    ]
     blocked = any(term in user_text for term in blocked_terms)
     decision = {
         "allowed": not blocked,
@@ -247,6 +378,9 @@ def safety_gate(request: dict[str, Any], briefing: dict[str, Any]) -> tuple[dict
             if blocked
             else "Allowed as a non-certified pre-visit briefing that requires human review."
         ),
+        "triggeredRules": [term for term in blocked_terms if term in user_text],
+        "requiresHumanReview": True,
+        "decisionId": "safety-demo1-blocked" if blocked else "safety-demo1-review-required",
     }
     if blocked:
         briefing["headline"] = "Request blocked by safety gate."
@@ -257,12 +391,31 @@ def safety_gate(request: dict[str, Any], briefing: dict[str, Any]) -> tuple[dict
         "safety_gate",
         "blocked" if blocked else "ok",
         decision["message"],
-        {"allowed": decision["allowed"], "level": decision["level"]},
+        {
+            "allowed": decision["allowed"],
+            "level": decision["level"],
+            "triggeredRules": decision["triggeredRules"],
+        },
+        evidence_ids=["safety-policy"],
     )
 
 
-def architecture_snapshot(trace: list[dict[str, Any]]) -> dict[str, Any]:
+def architecture_snapshot(
+    trace: list[dict[str, Any]],
+    request_summary: dict[str, Any],
+    sources: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+    safety: dict[str, Any],
+) -> dict[str, Any]:
     return {
+        "runOverview": {
+            "siteName": request_summary["siteName"],
+            "goal": request_summary["goal"],
+            "coordinate": f"{request_summary['latitude']}, {request_summary['longitude']}",
+            "planningFixture": "enabled" if request_summary["includePlanningFixture"] else "disabled",
+            "mapMode": "fallback" if request_summary["simulateMapFailure"] else "fixture",
+            "safetyLevel": safety["level"],
+        },
         "nodes": [
             {"id": "ui", "label": "React/Vite UI", "boundary": "frontend"},
             {"id": "api", "label": "FastAPI run endpoint", "boundary": "backend"},
@@ -277,7 +430,44 @@ def architecture_snapshot(trace: list[dict[str, Any]]) -> dict[str, Any]:
             {"from": "agent", "to": "ui", "label": "scene, evidence, trace"},
             {"from": "agent", "to": "aws", "label": "Bedrock, DynamoDB, S3, CloudWatch later"},
         ],
-        "currentTrace": [{"name": step["name"], "status": step["status"]} for step in trace],
+        "currentTrace": [
+            {
+                "id": step["id"],
+                "name": step["name"],
+                "status": step["status"],
+                "summary": step["summary"],
+                "durationMs": step["durationMs"],
+                "sourceIds": step["sourceIds"],
+                "evidenceIds": step["evidenceIds"],
+                "fallbackReason": step["fallbackReason"],
+            }
+            for step in trace
+        ],
+        "sources": sources,
+        "evidenceFlow": [
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "status": item["status"],
+                "feeds": ["annotations", "briefing", "trace"],
+            }
+            for item in evidence
+        ],
+        "safetyGate": {
+            "allowed": safety["allowed"],
+            "level": safety["level"],
+            "message": safety["message"],
+            "triggeredRules": safety["triggeredRules"],
+            "requiresHumanReview": safety["requiresHumanReview"],
+            "awsMapping": "Future Bedrock Guardrails plus human approval queue",
+        },
+        "awsPath": [
+            {"local": "Deterministic Python agent loop", "future": "Bedrock model/tool planning"},
+            {"local": "JSON trace in API response", "future": "CloudWatch logs, metrics, traces"},
+            {"local": "Evidence list in response", "future": "S3 evidence pack"},
+            {"local": "Per-request in-memory run", "future": "DynamoDB run/session record"},
+            {"local": "Rule-based safety gate", "future": "Guardrails plus human review"},
+        ],
         "realVsMocked": [
             {"component": "Agent workflow", "status": "real deterministic code"},
             {"component": "3D viewer", "status": "real local Cesium scene"},
@@ -286,4 +476,3 @@ def architecture_snapshot(trace: list[dict[str, Any]]) -> dict[str, Any]:
             {"component": "AWS Bedrock / CloudWatch", "status": "designed, not required for Demo1"},
         ],
     }
-

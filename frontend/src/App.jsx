@@ -95,6 +95,8 @@ function SceneViewer({ run }) {
 
 function WorkflowVisualizer({ architecture }) {
   if (!architecture) return null;
+  const overview = architecture.runOverview;
+  const sourceById = Object.fromEntries((architecture.sources || []).map((source) => [source.id, source]));
 
   return (
     <section className="panel visualizer">
@@ -102,30 +104,89 @@ function WorkflowVisualizer({ architecture }) {
         <GitBranch size={18} />
         <h2>Architecture + Workflow</h2>
       </div>
-      <div className="graph-row">
-        {architecture.nodes.map((node) => (
-          <div className="graph-node" key={node.id}>
-            <strong>{node.label}</strong>
-            <span>{node.boundary}</span>
-          </div>
-        ))}
+
+      <div className="run-overview">
+        <div>
+          <span>Query</span>
+          <strong>{overview.goal}</strong>
+          <small>{overview.siteName}</small>
+        </div>
+        <div>
+          <span>Coordinate</span>
+          <strong>{overview.coordinate}</strong>
+          <small>{overview.planningFixture} planning, {overview.mapMode} map</small>
+        </div>
+        <div>
+          <span>Safety</span>
+          <strong>{overview.safetyLevel}</strong>
+          <small>human review required before use</small>
+        </div>
       </div>
-      <div className="trace-table">
+
+      <h3 className="visualizer-label">Tool Timeline</h3>
+      <div className="tool-timeline">
         {architecture.currentTrace.map((step, index) => (
-          <div className="trace-row" key={`${step.name}-${index}`}>
-            <span>{String(index + 1).padStart(2, "0")}</span>
-            <strong>{step.name}</strong>
-            <em className={`status ${step.status}`}>{step.status}</em>
-          </div>
+          <article className="tool-card" key={step.id || `${step.name}-${index}`}>
+            <div>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{step.name}</strong>
+              <em className={`status ${step.status}`}>{step.status}</em>
+            </div>
+            <p>{step.summary}</p>
+            <small>
+              Sources: {step.sourceIds.map((id) => sourceById[id]?.label || id).join(", ") || "internal"}
+            </small>
+            <small>Evidence: {step.evidenceIds.join(", ") || "none"}</small>
+            {step.fallbackReason && <small className="warning-note">{step.fallbackReason}</small>}
+          </article>
         ))}
       </div>
-      <div className="boundary-grid">
-        {architecture.realVsMocked.map((item) => (
-          <div key={item.component}>
-            <strong>{item.component}</strong>
-            <span>{item.status}</span>
-          </div>
+
+      <h3 className="visualizer-label">Source + Evidence Map</h3>
+      <div className="source-grid">
+        {architecture.sources.map((source) => (
+          <article key={source.id}>
+            <div>
+              <strong>{source.label}</strong>
+              <em className={`status ${source.status}`}>{source.status}</em>
+            </div>
+            <span>{source.kind}</span>
+            <small>{source.origin}</small>
+            <small>{source.trustBoundary}</small>
+          </article>
         ))}
+      </div>
+      <div className="evidence-flow">
+        {architecture.evidenceFlow.map((item) => (
+          <article key={item.id}>
+            <strong>{item.title}</strong>
+            <em className={`status ${item.status}`}>{item.status}</em>
+            <small>Feeds: {item.feeds.join(", ")}</small>
+          </article>
+        ))}
+      </div>
+
+      <div className="decision-grid">
+        <article>
+          <h3>Safety Gate</h3>
+          <strong>{architecture.safetyGate.level}</strong>
+          <p>{architecture.safetyGate.message}</p>
+          <small>
+            Rules: {architecture.safetyGate.triggeredRules.length ? architecture.safetyGate.triggeredRules.join(", ") : "none triggered"}
+          </small>
+          <small>{architecture.safetyGate.awsMapping}</small>
+        </article>
+        <article>
+          <h3>Future AWS Mapping</h3>
+          <ul>
+            {architecture.awsPath.map((item) => (
+              <li key={item.local}>
+                <strong>{item.local}</strong>
+                <span>{item.future}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
       </div>
     </section>
   );

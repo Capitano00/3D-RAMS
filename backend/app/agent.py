@@ -10,13 +10,16 @@ from .tools import (
     generate_site_brief,
     load_geospatial_features,
     load_planning_context,
+    normalize_request,
     resolve_location,
     safety_gate,
+    source_register,
 )
 
 
 def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     request = request or {}
+    request_summary = normalize_request(request)
     trace: list[dict[str, Any]] = []
 
     location, step = resolve_location(request)
@@ -48,15 +51,21 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     safety, step = safety_gate(request, briefing)
     trace.append(step)
 
+    sources = source_register(
+        include_planning_fixture=request_summary["includePlanningFixture"],
+        simulate_map_failure=request_summary["simulateMapFailure"],
+    )
+
     return {
         "runId": "demo1-local-run",
+        "request": request_summary,
         "location": location,
         "scene": scene,
         "annotations": annotations if safety["allowed"] else [],
         "briefing": briefing,
         "evidence": evidence,
+        "sources": sources,
         "safety": safety,
         "trace": trace,
-        "architecture": architecture_snapshot(trace),
+        "architecture": architecture_snapshot(trace, request_summary, sources, evidence, safety),
     }
-

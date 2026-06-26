@@ -1,8 +1,6 @@
 # Team Test Guide
 
-Use this guide to test the Demo1 flow before judging or submission. The app is intentionally local-first: it should run with the public fixtures only, without AWS credentials, Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data.
-
-## What To Test
+Use this guide to test the Demo1 flow before judging or submission. The app is intentionally local-first: it should run with public fixtures only, without AWS credentials, Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data.
 
 3D-RAMS turns a coordinate into an inspectable 3D pre-visit briefing pack:
 
@@ -19,52 +17,116 @@ Use this guide to test the Demo1 flow before judging or submission. The app is i
 
 This is not certified RAMS, emergency guidance, work approval, or a competent-person replacement. Treat all output as a demo briefing for human review.
 
-## Codespaces Setup
+## No-Code Codespaces Walkthrough
 
-1. Open the GitHub repository in Codespaces.
-2. Wait for the devcontainer setup to finish. It installs backend and frontend dependencies.
-3. Open a terminal and start both backend and frontend:
+Recommended path: GitHub Codespaces. You do not need to install Python, Node, AWS tools, Google tools, or map keys locally if Codespaces works for your GitHub account.
+
+What you need:
+
+- a GitHub account with Codespaces access available for your account or plan;
+- a web browser;
+- repo URL: <https://github.com/lanber1027/3D-RAMS>.
+
+### Step 1: Open The Repo
+
+Open:
+
+<https://github.com/lanber1027/3D-RAMS>
+
+You should see folders such as `.devcontainer`, `backend`, `frontend`, `docs`, `fixtures`, and `scripts`.
+
+### Step 2: Create A Codespace
+
+On the GitHub repo page, click:
+
+`Code -> Codespaces -> Create codespace on main`
+
+GitHub will open a browser-based VS Code-like workspace. It may look technical, but you only need the terminal once.
+
+### Step 3: Wait For Setup
+
+Wait until Codespaces finishes preparing the workspace. The devcontainer setup runs:
+
+```bash
+bash scripts/start-dev.sh --install-only
+```
+
+That pre-installs backend and frontend dependencies.
+
+### Step 4: Open The Terminal
+
+Inside Codespaces, use the terminal at the bottom of the screen. If it is not visible, open:
+
+`Terminal -> New Terminal`
+
+Paste:
 
 ```bash
 bash scripts/start-dev.sh
 ```
 
-4. In the Codespaces Ports tab, open the forwarded frontend port, usually `5173`.
-5. Confirm the backend health check if the UI cannot run:
+This starts the FastAPI backend on port `8000` and the Vite frontend on port `5173`.
 
-```bash
-curl http://localhost:8000/health
-```
+### Step 5: Open The Frontend
 
-Expected response:
+Codespaces should show a forwarded-port pop-up. Open port:
 
-```json
-{"status":"ok","service":"3d-rams-demo1"}
-```
+`5173`
 
-If the one-command startup fails in Codespaces, use this two-terminal fallback.
+If there is no pop-up, use the Codespaces `Ports` tab and open the forwarded address for port `5173`.
 
-Terminal 1:
+You should now see the 3D-RAMS web app.
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+### Step 6: Click Run
 
-Terminal 2:
+Leave the default coordinate and options unchanged, then click:
 
-```bash
-cd frontend
-npm install
-npm run dev -- --host 0.0.0.0 --port 5173
-```
+`Run`
+
+Expected result: the app shows a 3D scene, annotations, RAMS-style briefing, evidence register, agent trace, and Architecture + Workflow visualizer.
+
+### Step 7: Run Six Test Scenarios
+
+Use demo fixture data only. Do not enter real client sites, confidential project locations, private planning documents, secrets, or API keys.
+
+| Scenario | What To Do | Expected Result |
+| --- | --- | --- |
+| Happy path | Leave defaults and click `Run`. | Scene, annotations, briefing, evidence, trace, and visualizer appear. |
+| Missing planning fixture | Turn off `Planning fixture`, then click `Run`. | App still works and explains planning evidence limitations. |
+| Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial loading using fallback. |
+| Safety refusal | Click `Safety test`. | Agent refuses certified RAMS or work-approval claims. |
+| Low-confidence annotation | Run the default case and inspect limitations/annotations. | At least one item is labelled low confidence. |
+| Architecture visualizer | Run any successful scenario and inspect `Architecture + Workflow`. | UI shows query flow, tools, sources, evidence, safety, real-vs-mocked boundaries, and future AWS path. |
+
+### Step 8: Submit Feedback
+
+Go to:
+
+`Issues -> New Issue -> Teammate Demo Feedback`
+
+Please include setup result, scenario pass/fail notes, bugs, confusing wording, screenshots if useful, and any concern about safety or data boundaries.
+
+Do not upload real site data, private documents, client material, secrets, or API keys.
+
+## Plain-English Repo Map
+
+| Part | Meaning |
+| --- | --- |
+| `frontend` | The website you click on. |
+| `backend` | The local agent/API that receives the coordinate and returns briefing data. |
+| `fixtures` | Fake/synthetic demo data, not real client data. |
+| `scripts/start-dev.sh` | One-command startup script for Codespaces. |
+| `docs/team-test-guide.md` | This testing checklist. |
+| `.github/ISSUE_TEMPLATE` | Feedback form for teammate testing. |
+| `.devcontainer` | Codespaces setup recipe. |
+
+The backend exposes a health check endpoint and an `/api/run` endpoint. The agent workflow is:
+
+`coordinate input -> fixture lookup -> mocked geospatial features -> scene config -> synthetic planning fixture -> hazard extraction -> annotations -> briefing -> safety gate -> evidence/trace/architecture visualizer`
 
 ## Local Fallback Setup
 
-Run this if Codespaces is unavailable or slow.
+Run this only if Codespaces is unavailable or slow.
 
 Backend:
 
@@ -88,18 +150,19 @@ Open `http://localhost:5173`.
 
 PowerShell note: if `npm run dev` is blocked by script execution policy, use `npm.cmd run dev`.
 
-## Scenario Checklist
+## Health Check
 
-Use demo fixture data only. Do not enter real client sites, confidential project locations, private planning documents, secrets, or API keys.
+If the UI cannot run, confirm the backend health check:
 
-| Scenario | Steps | Expected Result | Pass/Fail Notes |
-| --- | --- | --- | --- |
-| Happy path | Leave default options on and click `Run`. | 3D scene, annotations, briefing, evidence register, and trace are returned. | |
-| Missing planning fixture | Turn off `Planning fixture`, then click `Run`. | Briefing still returns and states that planning evidence was unavailable or document-derived hazards may be missing. | |
-| Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows `load_geospatial_features` with `fallback` status and the UI still produces a briefing. | |
-| Safety refusal | Click `Safety test`. | Safety gate blocks certified RAMS, work approval, or emergency guidance behavior. | |
-| Low-confidence annotation | Run the default scenario and inspect scene annotations or briefing limitations. | At least one inferred imagery/geospatial item is labelled low confidence. | |
-| Architecture visualizer | Run any successful scenario and inspect `Architecture + Workflow`. | UI shows tool sequence, current trace status, real-vs-mocked boundaries, and AWS production path as future architecture. | |
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"3d-rams-demo1"}
+```
 
 ## What Judges Or Teammates Should Inspect
 
@@ -107,8 +170,8 @@ Use demo fixture data only. Do not enter real client sites, confidential project
 - The RAMS-style briefing and its limitations.
 - Evidence register entries and source labels.
 - Trace rows with tool names and statuses.
-- `Architecture + Workflow` for the agent sequence, real-vs-mocked boundary, and AWS path.
-- `docs/architecture.md` for the written architecture diagrams and trace shape.
+- `Architecture + Workflow` for query flow, tools, sources, evidence, safety, real-vs-mocked boundaries, and future AWS path.
+- `docs/architecture.md` for written architecture diagrams and trace shape.
 
 ## Troubleshooting
 
@@ -120,16 +183,3 @@ Use demo fixture data only. Do not enter real client sites, confidential project
 | Cesium scene looks blank or slow | Browser/GPU/network constraints in the test environment. | Reload once, try another browser, and still capture whether briefing/evidence/trace worked. |
 | Planning-related hazards are missing | `Planning fixture` is disabled. | Re-enable `Planning fixture` for the happy path. |
 | Output sounds too authoritative | Demo copy or narration may be overstating the boundary. | Flag it in feedback; the intended boundary is human-review briefing only. |
-
-## Feedback Instructions
-
-Create a GitHub issue with the teammate feedback template after testing. Include:
-
-- environment: Codespaces or local, browser, operating system if local;
-- whether setup worked on the first try;
-- pass/fail for each scenario in the checklist;
-- screenshots or screen recording links if useful;
-- bugs, confusing parts, slow steps, or visual problems;
-- any wording that sounds like certified RAMS, work approval, emergency guidance, or real-data use.
-
-Screenshots are optional. Do not attach secrets, private documents, real client material, or real site data.

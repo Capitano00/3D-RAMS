@@ -1,23 +1,65 @@
 # 3D-RAMS Architecture
 
-## Current Demo1 Boundaries
+This document is the public, living architecture reference for Demo1. It explains what the agent does today, what is mocked, what is real, and how the same run shape can map to AWS later.
+
+3D-RAMS creates a pre-visit briefing pack for human review. It does not create certified RAMS, emergency guidance, approval to work, or a competent-person replacement.
+
+## Query-To-Brief Flow
 
 ```mermaid
 flowchart LR
-    User["User"] --> UI["React/Vite UI"]
-    UI --> API["FastAPI /api/run"]
-    API --> Agent["3D-RAMS agent loop"]
-    Agent --> Geo["Mock geospatial fixture"]
-    Agent --> Planning["Synthetic planning fixture"]
-    Agent --> Scene["Scene config"]
+    User["User enters coordinate and test options"] --> UI["React/Vite UI"]
+    UI --> API["FastAPI POST /api/run"]
+    API --> Agent["Deterministic Demo1 agent loop"]
+    Agent --> Locate["Resolve location fixture"]
+    Agent --> Geo["Load geospatial fixture or fallback"]
+    Agent --> Scene["Build 3D scene config"]
+    Agent --> Planning["Load synthetic planning fixture"]
+    Agent --> Hazards["Extract candidate hazard notes"]
+    Agent --> Annotations["Create 3D annotations"]
+    Agent --> Brief["Generate briefing"]
     Agent --> Safety["Safety gate"]
-    Agent --> Trace["Trace + evidence register"]
-    Scene --> UI
-    Safety --> UI
-    Trace --> UI
+    Safety --> Output["Scene, briefing, evidence, trace, visualizer"]
+    Output --> UI
 ```
 
-## Agent Tool Sequence
+## Data Flow And Trust Boundaries
+
+```mermaid
+flowchart TB
+    subgraph Browser["Browser boundary"]
+        Form["Coordinate, options, safety-test request"]
+        Viewer["3D scene and workflow visualizer"]
+    end
+
+    subgraph Backend["FastAPI backend boundary"]
+        Runtime["Agent runtime"]
+        Trace["Trace builder"]
+        Safety["Safety policy"]
+    end
+
+    subgraph Fixtures["Public-safe fixture boundary"]
+        GeoFixture["Mock geospatial features"]
+        PlanningFixture["Synthetic planning text"]
+    end
+
+    subgraph FutureSources["Future live-source boundary"]
+        LPA["Planning portals or APIs"]
+        MapData["Geospatial and terrain APIs"]
+    end
+
+    Form --> Runtime
+    Runtime --> GeoFixture
+    Runtime --> PlanningFixture
+    Runtime -. "future" .-> LPA
+    Runtime -. "future" .-> MapData
+    Runtime --> Trace
+    Runtime --> Safety
+    Trace --> Viewer
+    Safety --> Viewer
+```
+
+## Current Tool-Calling Sequence
 
 ```mermaid
 sequenceDiagram
@@ -29,7 +71,7 @@ sequenceDiagram
 
     U->>UI: Submit coordinate and options
     UI->>API: POST /api/run
-    API->>A: Run site briefing
+    API->>A: run_site_briefing
     A->>A: resolve_location
     A->>F: load_geospatial_features
     A->>A: build_scene_config
@@ -38,51 +80,115 @@ sequenceDiagram
     A->>A: create_annotations
     A->>A: generate_site_brief
     A->>A: safety_gate
-    A-->>API: scene, annotations, evidence, trace
-    API-->>UI: JSON response
-    UI-->>U: 3D briefing and visualizer
+    A-->>API: JSON run object
+    API-->>UI: scene, briefing, evidence, sources, trace, architecture
+    UI-->>U: 3D briefing and workflow visualizer
 ```
+
+## Future Bedrock Tool-Calling Path
+
+```mermaid
+sequenceDiagram
+    participant A as Agent Runtime
+    participant Adapter as Model Adapter
+    participant Bedrock as Amazon Bedrock
+    participant Tools as Approved Tools
+    participant Safety as Guardrails and Human Review
+    participant Obs as CloudWatch
+
+    A->>Adapter: Create structured extraction or briefing task
+    Adapter->>Bedrock: Invoke model with tool schema
+    Bedrock->>Tools: Request allowed tool action
+    Tools-->>Bedrock: Return cited, structured result
+    Bedrock-->>Adapter: Draft extraction or briefing
+    Adapter->>Safety: Check unsafe claims and review requirement
+    Safety-->>A: allow, block, or require approval
+    A->>Obs: Emit trace, latency, status, and evidence ids
+```
+
+Demo1 does not require Bedrock. The current deterministic tool chain is designed so the same trace and evidence shape can be reused when a Bedrock adapter is added.
+
+## Evidence, Trace, And Observability Flow
+
+```mermaid
+flowchart LR
+    Tool["Tool call"] --> Span["Trace row"]
+    Source["Source register"] --> Span
+    Span --> Evidence["Evidence id"]
+    Evidence --> Annotation["3D annotation"]
+    Evidence --> Briefing["Briefing statement"]
+    Span --> Visualizer["Architecture + Workflow UI"]
+
+    Span -. "future" .-> CloudWatch["CloudWatch trace span"]
+    Evidence -. "future" .-> S3["S3 evidence pack"]
+    Visualizer -. "future" .-> DDB["DynamoDB run record"]
+```
+
+Each backend tool emits a compact trace object:
+
+- `id`, `name`, `type`, `status`, `summary`;
+- `startedAt`, `endedAt`, `durationMs`;
+- `sourceIds`, `evidenceIds`, `fallbackReason`;
+- `awsMapping`;
+- `output`.
+
+## Safety And Human Review Gate
+
+```mermaid
+flowchart TB
+    Request["User request"] --> Classify["Check for unsafe claims"]
+    Classify -->|"certified RAMS, approve work, emergency route"| Block["Block response"]
+    Classify -->|"normal pre-visit briefing"| Review["Allow as review-required output"]
+    Block --> UIBlock["Show refusal and no annotations"]
+    Review --> UIReview["Show briefing, limitations, and human-review boundary"]
+    Review -. "future" .-> HITL["Human approval queue"]
+    Classify -. "future" .-> Guardrails["Bedrock Guardrails"]
+```
+
+The safety gate is deliberately visible. Judges and teammates should be able to see where the agent refuses high-risk claims and where a human review point would sit in production.
+
+## Real Vs Mocked Register
+
+| Area | Current Source | Current Status | Visible In UI | Production AWS Mapping | Upgrade Risk |
+| --- | --- | --- | --- | --- | --- |
+| Agent loop | Python backend | Real deterministic code | Tool timeline and trace | Bedrock model/tool planning | Model variability and evaluation |
+| Request state | Browser form payload | Real | Run overview | DynamoDB run/session record | Data privacy and retention |
+| 3D viewer | React/Vite + CesiumJS | Real local scene | 3D scene | Static frontend plus API runtime | Performance on low-power devices |
+| Geospatial features | `fixtures/geospatial_features.json` | Mocked or fallback | Sources and annotations | S3 source object plus live geospatial APIs | Licensing, freshness, key management |
+| Planning context | `fixtures/planning_report.txt` | Synthetic fixture or unavailable | Sources, evidence, briefing limits | S3 documents plus Bedrock extraction | Scraping reliability and citations |
+| Safety gate | Python rules | Real Demo1 policy | Safety pill and visualizer | Guardrails plus human review queue | Overclaiming or hidden unsafe edge cases |
+| Evidence register | API response | Real response object | Evidence cards | S3 evidence pack | Source traceability |
+| Observability | JSON trace | Real response object | Trace and visualizer | CloudWatch logs, metrics, traces | Noise and cost control |
 
 ## AWS Production Path
 
 ```mermaid
 flowchart TB
-    UI["React UI"] --> APIGW["API Gateway or App Runner endpoint"]
+    UI["React UI"] --> Edge["CloudFront or static hosting"]
+    UI --> APIGW["API Gateway or App Runner endpoint"]
     APIGW --> Runtime["Agent runtime service"]
     Runtime --> Bedrock["Amazon Bedrock model/tool planning"]
     Runtime --> Guardrails["Bedrock Guardrails"]
-    Runtime --> DDB["DynamoDB project state"]
-    Runtime --> S3["S3 evidence packs"]
+    Runtime --> DDB["DynamoDB run state and approvals"]
+    Runtime --> S3["S3 evidence packs and source documents"]
     Runtime --> CloudWatch["CloudWatch logs, metrics, traces"]
-    Runtime --> Sources["Planning APIs / geospatial APIs"]
-    CloudWatch --> Review["Human review dashboard"]
+    Runtime --> Sources["Planning and geospatial APIs"]
+    Guardrails --> Review["Human review dashboard"]
+    CloudWatch --> Review
     DDB --> Review
     S3 --> Review
 ```
 
-## Trace Shape
+## Visualizer Contract
 
-Each backend tool emits:
+The `/api/run` response keeps the visualizer in the normal agent response. There is no separate visualizer endpoint.
 
-- `name`: stable tool name;
-- `status`: `ok`, `warning`, `fallback`, or `blocked`;
-- `summary`: human-readable action summary;
-- `timestamp`: UTC ISO timestamp;
-- `output`: compact structured output.
+Core fields:
 
-This is deliberately close to a CloudWatch/AgentCore observability model: each tool call can become a span, each status can become a metric dimension, and each run can attach evidence IDs for audit.
-
-## Real vs Mocked Register
-
-| Area | Current | Upgrade Path |
-| --- | --- | --- |
-| Agent loop | Real deterministic Python | Add Bedrock model adapter behind `ENABLE_BEDROCK=true`. |
-| Location resolution | Fixture | Add postcode/address geocoder or official gazetteer source. |
-| Geospatial features | Fixture | Add OS, OSM, satellite, or sponsor geospatial APIs. |
-| 3D map | Local Cesium scene | Add live terrain/tiles if licensing, key management, and reliability fit. |
-| Planning context | Synthetic text fixture | Add LPA search, document retrieval, OCR, parsing, and cited extraction. |
-| Safety gate | Rule-based | Add Guardrails and policy tests. |
-| State | In-memory per request | Add DynamoDB versioned runs and approvals. |
-| Evidence packs | JSON response | Add S3 export and signed review links. |
-| Observability | JSON trace in UI | Add CloudWatch logs, metrics, traces, and run dashboards. |
+- `request`: submitted site name, coordinate, goal, toggles, and additional request;
+- `sources`: real, mocked, fallback, unavailable, and future source register;
+- `trace`: ordered tool calls with source ids, evidence ids, fallback reason, and AWS mapping;
+- `evidence`: evidence register shown to the user;
+- `safety`: allow/block decision, triggered rules, review requirement, and decision id;
+- `architecture`: UI-ready run overview, current trace, source map, safety gate, real-vs-mocked register, and future AWS path.
 

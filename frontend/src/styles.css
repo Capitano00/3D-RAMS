@@ -312,6 +312,19 @@ input {
   color: #8a5600;
 }
 
+.status.mocked,
+.status.future,
+.status.unavailable {
+  background: #eef2ff;
+  color: #34428b;
+}
+
+.status.real,
+.status.ok {
+  background: #eefaf6;
+  color: #075e4e;
+}
+
 .status.blocked {
   background: #fff0ea;
   color: #8a2d10;
@@ -319,32 +332,136 @@ input {
 
 .visualizer {
   overflow: hidden;
+  grid-column: 1 / -1;
 }
 
-.graph-row {
+.run-overview {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 14px;
 }
 
-.graph-node,
-.boundary-grid div {
-  min-height: 78px;
+.run-overview div,
+.tool-card,
+.source-grid article,
+.evidence-flow article,
+.decision-grid article {
   border: 1px solid #dce4e0;
   border-radius: 8px;
   padding: 10px;
-  display: grid;
-  align-content: start;
-  gap: 6px;
   background: #fbfcfb;
 }
 
-.boundary-grid {
+.run-overview div {
+  min-height: 92px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.run-overview span,
+.source-grid span,
+.tool-card small,
+.source-grid small,
+.evidence-flow small,
+.decision-grid small,
+.decision-grid span {
+  color: #586963;
+}
+
+.run-overview span,
+.visualizer-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.run-overview small,
+.tool-card small,
+.source-grid small,
+.evidence-flow small,
+.decision-grid small {
+  display: block;
+}
+
+.visualizer-label {
+  margin: 2px 14px 8px;
+  color: #4c5d57;
+}
+
+.tool-timeline {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.tool-card {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-card div,
+.source-grid article > div {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+}
+
+.source-grid article > div {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.tool-card p,
+.decision-grid p {
+  margin: 0;
+  color: #31413b;
+}
+
+.warning-note {
+  color: #8a5600;
+  font-weight: 700;
+}
+
+.source-grid,
+.evidence-flow,
+.decision-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 14px 14px;
+}
+
+.source-grid article,
+.evidence-flow article,
+.decision-grid article {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.evidence-flow article {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+}
+
+.evidence-flow small {
+  grid-column: 1 / -1;
+}
+
+.decision-grid ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.decision-grid li {
+  margin: 6px 0;
+}
+
+.decision-grid li strong,
+.decision-grid li span {
+  display: block;
 }
 
 @media (max-width: 1040px) {
@@ -358,8 +475,10 @@ input {
     align-items: stretch;
   }
 
-  .graph-row,
-  .boundary-grid {
+  .run-overview,
+  .source-grid,
+  .evidence-flow,
+  .decision-grid {
     grid-template-columns: 1fr;
   }
 
