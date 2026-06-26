@@ -10,6 +10,19 @@ This repository is public hackathon demo code. Do not commit:
 
 Keep strategic notes and private decisions in the local war-room workspace, not here.
 
+## Contributor Workflow
+
+This repo is worked through bounded tasks. For each task, keep the change focused and hand it back with:
+
+- task summary;
+- files or areas changed;
+- verification run;
+- real vs mocked components affected;
+- risks or blockers;
+- recommended next action.
+
+Large tasks should be split before implementation. Parallel changes are acceptable only when file ownership is non-overlapping.
+
 ## Build Posture
 
 - Keep Demo1 runnable without cloud credentials or live map keys.
@@ -17,6 +30,7 @@ Keep strategic notes and private decisions in the local war-room workspace, not 
 - Clearly label real, mocked, fallback, and future AWS components.
 - Preserve the safety boundary: no certified RAMS, emergency guidance, or approval-to-work claims.
 - Keep trace and evidence objects inspectable in the UI and easy to map to CloudWatch later.
+- Keep public docs team-safe: no private strategy, career framing, private messages, client data, or local war-room coordination.
 
 ## Verification
 
@@ -29,4 +43,3 @@ cd frontend && npm run build
 ```
 
 If a check cannot be run, record the blocker clearly.
-
