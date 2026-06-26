@@ -160,6 +160,18 @@ The safety gate is deliberately visible. Judges and teammates should be able to 
 | Evidence register | API response | Real response object | Evidence cards | S3 evidence pack | Source traceability |
 | Observability | JSON trace | Real response object | Trace and visualizer | CloudWatch logs, metrics, traces | Noise and cost control |
 
+## Future Risk Intelligence Sources
+
+These sources are not live in Demo1. They are future review-pack inputs that should use the same source-register, evidence, confidence, and fallback pattern before any live API is added.
+
+| Source Group | Example Use | Demo1 Status | Main Risk |
+| --- | --- | --- | --- |
+| Infrastructure and grid context | Overhead lines, pylons, substations, route constraints, and other open infrastructure risks. | Future only | Licensing, coverage, critical-asset sensitivity, and false positives. |
+| Weather and seasonal context | Combine slope, access, flood, wind, snow/ice, rain, quarry or ground-risk context into review flags. | Future only | Forecast uncertainty, stale data, and operational-advice overclaiming. |
+| News and live incidents | Nearby transport crashes, road closures, industrial incidents, flood warnings, or major disruption. | Future only | Freshness, geocoding accuracy, misinformation, and emergency-guidance risk. |
+
+Future reasoning should produce inspectable review flags, not unsupported instructions. Example shape: source combination, confidence, evidence ids, risk flag, and human review requirement.
+
 ## AWS Production Path
 
 ```mermaid
@@ -191,4 +203,3 @@ Core fields:
 - `evidence`: evidence register shown to the user;
 - `safety`: allow/block decision, triggered rules, review requirement, and decision id;
 - `architecture`: UI-ready run overview, current trace, source map, safety gate, real-vs-mocked register, and future AWS path.
-
