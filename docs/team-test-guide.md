@@ -25,13 +25,13 @@ What you need:
 
 - a GitHub account with Codespaces access available for your account or plan;
 - a web browser;
-- repo URL: <https://github.com/lanber1027/3D-RAMS>.
+- repo URL: <https://github.com/Capitano00/3D-RAMS>.
 
 ### Step 1: Open The Repo
 
 Open:
 
-<https://github.com/lanber1027/3D-RAMS>
+<https://github.com/Capitano00/3D-RAMS>
 
 You should see folders such as `.devcontainer`, `backend`, `frontend`, `docs`, `fixtures`, and `scripts`.
 
