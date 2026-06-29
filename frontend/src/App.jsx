@@ -66,6 +66,7 @@ function SceneViewer({ run }) {
       name: "Review area",
       polygon: {
         hierarchy: Cesium.Cartesian3.fromDegreesArray(sitePolygon),
+        height: 0,
         material: Cesium.Color.fromCssColorString("#87b7a7").withAlpha(0.38),
         outline: true,
         outlineColor: Cesium.Color.fromCssColorString("#0b6f65"),
