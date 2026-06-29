@@ -44,8 +44,6 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 | AWS | Partially live when configured | Bedrock briefing can be live; DynamoDB, S3, CloudWatch, Guardrails, and AgentCore remain production-path stages. |
 | Google Maps / Earth / 3D Tiles | Not used | Kept out of Demo1 to avoid key, cost, licensing, and freshness risk. |
 
-## Quickstart
-
 ## Teammate Testing
 
 The easiest teammate test path is GitHub Codespaces. Open the repo in Codespaces, then run:

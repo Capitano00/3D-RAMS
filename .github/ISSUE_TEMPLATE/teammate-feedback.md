@@ -21,7 +21,9 @@ assignees: ""
 Optional but useful if you are comfortable using the terminal.
 
 - Did `bash scripts/check-demo.sh` pass? Yes / No / Not tested
+- If this was a fresh local clone, did `bash scripts/check-demo.sh --install` pass? Yes / No / Not tested
 - If testing on Windows, did `powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1` pass? Yes / No / Not tested
+- If this was a fresh Windows clone, did `powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install` pass? Yes / No / Not tested
 - If it failed, paste the last 10-20 lines of output here. Do not include secrets, keys, private documents, or real site data.
 
 ## Scenario Results
