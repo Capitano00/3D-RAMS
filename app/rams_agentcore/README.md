@@ -1,0 +1,43 @@
+# 3D-RAMS AgentCore Runtime
+
+This directory started from an AgentCore CLI scaffold and now contains the deployable 3D-RAMS runtime package.
+
+# Layout
+
+The generated application code lives at the agent root directory. At the root, there is a `.gitignore` file, an
+`agentcore/` folder which represents the configurations and state associated with this project. Other `agentcore`
+commands like `deploy`, `dev`, and `invoke` rely on the configuration stored here.
+
+## Agent Root
+
+The main entrypoint is `main.py`. It uses the AgentCore SDK `@app.entrypoint` decorator and delegates invocation handling to `three_d_rams.agentcore_adapter`.
+
+The current migration preserves the existing deterministic 3D-RAMS workflow under `three_d_rams/`. Bedrock remains optional and environment-controlled.
+
+Runtime-required fixture data is packaged under `fixtures/` so local mock and cached-public modes are available to AgentCore packaging.
+
+## Environment Variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `LOCAL_DEV` | No | Set to `1` to use `.env.local` instead of AgentCore Identity. |
+| `ENABLE_BEDROCK` | No | Set to `true` only when AWS credentials and model access are ready. Defaults to deterministic fallback. |
+| `RUNTIME_DATA_MODE` | No | Use `fixture_first` for Demo1 and no-AWS validation. |
+
+# Developing locally
+
+If installation was successful, a virtual environment is already created with dependencies installed.
+
+Run `source .venv/bin/activate` before developing.
+
+`agentcore dev` will start a local server on 0.0.0.0:8080 from the repository root once dependencies are installed.
+
+In a new terminal, you can invoke that server with:
+
+`agentcore invoke --dev '{"input":{"fixturePack":"public-lambeth-thames","useBedrock":false}}'`
+
+# Deployment
+
+After providing credentials and passing the repo verification stack, `agentcore deploy` can deploy the project into Amazon Bedrock AgentCore.
+
+Use `agentcore invoke` to invoke your deployed agent.

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "RamsAgent",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:created-by": "agentcore-cli",
+    "agentcore:project-name": "RamsAgent"
+  },
+  "runtimes": [
+    {
+      "name": "rams_agentcore",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": "app/rams_agentcore/",
+      "runtimeVersion": "PYTHON_3_14",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP"
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "abTests": [],
+  "harnesses": [
+    {
+      "name": "rams_supervisor",
+      "path": "app/rams_supervisor"
+    }
+  ],
+  "datasets": [],
+  "payments": []
+}

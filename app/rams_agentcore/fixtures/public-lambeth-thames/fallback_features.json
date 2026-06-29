@@ -1,0 +1,12 @@
+{
+  "status": "synthetic_fallback",
+  "features": [
+    {
+      "id": "fallback-public-context",
+      "type": "access",
+      "label": "Fallback public-context indicator",
+      "confidence": "low",
+      "risk_note": "Cached public pack unavailable; verify all public-source assumptions manually."
+    }
+  ]
+}

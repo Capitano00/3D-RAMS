@@ -1,0 +1,32 @@
+{
+  "name": "rams_supervisor",
+  "model": {
+    "provider": "bedrock",
+    "modelId": "anthropic.claude-3-7-sonnet-20250219-v1:0",
+    "apiFormat": "converse_stream"
+  },
+  "tools": [],
+  "skills": [],
+  "allowedTools": [
+    "resolve_location",
+    "load_geospatial_features",
+    "load_planning_context",
+    "extract_hazard_notes",
+    "create_annotations",
+    "generate_site_brief",
+    "review_report"
+  ],
+  "memory": {
+    "mode": "disabled"
+  },
+  "maxIterations": 8,
+  "maxTokens": 12000,
+  "timeoutSeconds": 300,
+  "truncation": {
+    "strategy": "summarization"
+  },
+  "environmentVariables": {
+    "ENABLE_BEDROCK": "false",
+    "RUNTIME_DATA_MODE": "fixture_first"
+  }
+}

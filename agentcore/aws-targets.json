@@ -1,0 +1,8 @@
+[
+  {
+    "name": "default",
+    "description": "Placeholder target for local AgentCore CLI validation. Replace account before real deployment.",
+    "account": "000000000000",
+    "region": "eu-west-2"
+  }
+]

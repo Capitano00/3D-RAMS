@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "name": "lambeth-thames-demo-context",
+  "licence": "OpenStreetMap context requires ODbL attribution; this file is a lightweight demo-context fixture, not a live Overpass export.",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "osm:way:119724182",
+        "label": "Lambeth Bridge",
+        "type": "bridge",
+        "confidence": "medium",
+        "review_note": "Mapped bridge context does not prove structural/load suitability."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-0.123, 51.494], [-0.119, 51.492]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "osm:way:34401610",
+        "label": "Albert Embankment",
+        "type": "access",
+        "confidence": "medium",
+        "review_note": "Mapped road context does not prove stopping, loading, or worksite access rights."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-0.1205, 51.496], [-0.1175, 51.490]]
+      }
+    }
+  ]
+}

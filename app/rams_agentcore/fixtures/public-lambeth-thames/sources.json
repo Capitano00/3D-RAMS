@@ -1,0 +1,48 @@
+[
+  {
+    "id": "planning-data:brownfield-land:1719372",
+    "dataset": "brownfield-land",
+    "reference": "BLR059",
+    "label": "8 Albert Embankment and land to the rear",
+    "source_url": "https://www.planning.data.gov.uk/dataset/brownfield-land",
+    "retrieved_utc": "2026-06-29T00:00:00Z",
+    "licence": "Open Government Licence v3.0",
+    "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Source: Planning Data brownfield-land dataset. Crown copyright and database right 2026.",
+    "freshness_note": "Cached reduced record for demo only; verify current Planning Data records before use.",
+    "confidence": "high for record existence, medium for current practical implication"
+  },
+  {
+    "id": "planning-data:flood-risk-zone:65232137",
+    "dataset": "flood-risk-zone",
+    "reference": "232138/2",
+    "level": "2",
+    "source_url": "https://www.planning.data.gov.uk/dataset/flood-risk-zone",
+    "retrieved_utc": "2026-06-29T00:00:00Z",
+    "licence": "Open Government Licence v3.0",
+    "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Source: Planning Data flood-risk-zone dataset, derived from Environment Agency flood zones. Crown copyright and database right 2026.",
+    "freshness_note": "Flood zones are planning indicators, not flood prediction, flood severity, or emergency guidance.",
+    "confidence": "high for mapped zone record, medium for review implication"
+  },
+  {
+    "id": "planning-data:flood-risk-zone:65657427",
+    "dataset": "flood-risk-zone",
+    "reference": "106807/3",
+    "level": "3",
+    "source_url": "https://www.planning.data.gov.uk/dataset/flood-risk-zone",
+    "retrieved_utc": "2026-06-29T00:00:00Z",
+    "licence": "Open Government Licence v3.0",
+    "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Source: Planning Data flood-risk-zone dataset, derived from Environment Agency flood zones. Crown copyright and database right 2026.",
+    "freshness_note": "Flood zones are planning indicators, not flood prediction, flood severity, or emergency guidance.",
+    "confidence": "high for mapped zone record, medium for review implication"
+  },
+  {
+    "id": "osm-context:lambeth-thames-bbox",
+    "dataset": "osm-context",
+    "source_url": "https://www.openstreetmap.org/copyright",
+    "retrieved_utc": "2026-06-29T00:00:00Z",
+    "licence": "Open Data Commons Open Database Licence",
+    "attribution": "OpenStreetMap data is licensed under the Open Data Commons Open Database Licence. This sprint fixture is a small cached demo-context note; replace with a formally exported ODbL-compliant extract before claiming OSM-derived production facts.",
+    "freshness_note": "Cached demo context only; no live Overpass call during the demo.",
+    "confidence": "medium for mapped context, low for access suitability"
+  }
+]

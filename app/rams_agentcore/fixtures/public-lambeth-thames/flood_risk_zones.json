@@ -1,0 +1,18 @@
+[
+  {
+    "entity": 65232137,
+    "dataset": "flood-risk-zone",
+    "reference": "232138/2",
+    "level": "2",
+    "source_id": "planning-data:flood-risk-zone:65232137",
+    "review_note": "Planning indicator for flood-zone review. It does not predict whether the site will flood or indicate emergency response."
+  },
+  {
+    "entity": 65657427,
+    "dataset": "flood-risk-zone",
+    "reference": "106807/3",
+    "level": "3",
+    "source_id": "planning-data:flood-risk-zone:65657427",
+    "review_note": "Planning indicator for flood-zone review. It does not predict whether the site will flood or indicate emergency response."
+  }
+]
