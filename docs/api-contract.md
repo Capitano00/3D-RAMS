@@ -63,10 +63,31 @@ The response keeps the AgentCore output envelope:
   "output": {
     "reportStatus": "review_required",
     "workflowMode": "cached_public_fixture",
+    "structuredReport": {},
     "run": {}
   }
 }
 ```
+
+`output.structuredReport` is the stable supervisor report contract for AgentVerse delivery, review-agent validation, and frontend visualization. A JSON template is maintained at [structured-report-template.json](structured-report-template.json). The Python source of truth is the Pydantic `StructuredReport` schema in `app/rams_supervisor_runtime/supervisor_core/schemas.py`.
+
+Important `output.structuredReport` fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | Structural report schema version. |
+| `status` | `blocked`, `review_required`, or future `review_passed`. |
+| `intake` | Confirmed user intake and optional upstream AgentVerse metadata. |
+| `site` | Resolved site label, coordinate, authority, confidence, and source ids. |
+| `executiveSummary` | User-facing headline, summary, priority checks, site-visit checks, limitations, and safety message. |
+| `sections` | Stable report sections with reference ids for sources, evidence, and trace steps. |
+| `findings` | Candidate hazards/findings with confidence, notes, evidence ids, source ids, and annotation linkage. |
+| `visualization` | Frontend-ready scene config and map/3D annotations. |
+| `evidenceRegister` | Source register and evidence register used by findings and sections. |
+| `reviewGate` | Current safety/review state. It is `pending_independent_review` until the independent review agent exists. |
+| `dataQuality` | Completeness flags, warnings, and gaps surfaced by fixture fallback, disabled data, or limitations. |
+| `externalSignals` | Placeholder for future Tavily/open-web signals. Current prototype marks this as `not_configured`. |
+| `trace` | Ordered tool timeline for debugging and evidence inspection. |
 
 Important `output.run` fields:
 

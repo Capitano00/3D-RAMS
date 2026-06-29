@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .agent import run_site_briefing
+from .structured_report import build_structured_report
 
 
 def ping() -> dict[str, str]:
@@ -13,10 +14,14 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
     payload = payload or {}
     request = _extract_request(payload)
     run = run_site_briefing(request)
+    report_status = "review_required" if run["safety"]["allowed"] else "blocked"
+    workflow_mode = _workflow_mode(run)
+    structured_report = build_structured_report(run, report_status, workflow_mode)
     return {
         "output": {
-            "reportStatus": "review_required" if run["safety"]["allowed"] else "blocked",
-            "workflowMode": _workflow_mode(run),
+            "reportStatus": report_status,
+            "workflowMode": workflow_mode,
+            "structuredReport": structured_report,
             "run": run,
         }
     }

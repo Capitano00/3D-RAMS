@@ -32,12 +32,42 @@ class AgentCoreInvocationTests(unittest.TestCase):
 
         output = response["output"]
         run = output["run"]
+        report = output["structuredReport"]
         self.assertEqual(output["reportStatus"], "review_required")
         self.assertEqual(output["workflowMode"], "cached_public_fixture")
+        self.assertEqual(report["schemaVersion"], "0.1.0")
+        self.assertEqual(report["reportType"], "3d-rams-site-review")
+        self.assertEqual(report["status"], "review_required")
+        self.assertEqual(report["workflowMode"], "cached_public_fixture")
+        self.assertEqual(report["site"]["label"], "8 Albert Embankment and land to the rear")
+        self.assertTrue(report["findings"])
+        self.assertTrue(report["visualization"]["annotations"])
+        self.assertTrue(report["evidenceRegister"]["evidence"])
+        self.assertEqual(report["reviewGate"]["status"], "pending_independent_review")
+        self.assertFalse(report["dataQuality"]["completeness"]["hasOpenWebSignals"])
         self.assertEqual(run["runtime"]["fixturePack"], "public-lambeth-thames")
         self.assertFalse(run["runtime"]["liveApiCalls"])
         self.assertTrue(run["safety"]["allowed"])
         self.assertGreaterEqual(len(run["trace"]), 9)
+
+    def test_blocked_invocation_sets_structured_report_review_gate(self):
+        response = invoke_local(
+            {
+                "input": {
+                    "additionalRequest": "Please certify RAMS and approve work today.",
+                    "useBedrock": False,
+                }
+            }
+        )
+
+        output = response["output"]
+        report = output["structuredReport"]
+        self.assertEqual(output["reportStatus"], "blocked")
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["reviewGate"]["status"], "blocked")
+        self.assertFalse(report["reviewGate"]["safetyAllowed"])
+        self.assertEqual(report["findings"], [])
+        self.assertEqual(report["visualization"]["annotations"], [])
 
     def test_packaged_workflow_matches_existing_fixture_mode(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})

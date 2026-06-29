@@ -1,0 +1,170 @@
+{
+  "schemaVersion": "0.1.0",
+  "reportType": "3d-rams-site-review",
+  "reportId": "demo1-local-run",
+  "status": "review_required",
+  "workflowMode": "cached_public_fixture",
+  "intake": {
+    "siteName": "8 Albert Embankment and land to the rear",
+    "goal": "Pre-visit RAMS scoping pack",
+    "fixturePack": "public-lambeth-thames",
+    "includePlanningFixture": true,
+    "simulateMapFailure": false,
+    "useBedrock": false,
+    "additionalRequest": null,
+    "upstream": {
+      "source": "ASI_ONE",
+      "confirmedByUser": true
+    }
+  },
+  "site": {
+    "label": "8 Albert Embankment and land to the rear",
+    "coordinate": {
+      "latitude": 51.4907,
+      "longitude": -0.1214,
+      "coordinateSystem": "WGS84"
+    },
+    "authority": "London Borough of Lambeth",
+    "confidence": "high",
+    "dataMode": "cached-public-fixture",
+    "sourceIds": [
+      "user-request",
+      "public-lambeth-planning-context"
+    ]
+  },
+  "runtime": {
+    "briefingMode": "disabled",
+    "fixturePack": "public-lambeth-thames",
+    "fixturePackMode": "cached-public-fixture",
+    "liveApiCalls": false,
+    "fallbackReason": "Bedrock was not requested.",
+    "awsRegion": "eu-west-2",
+    "modelId": null
+  },
+  "executiveSummary": {
+    "title": "8 Albert Embankment and land to the rear",
+    "headline": "Cached public-source review pack for early site scoping.",
+    "summary": [
+      "Loaded fixture pack with cached public-source metadata.",
+      "Candidate hazards were found from cached geospatial and planning/context evidence.",
+      "The output is a review pack. It is not certified RAMS and not work approval."
+    ],
+    "priorityChecks": [
+      "River-edge and flood-context review"
+    ],
+    "beforeSiteVisit": [
+      "Check current official flood, planning, access, and highway sources before relying on this pack."
+    ],
+    "limitations": [
+      "This cached pack is public-safe demo evidence and is not live, exhaustive, or operational advice."
+    ],
+    "safetyMessage": "Allowed as a non-certified pre-visit briefing that requires human review."
+  },
+  "sections": [
+    {
+      "id": "location-context",
+      "title": "Location Context",
+      "status": "ready",
+      "body": [
+        "Site resolved at 51.4907, -0.1214 with high confidence."
+      ],
+      "references": {
+        "sourceIds": [],
+        "evidenceIds": [],
+        "traceIds": [
+          "step-1"
+        ]
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "planning-river-edge",
+      "title": "River-edge and flood-context review",
+      "category": "flood",
+      "confidence": "medium",
+      "note": "Candidate review item requiring current source checks.",
+      "references": {
+        "sourceIds": [
+          "public-ea-flood-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-flood-context"
+        ],
+        "traceIds": []
+      },
+      "annotationId": "planning-river-edge"
+    }
+  ],
+  "visualization": {
+    "scene": {
+      "provider": "cesium-local-cached-fixture",
+      "center": {
+        "latitude": 51.4907,
+        "longitude": -0.1214,
+        "heightMeters": 260
+      },
+      "camera": {
+        "headingDegrees": 25,
+        "pitchDegrees": -42,
+        "rangeMeters": 1800
+      }
+    },
+    "annotations": [
+      {
+        "id": "planning-river-edge",
+        "title": "River-edge and flood-context review",
+        "category": "flood",
+        "latitude": 51.4927,
+        "longitude": -0.1229,
+        "confidence": "medium",
+        "note": "Candidate review item requiring current source checks.",
+        "sourceIds": [
+          "public-ea-flood-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-flood-context"
+        ]
+      }
+    ]
+  },
+  "evidenceRegister": {
+    "sources": [],
+    "evidence": []
+  },
+  "reviewGate": {
+    "status": "pending_independent_review",
+    "safetyAllowed": true,
+    "safetyLevel": "allowed",
+    "requiresHumanReview": true,
+    "message": "Allowed as a non-certified pre-visit briefing that requires human review.",
+    "triggeredRules": [],
+    "reviewerNotes": [
+      "Independent review agent has not been implemented in this prototype."
+    ]
+  },
+  "dataQuality": {
+    "dataMode": "cached-public-fixture",
+    "completeness": {
+      "hasResolvedLocation": true,
+      "hasScene": true,
+      "hasFindings": true,
+      "hasAnnotations": true,
+      "hasEvidence": true,
+      "hasTrace": true,
+      "hasOpenWebSignals": false
+    },
+    "gaps": [
+      "All hazards need competent human review and current source checks before site work."
+    ],
+    "warnings": []
+  },
+  "externalSignals": {
+    "openWeb": {
+      "status": "not_configured",
+      "items": []
+    }
+  },
+  "trace": [],
+  "architecture": null
+}

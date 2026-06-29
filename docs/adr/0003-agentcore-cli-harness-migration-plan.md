@@ -117,7 +117,7 @@ app/rams_supervisor_runtime/
     bedrock_adapter.py
     config.py
     fixtures.py
-    models.py
+    schemas.py
 app/rams_agent_tools/
   pyproject.toml
   rams_agent_tools/
@@ -178,7 +178,7 @@ All current repo assets need an AgentCore convention-aware destination:
 | --- | --- | --- |
 | `backend/app/agent.py` | `app/rams_supervisor_runtime/supervisor_core/agent.py` | Core workflow must be packaged with the AgentCore runtime. |
 | `backend/app/tools.py` | `app/rams_agent_tools/rams_agent_tools/tools/` | Tool functions are shared across supervisor orchestration, future subagents, and inline/gateway tool wrappers. |
-| `backend/app/models.py` | `app/rams_supervisor_runtime/supervisor_core/models.py` | Request schema should be shared by local API and `/invocations`. |
+| Backend request/schema definitions | `app/rams_supervisor_runtime/supervisor_core/schemas.py` | Request and report schemas should be shared by local API and `/invocations`. |
 | `backend/app/bedrock_adapter.py` | `app/rams_supervisor_runtime/supervisor_core/bedrock_adapter.py` | Optional model step remains runtime-local and environment-controlled. |
 | `backend/app/config.py` | `app/rams_supervisor_runtime/supervisor_core/config.py` | Runtime env parsing belongs in the deployable package. |
 | `backend/app/fixtures.py` | `app/rams_supervisor_runtime/supervisor_core/fixtures.py` | Fixture loading should resolve packaged fixture paths. |
