@@ -140,7 +140,7 @@ Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client
 AgentCore runtime:
 
 ```bash
-agentcore dev --runtime rams_agentcore --skip-deploy --no-browser --no-traces --logs --port 8080
+agentcore dev --runtime rams_supervisor_runtime --skip-deploy --no-browser --no-traces --logs --port 8080
 ```
 
 Frontend:

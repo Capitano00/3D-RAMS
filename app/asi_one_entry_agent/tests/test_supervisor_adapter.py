@@ -5,12 +5,18 @@ import unittest
 from pathlib import Path
 
 
-APP_ROOT = Path(__file__).resolve().parents[1]
-if str(APP_ROOT) not in sys.path:
-    sys.path.insert(0, str(APP_ROOT))
+ENTRY_APP_ROOT = Path(__file__).resolve().parents[1]
+SUPERVISOR_APP_ROOT = ENTRY_APP_ROOT.parent / "rams_supervisor_runtime"
+TOOLS_ROOT = ENTRY_APP_ROOT.parent / "rams_agent_tools"
+for app_root in (ENTRY_APP_ROOT, SUPERVISOR_APP_ROOT, TOOLS_ROOT):
+    if str(app_root) in sys.path:
+        sys.path.remove(str(app_root))
+for app_root in (ENTRY_APP_ROOT, SUPERVISOR_APP_ROOT, TOOLS_ROOT):
+    if str(app_root) not in sys.path:
+        sys.path.insert(0, str(app_root))
 
 from main import invoke_local  # noqa: E402
-from three_d_rams.agentverse_adapter import (  # noqa: E402
+from supervisor_adapter import (  # noqa: E402
     AdapterValidationError,
     build_agentcore_invocation,
     build_delivery_payload,

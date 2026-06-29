@@ -13,7 +13,7 @@ if (-not $env:PYTHONPYCACHEPREFIX) {
 
 if ($Install) {
     Write-Host "Installing AgentCore Python package"
-    & $PythonBin -m pip install --disable-pip-version-check -e app/rams_agentcore
+    & $PythonBin -m pip install --disable-pip-version-check -e app/rams_supervisor_runtime
 
     Write-Host "Installing frontend dependencies"
     Push-Location frontend
@@ -32,18 +32,22 @@ if ($Install) {
 
 Write-Host "Compiling AgentCore package, tests, and scripts"
 & $PythonBin -m compileall `
-    app/MyAgent `
-    app/rams_agentcore/main.py `
-    app/rams_agentcore/mcp_client `
-    app/rams_agentcore/model `
-    app/rams_agentcore/skills `
-    app/rams_agentcore/tests `
-    app/rams_agentcore/three_d_rams `
+    app/rams_agent_tools `
+    app/asi_one_entry_agent `
+    app/rams_supervisor_runtime/main.py `
+    app/rams_supervisor_runtime/mcp_client `
+    app/rams_supervisor_runtime/model `
+    app/rams_supervisor_runtime/skills `
+    app/rams_supervisor_runtime/tests `
+    app/rams_supervisor_runtime/supervisor_core `
     agentverse `
     scripts
 
 Write-Host "Running AgentCore workflow and invocation tests"
-& $PythonBin -m unittest discover -s app/rams_agentcore/tests -q
+& $PythonBin -m unittest discover -s app/rams_supervisor_runtime/tests -q
+
+Write-Host "Running entry-agent supervisor adapter tests"
+& $PythonBin -m unittest discover -s app/asi_one_entry_agent/tests -q
 
 Write-Host "Running deterministic no-AWS demo evaluation"
 $previousEnableBedrock = [Environment]::GetEnvironmentVariable("ENABLE_BEDROCK", "Process")

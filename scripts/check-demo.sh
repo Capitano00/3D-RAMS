@@ -19,7 +19,7 @@ Usage: bash scripts/check-demo.sh [--install]
 
 Runs the local no-AWS verification stack:
   - AgentCore package/script compile check
-  - AgentCore workflow and invocation tests
+  - AgentCore workflow, invocation, and entry adapter tests
   - deterministic demo evaluation
   - frontend production build
   - AgentCore/frontend HTTP runtime smoke test
@@ -39,7 +39,7 @@ done
 
 if [ "$INSTALL" = true ]; then
   echo "Installing AgentCore Python package"
-  "$PYTHON_BIN" -m pip install --disable-pip-version-check -e app/rams_agentcore
+  "$PYTHON_BIN" -m pip install --disable-pip-version-check -e app/rams_supervisor_runtime
 
   echo "Installing frontend dependencies"
   (
@@ -54,18 +54,22 @@ fi
 
 echo "Compiling AgentCore package, tests, and scripts"
 "$PYTHON_BIN" -m compileall \
-  app/MyAgent \
-  app/rams_agentcore/main.py \
-  app/rams_agentcore/mcp_client \
-  app/rams_agentcore/model \
-  app/rams_agentcore/skills \
-  app/rams_agentcore/tests \
-  app/rams_agentcore/three_d_rams \
+  app/rams_agent_tools \
+  app/asi_one_entry_agent \
+  app/rams_supervisor_runtime/main.py \
+  app/rams_supervisor_runtime/mcp_client \
+  app/rams_supervisor_runtime/model \
+  app/rams_supervisor_runtime/skills \
+  app/rams_supervisor_runtime/tests \
+  app/rams_supervisor_runtime/supervisor_core \
   agentverse \
   scripts
 
 echo "Running AgentCore workflow and invocation tests"
-"$PYTHON_BIN" -m unittest discover -s app/rams_agentcore/tests -q
+"$PYTHON_BIN" -m unittest discover -s app/rams_supervisor_runtime/tests -q
+
+echo "Running entry-agent supervisor adapter tests"
+"$PYTHON_BIN" -m unittest discover -s app/asi_one_entry_agent/tests -q
 
 echo "Running deterministic no-AWS demo evaluation"
 ENABLE_BEDROCK=false "$PYTHON_BIN" scripts/evaluate-demo.py

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import RuntimeConfig
-from .fixtures import load_fixture_pack
-from .tools import (
+from rams_agent_tools.config import RuntimeConfig
+from rams_agent_tools.fixtures import load_fixture_pack
+from rams_agent_tools.tools import (
     apply_bedrock_briefing,
     architecture_snapshot,
     build_scene_config,

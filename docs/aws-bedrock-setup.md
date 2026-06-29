@@ -47,7 +47,7 @@ Do not commit `.env`, AWS credentials, SSO cache files, API keys, or local shell
 Install the AgentCore Python package first if needed:
 
 ```bash
-python -m pip install -e app/rams_agentcore
+python -m pip install -e app/rams_supervisor_runtime
 ```
 
 Then run:
@@ -81,9 +81,9 @@ Bedrock is not the source of truth for evidence extraction in the current MVP. T
 
 | Symptom | Likely Cause | What To Try |
 | --- | --- | --- |
-| `AccessDeniedException` | Model access, profile, or permission issue. | Confirm the selected model is enabled in the target region and the active SSO profile can invoke it. |
-| `Unable to locate credentials` | SSO session is not active or profile name is wrong. | Re-authenticate with AWS SSO for the selected profile, then rerun the smoke test. |
-| `boto3 is not installed` | AgentCore package dependencies are missing. | Install `app/rams_agentcore` in the active Python environment. |
+| `AccessDeniedException` | Model access, profile, or permission issue. | Confirm the selected model is enabled in the target region and the active AWS profile can invoke it. |
+| `Unable to locate credentials` | AWS credentials are not active or the profile name is wrong. | Configure or refresh the selected AWS profile, then rerun the smoke test. |
+| `boto3 is not installed` | AgentCore package dependencies are missing. | Install `app/rams_supervisor_runtime` in the active Python environment. |
 | Smoke test falls back | Bedrock is disabled, simulated failure is set, or the model call failed. | Check environment variables and rerun once; keep deterministic mode if failures continue. |
 | Output sounds too authoritative | Model wording crossed the demo safety boundary. | Treat as a bug; local safety scan should block unsafe claims, and the deterministic fallback remains available. |
 

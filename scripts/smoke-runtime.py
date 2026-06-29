@@ -63,7 +63,7 @@ def _start_agentcore(api_port: int) -> subprocess.Popen:
             "agentcore",
             "dev",
             "--runtime",
-            "rams_agentcore",
+            "rams_supervisor_runtime",
             "--skip-deploy",
             "--no-browser",
             "--no-traces",
@@ -123,7 +123,7 @@ def _stop_repo_orphans() -> None:
     if os.name == "nt":
         return
     patterns = [
-        str(ROOT / "app" / "rams_agentcore" / ".venv" / "bin" / "uvicorn main:app"),
+        str(ROOT / "app" / "rams_supervisor_runtime" / ".venv" / "bin" / "uvicorn main:app"),
         str(ROOT / "frontend" / "node_modules" / ".bin" / "vite"),
     ]
     for pattern in patterns:

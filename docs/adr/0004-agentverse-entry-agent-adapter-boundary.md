@@ -66,7 +66,7 @@ AgentCore supervisor:
 Specialist subagents and tools:
 
 - do not need the AgentVerse-to-AgentCore adapter when they run inside the AgentCore workflow;
-- should initially reuse the current `three_d_rams.tools` functions;
+- should initially reuse the shared `rams_agent_tools.tools` functions, grouped under `app/rams_agent_tools` for future subagent and Harness exposure;
 - need separate clients or adapters only if they become external services, cross-account AWS resources, or AgentVerse-hosted agents.
 
 ## Launch-Ready Intake Contract
@@ -131,9 +131,9 @@ Revisit this ADR when the team has one working AgentVerse entry agent calling th
 The ASI:ONE / AgentVerse proof of concept has been imported into this repository:
 
 - AgentVerse handle: `@3d-rams`;
-- imported entry runtime source: `app/MyAgent`;
+- imported entry runtime source: `app/asi_one_entry_agent`;
 - imported hosted adapter source: `agentverse/hosted_adapter.py`;
-- imported entry Harness: `app/MyHarness`;
-- AgentCore config now declares both `rams_agentcore` and `MyAgent` runtimes.
+- supervisor Harness source: `app/rams_supervisor_harness`;
+- AgentCore config now declares both `rams_supervisor_runtime` and `asi_one_entry_agent` runtimes.
 
-The existing cloud runtime name from the proof of concept is intentionally documented without committing its ARN or AWS account id. The team still needs to decide whether to import the existing deployed runtime into this AgentCore project or redeploy `MyAgent` from this repository and update the AgentVerse hosted adapter environment.
+The existing cloud runtime name from the proof of concept is intentionally documented without committing its ARN or AWS account id. The team still needs to decide whether to import the existing deployed runtime into this AgentCore project or redeploy `asi_one_entry_agent` from this repository and update the AgentVerse hosted adapter environment.

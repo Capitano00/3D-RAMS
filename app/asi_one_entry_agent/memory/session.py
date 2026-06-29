@@ -6,7 +6,7 @@ from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemory
 from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
 
 
-MEMORY_ID = os.getenv("MEMORY_MYAGENTMEMORY_ID")
+MEMORY_ID = os.getenv("MEMORY_ASI_ONE_ENTRY_AGENT_MEMORY_ID") or os.getenv("MEMORY_MYAGENTMEMORY_ID")
 REGION = os.getenv("AWS_REGION")
 
 

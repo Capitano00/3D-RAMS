@@ -8,7 +8,7 @@ The team has a working ASI:ONE / AgentVerse entry agent:
 
 - AgentVerse handle: `@3d-rams`;
 - proof-of-concept AWS runtime name: `onboardAgentCore_MyAgent`;
-- imported local runtime source: `app/MyAgent`;
+- imported local runtime source: `app/asi_one_entry_agent`;
 - hosted AgentVerse adapter source: `agentverse/hosted_adapter.py`.
 
 This public repo does not store the deployed runtime ARN, AWS account ID, access keys, AgentVerse key, or AgentVerse seed phrase.
@@ -19,17 +19,16 @@ The repository now has two AgentCore runtimes:
 
 | Runtime | Path | Role |
 | --- | --- | --- |
-| `rams_agentcore` | `app/rams_agentcore/` | 3D-RAMS supervisor/report runtime; owns site-review orchestration and visualization payloads. |
-| `MyAgent` | `app/MyAgent/` | AgentVerse entry runtime imported from the ASI:ONE proof of concept; owns fast conversational intake/delivery behavior. |
+| `rams_supervisor_runtime` | `app/rams_supervisor_runtime/` | 3D-RAMS supervisor/report runtime; owns site-review orchestration and visualization payloads. |
+| `asi_one_entry_agent` | `app/asi_one_entry_agent/` | AgentVerse entry runtime imported from the ASI:ONE proof of concept; owns fast conversational intake/delivery behavior. |
 
-The repository now has two Harness configs:
+The repository now has one Harness config:
 
 | Harness | Path | Role |
 | --- | --- | --- |
-| `rams_supervisor` | `app/rams_supervisor/` | Target Harness for supervisor orchestration and review workflow. |
-| `MyHarness` | `app/MyHarness/` | Imported entry-agent Harness config with managed memory and optional live tools. |
+| `rams_supervisor_harness` | `app/rams_supervisor_harness/` | Target Harness for supervisor orchestration and review workflow. |
 
-The imported entry runtime also declares `MyAgentMemory` in `agentcore/agentcore.json`, matching the environment variable expected by `app/MyAgent/memory/session.py`.
+The imported entry runtime also declares `asi_one_entry_agent_memory` in `agentcore/agentcore.json`, matching the environment variable expected by `app/asi_one_entry_agent/memory/session.py`.
 
 ## AgentVerse Hosted Adapter
 
@@ -81,7 +80,7 @@ The proof-of-concept thread established these operational details:
 - IAM needs both `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` for the current headers.
 - IAM resources need both the runtime ARN and the `runtime-endpoint/DEFAULT` ARN.
 - AgentVerse should have only one chat protocol registration. If `agent.py` imports `hosted_adapter.agent`, it should not also define its own `ChatMessage` handlers.
-- The first successful end-to-end path was `ASI:ONE -> AgentVerse hosted adapter -> AWS AgentCore MyAgent -> Bedrock Nova Micro -> ASI:ONE`.
+- The first successful end-to-end path was `ASI:ONE -> AgentVerse hosted adapter -> AWS AgentCore asi_one_entry_agent -> Bedrock Nova Micro -> ASI:ONE`.
 
 ## Registration
 
@@ -102,7 +101,7 @@ You may copy `.env.agentverse.example` to an untracked `.env.agentverse` locally
 The existing cloud runtime named like `onboardAgentCore_MyAgent` was created by the separate proof-of-concept AgentCore project. This repository can manage the same source code going forward, but the team still needs to choose one of these deployment strategies:
 
 1. Import the existing deployed runtime into this AgentCore project if the CLI/account flow supports it cleanly.
-2. Redeploy `MyAgent` from this repository and update AgentVerse `AGENTCORE_RUNTIME_ARN`.
+2. Redeploy `asi_one_entry_agent` from this repository and update AgentVerse `AGENTCORE_RUNTIME_ARN`.
 3. Keep the existing deployed runtime temporarily and use this repo as the source of truth for the next deployment.
 
 Until one of those is completed, do not assume that `agentcore deploy` from this repo will automatically update the already-deployed `onboardAgentCore_MyAgent` resource.
@@ -112,7 +111,7 @@ Until one of those is completed, do not assume that `agentcore deploy` from this
 Recommended cutover path:
 
 1. Deploy this repository's AgentCore project from a non-root AWS identity.
-2. Read the newly deployed `MyAgent` runtime ARN from `agentcore status --runtime MyAgent --json`.
+2. Read the newly deployed `asi_one_entry_agent` runtime ARN from `agentcore status --runtime asi_one_entry_agent --json`.
 3. Update the AgentVerse hosted adapter secret `AGENTCORE_RUNTIME_ARN` to that new ARN.
 4. Update the IAM policy attached to the AgentVerse invoker principal so it points at the new runtime ARN and its default endpoint ARN.
 5. Test `@3d-rams` in ASI:ONE.
@@ -128,10 +127,10 @@ Useful commands:
 
 ```bash
 aws sts get-caller-identity
-agentcore package --runtime MyAgent
+agentcore package --runtime asi_one_entry_agent
 agentcore deploy --dry-run --json
 agentcore deploy --yes --json
-agentcore status --runtime MyAgent --json
+agentcore status --runtime asi_one_entry_agent --json
 ```
 
 Template IAM policy for the AgentVerse invoker after the new runtime ARN is known:
@@ -148,8 +147,8 @@ Template IAM policy for the AgentVerse invoker after the new runtime ARN is know
         "bedrock-agentcore:InvokeAgentRuntimeForUser"
       ],
       "Resource": [
-        "<NEW_MYAGENT_RUNTIME_ARN>",
-        "<NEW_MYAGENT_RUNTIME_ARN>/runtime-endpoint/DEFAULT"
+        "<NEW_ASI_ONE_ENTRY_AGENT_RUNTIME_ARN>",
+        "<NEW_ASI_ONE_ENTRY_AGENT_RUNTIME_ARN>/runtime-endpoint/DEFAULT"
       ]
     }
   ]
@@ -158,11 +157,11 @@ Template IAM policy for the AgentVerse invoker after the new runtime ARN is know
 
 ## Boundary
 
-`MyAgent` should stay focused on entry-agent UX:
+`asi_one_entry_agent` should stay focused on entry-agent UX:
 
 - fast conversation;
 - location/goal/material clarification;
 - user confirmation before deep analysis;
 - delivery summary after AgentCore supervisor output exists.
 
-`rams_agentcore` remains the place for professional site-review orchestration, tool calls, report JSON, review-agent loops, evidence, trace, and visualization payloads.
+`rams_supervisor_runtime` remains the place for professional site-review orchestration, tool calls, report JSON, review-agent loops, evidence, trace, and visualization payloads.

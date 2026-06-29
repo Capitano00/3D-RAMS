@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-AGENTCORE_RUNTIME="${AGENTCORE_RUNTIME:-rams_agentcore}"
+AGENTCORE_RUNTIME="${AGENTCORE_RUNTIME:-rams_supervisor_runtime}"
 AGENTCORE_PORT="${AGENTCORE_PORT:-8080}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
@@ -42,7 +42,7 @@ kill_tree() {
 
 kill_repo_orphans() {
   local pid
-  pgrep -f "$ROOT_DIR/app/rams_agentcore/.venv/bin/uvicorn main:app" 2>/dev/null | while read -r pid; do
+  pgrep -f "$ROOT_DIR/app/rams_supervisor_runtime/.venv/bin/uvicorn main:app" 2>/dev/null | while read -r pid; do
     kill_tree "$pid"
   done
   pgrep -f "$ROOT_DIR/frontend/node_modules/.bin/vite" 2>/dev/null | while read -r pid; do

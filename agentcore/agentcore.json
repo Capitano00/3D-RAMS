@@ -9,19 +9,19 @@
   },
   "runtimes": [
     {
-      "name": "rams_agentcore",
+      "name": "rams_supervisor_runtime",
       "build": "CodeZip",
       "entrypoint": "main.py",
-      "codeLocation": "app/rams_agentcore/",
+      "codeLocation": "app/rams_supervisor_runtime/",
       "runtimeVersion": "PYTHON_3_14",
       "networkMode": "PUBLIC",
       "protocol": "HTTP"
     },
     {
-      "name": "MyAgent",
+      "name": "asi_one_entry_agent",
       "build": "CodeZip",
       "entrypoint": "main.py",
-      "codeLocation": "app/MyAgent/",
+      "codeLocation": "app/asi_one_entry_agent/",
       "runtimeVersion": "PYTHON_3_14",
       "networkMode": "PUBLIC",
       "protocol": "HTTP"
@@ -29,7 +29,7 @@
   ],
   "memories": [
     {
-      "name": "MyAgentMemory",
+      "name": "asi_one_entry_agent_memory",
       "eventExpiryDuration": 30,
       "strategies": [
         {
@@ -72,12 +72,8 @@
   "abTests": [],
   "harnesses": [
     {
-      "name": "rams_supervisor",
-      "path": "app/rams_supervisor"
-    },
-    {
-      "name": "MyHarness",
-      "path": "app/MyHarness"
+      "name": "rams_supervisor_harness",
+      "path": "app/rams_supervisor_harness"
     }
   ],
   "datasets": [],

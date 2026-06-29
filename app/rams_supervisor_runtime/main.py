@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
 
-from three_d_rams.agentcore_adapter import handle_invocation, ping
+TOOLS_ROOT = Path(__file__).resolve().parents[1] / "rams_agent_tools"
+if TOOLS_ROOT.exists() and str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+
+from supervisor_core.agentcore_adapter import handle_invocation, ping
 
 try:
     from bedrock_agentcore.runtime import BedrockAgentCoreApp

@@ -150,7 +150,7 @@ This check starts local AgentCore and frontend preview servers, then shuts them 
 | Part | Meaning |
 | --- | --- |
 | `frontend` | The website you click on. |
-| `app/rams_agentcore` | The AgentCore runtime that receives the coordinate and returns briefing data. |
+| `app/rams_supervisor_runtime` | The AgentCore runtime that receives the coordinate and returns briefing data. |
 | `fixtures` | Public-safe cached and synthetic demo data, not client data. |
 | `fixtures/public-lambeth-thames` | Cached public-source fixture pack and attribution files for the Lambeth / Thames example. Runtime makes no live public-data calls. |
 | `scripts/start-dev.sh` | One-command startup script for Codespaces. |
@@ -173,7 +173,7 @@ Run this only if Codespaces is unavailable or slow.
 AgentCore runtime:
 
 ```bash
-agentcore dev --runtime rams_agentcore --skip-deploy --no-browser --no-traces --logs --port 8080
+agentcore dev --runtime rams_supervisor_runtime --skip-deploy --no-browser --no-traces --logs --port 8080
 ```
 
 Frontend:

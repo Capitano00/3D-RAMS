@@ -75,9 +75,9 @@ The migration should:
 
 - run AgentCore CLI scaffold commands in a reviewed branch or scratch directory first;
 - keep generated file layout and naming conventions unless there is a concrete reason to change them;
-- move the current `backend/app` code into an importable package under `app/rams_agentcore/`;
+- move the current `backend/app` code into an importable package under `app/rams_supervisor_runtime/`;
 - move or copy runtime-required fixtures into the AgentCore package so CodeZip/container packaging includes them;
-- keep `backend/` as a local compatibility layer only while the frontend and existing tests are being migrated;
+- keep the legacy `backend/` tree only until the frontend and existing tests have moved to AgentCore runtime calls;
 - add `/ping` and `/invocations` in the AgentCore runtime entrypoint;
 - map ASI:ONE confirmed intake payloads into the current `SiteBriefRequest` shape;
 - return the current run object inside an AgentCore-compatible `output` envelope;
@@ -106,11 +106,11 @@ agentcore/
   .env.local.example
   cdk/
 
-app/rams_agentcore/
+app/rams_supervisor_runtime/
   main.py
   pyproject.toml
   README.md
-  three_d_rams/
+  supervisor_core/
     __init__.py
     agent.py
     agentcore_adapter.py
@@ -118,7 +118,26 @@ app/rams_agentcore/
     config.py
     fixtures.py
     models.py
-    tools.py
+app/rams_agent_tools/
+  pyproject.toml
+  rams_agent_tools/
+    tools/
+      __init__.py
+      annotations.py
+      architecture.py
+      briefing.py
+      geospatial.py
+      hazards.py
+      planning.py
+      registry.py
+      request.py
+      safety.py
+      telemetry.py
+  fixtures/
+    geospatial_features.json
+    planning_report.txt
+    public-lambeth-thames/
+      ...
   fixtures/
     geospatial_features.json
     planning_report.txt
@@ -128,24 +147,26 @@ app/rams_agentcore/
     test_agent.py
     test_invocations.py
 
-app/rams_supervisor/
+app/rams_supervisor_harness/
   harness.json
   system-prompt.md
 
 backend/
-  app/
-    main.py
-  tests/
-    ...
+  removed after AgentCore migration
+
+app/asi_one_entry_agent/
+  main.py
+  pyproject.toml
+  README.md
 
 frontend/
 docs/
 scripts/
 ```
 
-`app/rams_agentcore/main.py` should be the AgentCore runtime entrypoint. It should expose `/ping` and `/invocations` and import the migrated `three_d_rams` package. It should not duplicate workflow logic.
+`app/rams_supervisor_runtime/main.py` should be the AgentCore runtime entrypoint. It should expose `/ping` and `/invocations` and import the migrated `supervisor_core` package. It should not duplicate workflow logic.
 
-`backend/app/main.py` can remain temporarily as a local FastAPI compatibility app for the current React UI. It should import the same migrated `three_d_rams` package, so there is only one workflow implementation.
+`app/asi_one_entry_agent/main.py` is the AgentCore-side entry runtime imported from the ASI:ONE / AgentVerse proof of concept. It is separate from the supervisor runtime and should stay focused on conversational intake and delivery behavior.
 
 `agentcore/.env.local` must remain untracked. Public examples can use `.env.local.example` only, with placeholders and no secrets.
 
@@ -155,16 +176,16 @@ All current repo assets need an AgentCore convention-aware destination:
 
 | Current Asset | Target Location | Rationale |
 | --- | --- | --- |
-| `backend/app/agent.py` | `app/rams_agentcore/three_d_rams/agent.py` | Core workflow must be packaged with the AgentCore runtime. |
-| `backend/app/tools.py` | `app/rams_agentcore/three_d_rams/tools.py` | Tool functions become the source for inline/gateway tool wrappers. |
-| `backend/app/models.py` | `app/rams_agentcore/three_d_rams/models.py` | Request schema should be shared by local API and `/invocations`. |
-| `backend/app/bedrock_adapter.py` | `app/rams_agentcore/three_d_rams/bedrock_adapter.py` | Optional model step remains runtime-local and environment-controlled. |
-| `backend/app/config.py` | `app/rams_agentcore/three_d_rams/config.py` | Runtime env parsing belongs in the deployable package. |
-| `backend/app/fixtures.py` | `app/rams_agentcore/three_d_rams/fixtures.py` | Fixture loading should resolve packaged fixture paths. |
-| `backend/app/main.py` | `backend/app/main.py` plus `app/rams_agentcore/main.py` | Local `/api/run` remains during transition; AgentCore entrypoint owns `/ping` and `/invocations`. |
-| `fixtures/` | `app/rams_agentcore/fixtures/` | Runtime-required fixture/mock data must be included in AgentCore packaging. Root fixtures can remain as local source copies during transition. |
-| `backend/tests/` | `app/rams_agentcore/tests/` plus local compatibility tests | AgentCore runtime tests should travel with the package; local API tests can remain while `/api/run` exists. |
-| `scripts/evaluate-demo.py` | `scripts/evaluate-demo.py`, later importing `app/rams_agentcore` package | Evaluation harness remains repo-level but should call the packaged workflow. |
+| `backend/app/agent.py` | `app/rams_supervisor_runtime/supervisor_core/agent.py` | Core workflow must be packaged with the AgentCore runtime. |
+| `backend/app/tools.py` | `app/rams_agent_tools/rams_agent_tools/tools/` | Tool functions are shared across supervisor orchestration, future subagents, and inline/gateway tool wrappers. |
+| `backend/app/models.py` | `app/rams_supervisor_runtime/supervisor_core/models.py` | Request schema should be shared by local API and `/invocations`. |
+| `backend/app/bedrock_adapter.py` | `app/rams_supervisor_runtime/supervisor_core/bedrock_adapter.py` | Optional model step remains runtime-local and environment-controlled. |
+| `backend/app/config.py` | `app/rams_supervisor_runtime/supervisor_core/config.py` | Runtime env parsing belongs in the deployable package. |
+| `backend/app/fixtures.py` | `app/rams_supervisor_runtime/supervisor_core/fixtures.py` | Fixture loading should resolve packaged fixture paths. |
+| `backend/app/main.py` | `app/rams_supervisor_runtime/main.py` | The legacy FastAPI compatibility layer has been removed; AgentCore entrypoint owns `/ping` and `/invocations`. |
+| `fixtures/` | `app/rams_agent_tools/fixtures/` | Runtime-required fixture/mock data is shared by the supervisor and future subagents. |
+| `backend/tests/` | `app/rams_supervisor_runtime/tests/` | AgentCore runtime tests travel with the package after the legacy backend is removed. |
+| `scripts/evaluate-demo.py` | `scripts/evaluate-demo.py`, later importing `app/rams_supervisor_runtime` package | Evaluation harness remains repo-level but should call the packaged workflow. |
 | `scripts/check-demo.sh` and `.ps1` | `scripts/` | Repo-level verification should add AgentCore validate/package checks when config lands. |
 | `frontend/` | `frontend/` | Frontend is not an AgentCore runtime artifact; it remains a separate client consuming local or deployed endpoints. |
 | `docs/` and ADRs | `docs/` | Public architecture and decision history remain repo-level. |
@@ -244,7 +265,7 @@ Recommended first Harness defaults:
 
 ```bash
 agentcore add harness \
-  --name rams_supervisor \
+  --name rams_supervisor_harness \
   --model-provider bedrock \
   --model-id anthropic.claude-3-7-sonnet-20250219-v1:0 \
   --api-format converse_stream \
@@ -281,7 +302,7 @@ Recommended first dry-run commands:
 
 ```bash
 npx -y @aws/agentcore@0.21.1 create \
-  --name rams_agentcore \
+  --name rams_supervisor_runtime \
   --project-name RamsAgent \
   --defaults \
   --language Python \
@@ -299,7 +320,7 @@ npx -y @aws/agentcore@0.21.1 create \
 
 ```bash
 npx -y @aws/agentcore@0.21.1 create \
-  --name rams_supervisor \
+  --name rams_supervisor_harness \
   --project-name RamsHarness \
   --defaults \
   --model-provider Bedrock \
@@ -321,13 +342,13 @@ After dry-run review, run the scaffold into a temporary directory or isolated br
 
 1. Run AgentCore CLI runtime and Harness scaffold dry-runs and save the reviewed command output in the implementation notes.
 2. Generate the scaffold in a temporary directory or isolated branch.
-3. Merge the generated `agentcore/`, `agentcore/cdk/`, `app/rams_agentcore/`, and `app/rams_supervisor/` structure into this repository.
-4. Replace the generated placeholder runtime logic with imports from `app/rams_agentcore/three_d_rams`.
-5. Move current `backend/app/*.py` modules into `app/rams_agentcore/three_d_rams/`.
-6. Move or copy runtime-required fixture data into `app/rams_agentcore/fixtures/` and update fixture path resolution.
-7. Implement `app/rams_agentcore/main.py` with `GET /ping` and `POST /invocations`.
-8. Keep `backend/app/main.py` as a compatibility wrapper for `/health` and `/api/run`, importing the same packaged workflow.
-9. Move core workflow tests into `app/rams_agentcore/tests/` and add AgentCore invocation tests.
+3. Merge the generated `agentcore/`, `agentcore/cdk/`, `app/rams_supervisor_runtime/`, and `app/rams_supervisor_harness/` structure into this repository.
+4. Replace the generated placeholder runtime logic with imports from `app/rams_supervisor_runtime/supervisor_core`.
+5. Move current `backend/app/*.py` modules into `app/rams_supervisor_runtime/supervisor_core/`.
+6. Move or copy runtime-required fixture data into the shared `app/rams_agent_tools/fixtures/` package and update fixture path resolution.
+7. Implement `app/rams_supervisor_runtime/main.py` with `GET /ping` and `POST /invocations`.
+8. Use `backend/app/main.py` only as a temporary compatibility wrapper during migration, then remove it after the frontend and tests call AgentCore directly.
+9. Move core workflow tests into `app/rams_supervisor_runtime/tests/` and add AgentCore invocation tests.
 10. Keep frontend code in `frontend/`, but allow it to target either local `/api/run` or the AgentCore invocation adapter through config.
 11. Add `agentcore/.env.local.example`; keep generated or real `agentcore/.env.local` untracked.
 12. Add Harness config through the CLI, then register tools with `agentcore add tool` or an AgentCore Gateway/MCP path once tool schemas are fixed.
@@ -388,11 +409,14 @@ At that point, implement the AgentCore adapter and run the CLI validation/packag
 The scaffold-first runtime migration has been implemented in the repository:
 
 - `agentcore/agentcore.json` and CDK project structure exist at the repo root.
-- `app/rams_agentcore/main.py` is the AgentCore runtime entrypoint.
-- The former backend workflow modules now live under `app/rams_agentcore/three_d_rams/`.
-- Runtime fixtures are packaged under `app/rams_agentcore/fixtures/`.
+- `app/rams_supervisor_runtime/main.py` is the AgentCore runtime entrypoint.
+- The former backend workflow modules now live under `app/rams_supervisor_runtime/supervisor_core/` ("supervisor-core" in architecture notes).
+- Reusable tool functions now live under `app/rams_agent_tools/rams_agent_tools/tools/`, split by capability with `registry.py` defining future subagent-oriented groups.
+- Runtime fixtures are packaged under `app/rams_agent_tools/fixtures/` so supervisor and future subagents consume the same deterministic data resources.
 - The frontend now calls the AgentCore invocation adapter through `/agentcore/invocations`.
 - The legacy `backend/` FastAPI compatibility layer has been removed after tests and scripts were migrated.
+- `app/asi_one_entry_agent/` now contains the imported ASI:ONE / AgentVerse entry runtime source.
+- `app/rams_supervisor_harness/` is the only retained Harness folder; the unused imported `app/MyHarness` scaffold was removed.
 
 The remaining ADR3 work is no longer “move the old backend into AgentCore.” It is now:
 

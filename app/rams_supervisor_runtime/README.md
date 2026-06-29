@@ -1,4 +1,4 @@
-# 3D-RAMS AgentCore Runtime
+# 3D-RAMS Supervisor Runtime
 
 This directory started from an AgentCore CLI scaffold and now contains the deployable 3D-RAMS runtime package.
 
@@ -10,11 +10,13 @@ commands like `deploy`, `dev`, and `invoke` rely on the configuration stored her
 
 ## Agent Root
 
-The main entrypoint is `main.py`. It uses the AgentCore SDK `@app.entrypoint` decorator and delegates invocation handling to `three_d_rams.agentcore_adapter`.
+The main entrypoint is `main.py`. It uses the AgentCore SDK `@app.entrypoint` decorator and delegates invocation handling to `supervisor_core.agentcore_adapter`.
 
-The current migration preserves the existing deterministic 3D-RAMS workflow under `three_d_rams/`. Bedrock remains optional and environment-controlled.
+The current migration preserves the existing deterministic 3D-RAMS workflow under `supervisor_core/` ("supervisor-core" in architecture notes). Bedrock remains optional and environment-controlled.
 
-`three_d_rams.agentverse_adapter` is a local contract adapter for the AgentVerse entry-agent boundary. It validates confirmed intake payloads, maps them to AgentCore `/invocations`, and normalizes AgentCore output into entry-agent delivery payloads. It does not run the supervisor workflow and should remain thinner than the AgentCore runtime.
+Reusable tools live in the shared `app/rams_agent_tools` package and are grouped by capability so future Harness subagents can expose only the functions they need. The supervisor runtime imports those tools; it does not own them.
+
+The local `rams_agent_tools` and `fixtures` entries in this runtime directory are packaging links to the shared package. They keep AgentCore CodeZip self-contained while preserving `app/rams_agent_tools` as the source of truth.
 
 Runtime-required fixture data is packaged under `fixtures/` so local mock and cached-public modes are available to AgentCore packaging.
 
@@ -34,7 +36,7 @@ Run `source .venv/bin/activate` before developing.
 
 From the repository root, start the local runtime server on port 8080 with:
 
-`agentcore dev --runtime rams_agentcore --skip-deploy --no-browser --no-traces --logs --port 8080`
+`agentcore dev --runtime rams_supervisor_runtime --skip-deploy --no-browser --no-traces --logs --port 8080`
 
 In a new terminal, you can invoke that server with:
 

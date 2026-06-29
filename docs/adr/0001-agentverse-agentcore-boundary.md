@@ -62,7 +62,7 @@ Revisit this decision after the 3D-RAMS agent workflow and harness are documente
 
 The repository has moved past the original local FastAPI backend boundary:
 
-- the default runtime is now the AgentCore CLI dev runtime under `app/rams_agentcore`;
+- the default runtime is now the AgentCore CLI dev runtime under `app/rams_supervisor_runtime`;
 - the invocation contract is `/ping` and `/invocations`;
 - the legacy `backend/` compatibility layer has been removed;
 - the frontend remains a separate Vite UI and calls AgentCore through a local Vite proxy.

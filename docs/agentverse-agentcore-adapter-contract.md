@@ -4,7 +4,7 @@ This contract fixes the boundary between the AgentVerse entry agent and the Agen
 
 The adapter is not the workflow backend. It validates launch readiness, maps payloads, and later owns IAM/signing for AgentCore invocation.
 
-Implementation note: the separate ASI:ONE proof of concept has been imported into this repository as `app/MyAgent` and `agentverse/hosted_adapter.py`. See [agentverse-asi-one-runtime.md](agentverse-asi-one-runtime.md). Real runtime ARNs and AgentVerse secrets stay outside this public repo.
+Implementation note: the separate ASI:ONE proof of concept has been imported into this repository as `app/asi_one_entry_agent` and `agentverse/hosted_adapter.py`. See [agentverse-asi-one-runtime.md](agentverse-asi-one-runtime.md). Real runtime ARNs and AgentVerse secrets stay outside this public repo.
 
 ## Entry Agent To Adapter
 

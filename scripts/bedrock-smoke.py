@@ -6,10 +6,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENTCORE_APP = ROOT / "app" / "rams_agentcore"
+AGENTCORE_APP = ROOT / "app" / "rams_supervisor_runtime"
+AGENT_TOOLS_APP = ROOT / "app" / "rams_agent_tools"
+sys.path.insert(0, str(AGENT_TOOLS_APP))
 sys.path.insert(0, str(AGENTCORE_APP))
 
-from three_d_rams.agent import run_site_briefing  # noqa: E402
+from supervisor_core.agent import run_site_briefing  # noqa: E402
 
 
 def main() -> int:

@@ -6,11 +6,13 @@ from pathlib import Path
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-if str(APP_ROOT) not in sys.path:
-    sys.path.insert(0, str(APP_ROOT))
+TOOLS_ROOT = APP_ROOT.parent / "rams_agent_tools"
+for path in (TOOLS_ROOT, APP_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from main import invoke_local, ping_local  # noqa: E402
-from three_d_rams.agent import run_site_briefing  # noqa: E402
+from supervisor_core.agent import run_site_briefing  # noqa: E402
 
 
 class AgentCoreInvocationTests(unittest.TestCase):
