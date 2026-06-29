@@ -55,6 +55,7 @@ def trace_step(
 
 
 def normalize_request(request: dict[str, Any]) -> dict[str, Any]:
+    fixture_pack = request.get("fixturePack") or request.get("fixture_pack")
     return {
         "siteName": request.get("siteName") or "Demo rural field fixture",
         "latitude": float(request.get("latitude", 52.2053)),
@@ -63,6 +64,7 @@ def normalize_request(request: dict[str, Any]) -> dict[str, Any]:
         "includePlanningFixture": bool(request.get("includePlanningFixture", True)),
         "simulateMapFailure": bool(request.get("simulateMapFailure")),
         "useBedrock": bool(request.get("useBedrock", True)),
+        "fixturePack": str(fixture_pack).strip().lower() if fixture_pack else None,
         "additionalRequest": request.get("additionalRequest") or "",
     }
 
@@ -72,8 +74,9 @@ def source_register(
     simulate_map_failure: bool,
     bedrock_status: str,
     config: RuntimeConfig,
+    fixture_pack: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    sources = [
+    sources: list[dict[str, Any]] = [
         {
             "id": "user-request",
             "label": "Submitted coordinate and options",
@@ -83,24 +86,48 @@ def source_register(
             "trustBoundary": "User input",
             "awsMapping": "DynamoDB run record",
         },
-        {
-            "id": "location-fixture",
-            "label": "Synthetic local authority fixture",
-            "kind": "location",
-            "status": "mocked",
-            "origin": "backend deterministic defaults",
-            "trustBoundary": "Public-safe demo fixture",
-            "awsMapping": "DynamoDB site/session metadata",
-        },
-        {
-            "id": "geo-fallback" if simulate_map_failure else "geo-fixture",
-            "label": "Fallback geospatial fixture" if simulate_map_failure else "Mock geospatial feature pack",
-            "kind": "geospatial_features",
-            "status": "fallback" if simulate_map_failure else "mocked",
-            "origin": "fixtures/geospatial_features.json",
-            "trustBoundary": "Public-safe synthetic fixture",
-            "awsMapping": "S3 evidence object plus CloudWatch source metadata",
-        },
+    ]
+
+    if fixture_pack:
+        sources.extend(fixture_pack.get("sources", []))
+        if simulate_map_failure:
+            sources.append(
+                {
+                    "id": "geo-fallback",
+                    "label": "Fallback geospatial fixture",
+                    "kind": "geospatial_features",
+                    "status": "fallback",
+                    "origin": "fixtures/geospatial_features.json",
+                    "trustBoundary": "Public-safe synthetic fixture",
+                    "awsMapping": "S3 evidence object plus CloudWatch source metadata",
+                }
+            )
+    else:
+        sources.extend(
+            [
+                {
+                    "id": "location-fixture",
+                    "label": "Synthetic local authority fixture",
+                    "kind": "location",
+                    "status": "mocked",
+                    "origin": "backend deterministic defaults",
+                    "trustBoundary": "Public-safe demo fixture",
+                    "awsMapping": "DynamoDB site/session metadata",
+                },
+                {
+                    "id": "geo-fallback" if simulate_map_failure else "geo-fixture",
+                    "label": "Fallback geospatial fixture" if simulate_map_failure else "Mock geospatial feature pack",
+                    "kind": "geospatial_features",
+                    "status": "fallback" if simulate_map_failure else "mocked",
+                    "origin": "fixtures/geospatial_features.json",
+                    "trustBoundary": "Public-safe synthetic fixture",
+                    "awsMapping": "S3 evidence object plus CloudWatch source metadata",
+                },
+            ]
+        )
+
+    sources.extend(
+        [
         {
             "id": "cesium-local",
             "label": "Local Cesium scene configuration",
@@ -123,22 +150,49 @@ def source_register(
             "trustBoundary": "AWS account boundary when enabled",
             "awsMapping": "Amazon Bedrock InvokeModel for one briefing step per run",
         },
-    ]
-    sources.append(
-        {
-            "id": "planning-fixture",
-            "label": "Synthetic nearby planning report extract",
-            "kind": "planning_document",
-            "status": "mocked" if include_planning_fixture else "unavailable",
-            "origin": "fixtures/planning_report.txt" if include_planning_fixture else "Disabled by tester",
-            "trustBoundary": "Public-safe synthetic fixture",
-            "awsMapping": "S3 evidence object and Bedrock extraction input",
-        }
+        ]
     )
+
+    if not fixture_pack:
+        sources.append(
+            {
+                "id": "planning-fixture",
+                "label": "Synthetic nearby planning report extract",
+                "kind": "planning_document",
+                "status": "mocked" if include_planning_fixture else "unavailable",
+                "origin": "fixtures/planning_report.txt" if include_planning_fixture else "Disabled by tester",
+                "trustBoundary": "Public-safe synthetic fixture",
+                "awsMapping": "S3 evidence object and Bedrock extraction input",
+            }
+        )
     return sources
 
 
-def resolve_location(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def resolve_location(
+    request: dict[str, Any],
+    fixture_pack: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if fixture_pack:
+        pack_location = fixture_pack["location"]
+        location = {
+            "label": pack_location["label"],
+            "latitude": float(pack_location["latitude"]),
+            "longitude": float(pack_location["longitude"]),
+            "authority": pack_location.get("authority", "Unknown public authority"),
+            "coordinate_system": pack_location.get("coordinate_system", "WGS84"),
+            "confidence": pack_location.get("confidence", "medium"),
+            "fixturePack": fixture_pack["name"],
+            "dataMode": "cached-public-fixture",
+            "sourceIds": pack_location.get("source_ids", []),
+        }
+        return location, trace_step(
+            "resolve_location",
+            "ok",
+            "Loaded cached public fixture-pack location metadata.",
+            {"location": location, "fixturePack": fixture_pack["name"], "dataMode": "cached-public-fixture"},
+            source_ids=["user-request", *pack_location.get("source_ids", [])],
+        )
+
     latitude = float(request.get("latitude", 52.2053))
     longitude = float(request.get("longitude", -1.6022))
     location = {
@@ -153,12 +207,16 @@ def resolve_location(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str,
         "resolve_location",
         "ok",
         "Resolved the submitted coordinate to the public-safe demo location fixture.",
-        {"location": location},
+        {"location": location, "dataMode": "synthetic-fixture"},
         source_ids=["user-request", "location-fixture"],
     )
 
 
-def load_geospatial_features(location: dict[str, Any], simulate_failure: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def load_geospatial_features(
+    location: dict[str, Any],
+    simulate_failure: bool = False,
+    fixture_pack: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if simulate_failure:
         features = load_json("geospatial_features.json")["fallback_features"]
         return features, trace_step(
@@ -169,6 +227,25 @@ def load_geospatial_features(location: dict[str, Any], simulate_failure: bool = 
             source_ids=["geo-fallback"],
             evidence_ids=["geo-fixture"],
             fallback_reason="Fallback used after simulated live map provider failure for demo testing.",
+        )
+
+    if fixture_pack:
+        geospatial = fixture_pack.get("geospatial", {})
+        features = geospatial.get("features", [])
+        source_ids = geospatial.get("source_ids", [])
+        evidence_ids = geospatial.get("evidence_ids", source_ids)
+        return features, trace_step(
+            "load_geospatial_features",
+            "ok",
+            "Loaded cached public geospatial feature pack without live API calls.",
+            {
+                "feature_count": len(features),
+                "fixturePack": fixture_pack["name"],
+                "dataMode": "cached-public-fixture",
+                "sourceIds": source_ids,
+            },
+            source_ids=source_ids,
+            evidence_ids=evidence_ids,
         )
 
     features = load_json("geospatial_features.json")["features"]
@@ -182,10 +259,23 @@ def load_geospatial_features(location: dict[str, Any], simulate_failure: bool = 
     )
 
 
-def build_scene_config(location: dict[str, Any], features: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
-    geo_source_id = "geo-fallback" if any(feature["id"].startswith("fallback") for feature in features) else "geo-fixture"
+def build_scene_config(
+    location: dict[str, Any],
+    features: list[dict[str, Any]],
+    fixture_pack: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    uses_geo_fallback = any(feature["id"].startswith("fallback") for feature in features)
+    geo_source_ids = (
+        ["geo-fallback"]
+        if uses_geo_fallback
+        else (
+            fixture_pack.get("geospatial", {}).get("source_ids", [])
+            if fixture_pack
+            else ["geo-fixture"]
+        )
+    )
     scene = {
-        "provider": "cesium-local-fixture",
+        "provider": "cesium-local-cached-fixture" if fixture_pack else "cesium-local-fixture",
         "center": {
             "latitude": location["latitude"],
             "longitude": location["longitude"],
@@ -198,18 +288,60 @@ def build_scene_config(location: dict[str, Any], features: list[dict[str, Any]])
         },
         "terrain": "ellipsoid fallback",
         "featureCount": len(features),
-        "note": "No Google Maps, Google Earth, or Cesium ion key is required for Demo1.",
+        "fixturePack": fixture_pack["name"] if fixture_pack else None,
+        "dataMode": "cached-public-fixture" if fixture_pack else "synthetic-fixture",
+        "note": "No Google Maps, Google Earth, Cesium ion key, or live geospatial API is required for Demo1.",
     }
     return scene, trace_step(
         "build_scene_config",
         "ok",
         "Created a 3D scene configuration from the resolved coordinate and feature fixture.",
         {"scene": scene},
-        source_ids=["location-fixture", geo_source_id],
+        source_ids=[*location.get("sourceIds", ["location-fixture"]), *geo_source_ids],
     )
 
 
-def load_planning_context(include_planning_fixture: bool) -> tuple[str | None, dict[str, Any]]:
+def load_planning_context(
+    include_planning_fixture: bool,
+    fixture_pack: dict[str, Any] | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    if fixture_pack:
+        planning = fixture_pack.get("planning", {})
+        source_ids = planning.get("source_ids", [])
+        if not include_planning_fixture:
+            return None, trace_step(
+                "load_planning_context",
+                "warning",
+                "Planning fixture was disabled; cached pack briefing will only use geospatial context.",
+                {"source": None, "fixturePack": fixture_pack["name"], "dataMode": "cached-public-fixture"},
+                source_ids=source_ids,
+            )
+
+        text = planning.get("text")
+        if not text:
+            return None, trace_step(
+                "load_planning_context",
+                "warning",
+                "Cached fixture pack did not include planning text; briefing will only use geospatial context.",
+                {"source": planning.get("file"), "fixturePack": fixture_pack["name"]},
+                source_ids=source_ids,
+                fallback_reason="Planning text was missing from the selected cached fixture pack.",
+            )
+
+        return text, trace_step(
+            "load_planning_context",
+            "ok",
+            "Loaded cached public planning/context notes from fixture pack.",
+            {
+                "source": f"fixtures/{fixture_pack['name']}/{planning.get('file')}",
+                "characters": len(text),
+                "fixturePack": fixture_pack["name"],
+                "dataMode": "cached-public-fixture",
+            },
+            source_ids=source_ids,
+            evidence_ids=planning.get("evidence_ids", source_ids),
+        )
+
     if not include_planning_fixture:
         return None, trace_step(
             "load_planning_context",
@@ -230,7 +362,28 @@ def load_planning_context(include_planning_fixture: bool) -> tuple[str | None, d
     )
 
 
-def extract_hazard_notes(planning_text: str | None, features: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def extract_hazard_notes(
+    planning_text: str | None,
+    features: list[dict[str, Any]],
+    fixture_pack: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if fixture_pack:
+        hazards = fixture_pack.get("hazards", [])
+        source_ids = sorted({source_id for hazard in hazards for source_id in hazard.get("sourceIds", [])})
+        evidence_ids = sorted({evidence_id for hazard in hazards for evidence_id in hazard.get("evidenceIds", [])})
+        return hazards, trace_step(
+            "extract_hazard_notes",
+            "ok" if hazards else "warning",
+            "Loaded cached public-source hazard notes from fixture pack.",
+            {
+                "hazard_count": len(hazards),
+                "fixturePack": fixture_pack["name"],
+                "dataMode": "cached-public-fixture",
+            },
+            source_ids=source_ids,
+            evidence_ids=evidence_ids,
+        )
+
     hazards: list[dict[str, Any]] = []
     geo_source_id = "geo-fallback" if any(feature["id"].startswith("fallback") for feature in features) else "geo-fixture"
 
@@ -242,6 +395,8 @@ def extract_hazard_notes(planning_text: str | None, features: list[dict[str, Any
                     "title": feature["label"],
                     "category": feature["type"],
                     "source": "geospatial fixture",
+                    "sourceIds": [geo_source_id],
+                    "evidenceIds": ["geo-fixture"],
                     "confidence": feature.get("confidence", "medium"),
                     "note": feature["risk_note"],
                 }
@@ -263,6 +418,8 @@ def extract_hazard_notes(planning_text: str | None, features: list[dict[str, Any
                         "title": title,
                         "category": keyword,
                         "source": "synthetic planning fixture",
+                        "sourceIds": ["planning-fixture"],
+                        "evidenceIds": ["planning-fixture"],
                         "confidence": "medium",
                         "note": note,
                     }
@@ -299,6 +456,8 @@ def create_annotations(location: dict[str, Any], hazards: list[dict[str, Any]]) 
                 "longitude": round(location["longitude"] + lon_offset, 6),
                 "confidence": hazard["confidence"],
                 "note": hazard["note"],
+                "sourceIds": hazard.get("sourceIds", []),
+                "evidenceIds": hazard.get("evidenceIds", []),
             }
         )
 
@@ -315,7 +474,52 @@ def generate_site_brief(
     location: dict[str, Any],
     hazards: list[dict[str, Any]],
     planning_text: str | None,
+    fixture_pack: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    if fixture_pack:
+        evidence = fixture_pack.get("evidence", [])
+        limitations = [
+            "This cached pack is public-safe demo evidence and is not live, exhaustive, or operational advice.",
+            "The briefing is not certified RAMS, not emergency guidance, and not work approval.",
+            "All hazards need competent human review and current source checks before site work.",
+        ]
+        if not planning_text:
+            limitations.append("Planning/context notes were unavailable or disabled, so document-derived hazards may be missing.")
+
+        briefing = {
+            "site": location["label"],
+            "headline": "Cached public-source review pack for early site scoping.",
+            "summary": [
+                f"Loaded fixture pack '{fixture_pack['name']}' with cached public-source metadata.",
+                f"{len(hazards)} candidate hazards were found from cached geospatial and planning/context evidence.",
+                "The output is a review pack. It is not certified RAMS and not work approval.",
+            ],
+            "priority_checks": [hazard["title"] for hazard in hazards[:5]],
+            "before_site_visit": [
+                "Check current official flood, planning, access, and highway sources before relying on this pack.",
+                "Confirm river-edge, bridge, access, and public-realm constraints with a competent reviewer.",
+                "Record source age and confidence before escalating any claim into a RAMS workflow.",
+            ],
+            "limitations": limitations,
+            "fixturePack": fixture_pack["name"],
+            "dataMode": "cached-public-fixture",
+        }
+
+        return briefing, evidence, trace_step(
+            "generate_site_brief",
+            "ok",
+            "Generated deterministic briefing from cached fixture-pack evidence with explicit limitations.",
+            {
+                "mode": "deterministic",
+                "fixturePack": fixture_pack["name"],
+                "dataMode": "cached-public-fixture",
+                "evidence_count": len(evidence),
+                "priority_checks": len(briefing["priority_checks"]),
+            },
+            source_ids=sorted({source_id for item in evidence for source_id in item.get("sourceIds", [])}),
+            evidence_ids=[item["id"] for item in evidence],
+        )
+
     evidence = [
         {
             "id": "geo-fixture",
@@ -569,6 +773,7 @@ def architecture_snapshot(
             "siteName": request_summary["siteName"],
             "goal": request_summary["goal"],
             "coordinate": f"{request_summary['latitude']}, {request_summary['longitude']}",
+            "fixturePack": request_summary.get("fixturePack") or "synthetic-default",
             "planningFixture": "enabled" if request_summary["includePlanningFixture"] else "disabled",
             "mapMode": "fallback" if request_summary["simulateMapFailure"] else "fixture",
             "briefingMode": runtime["briefingMode"],
@@ -630,9 +835,20 @@ def architecture_snapshot(
         ],
         "realVsMocked": [
             {"component": "Agent workflow", "status": "real deterministic code"},
+            {
+                "component": "Fixture pack",
+                "status": (
+                    f"cached public fixture: {runtime.get('fixturePack')}"
+                    if runtime.get("fixturePack")
+                    else "synthetic default fixtures"
+                ),
+            },
             {"component": "Bedrock briefing", "status": str(runtime["briefingMode"])},
             {"component": "3D viewer", "status": "real local Cesium scene"},
-            {"component": "Planning documents", "status": "synthetic fixture"},
+            {
+                "component": "Planning documents",
+                "status": "cached public-safe notes" if runtime.get("fixturePack") else "synthetic fixture",
+            },
             {"component": "Live Google 3D / Earth", "status": "not used in Demo1"},
             {"component": "CloudWatch / S3 / DynamoDB", "status": "production path, not live in MVP"},
         ],

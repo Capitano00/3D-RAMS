@@ -1,0 +1,25 @@
+[
+  {
+    "id": "ann-brownfield-blr059",
+    "type": "planning_constraint",
+    "label": "Brownfield and planning-history review",
+    "source_ids": ["planning-data:brownfield-land:1719372"],
+    "source_type": "official_cached_public_data",
+    "confidence": "medium",
+    "cached": true,
+    "review_note": "Public brownfield record context needs current Planning Data verification before reliance."
+  },
+  {
+    "id": "ann-flood-zone",
+    "type": "flood",
+    "label": "Flood-zone planning indicator",
+    "source_ids": [
+      "planning-data:flood-risk-zone:65232137",
+      "planning-data:flood-risk-zone:65657427"
+    ],
+    "source_type": "official_cached_public_data",
+    "confidence": "medium",
+    "cached": true,
+    "review_note": "Flood-zone context is a review flag, not a flood prediction or emergency instruction."
+  }
+]

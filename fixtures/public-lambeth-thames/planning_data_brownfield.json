@@ -1,0 +1,24 @@
+[
+  {
+    "entity": 1719372,
+    "dataset": "brownfield-land",
+    "reference": "BLR059",
+    "name": "8 Albert Embankment and land to the rear",
+    "point": {
+      "latitude": 51.492099,
+      "longitude": -0.118712
+    },
+    "status": "cached_reduced_record",
+    "source_id": "planning-data:brownfield-land:1719372",
+    "review_note": "Brownfield register record existence is useful planning context, not a hazard finding by itself."
+  },
+  {
+    "entity": 1705644,
+    "dataset": "brownfield-land",
+    "reference": "BLR009",
+    "name": "Texaco Garage, 36-46 Albert Embankment",
+    "status": "excluded_archived_context",
+    "end_date": "2021-12-15",
+    "review_note": "Excluded from current demo reasoning because the record ended before the 2026 hackathon."
+  }
+]

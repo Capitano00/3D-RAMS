@@ -1,0 +1,320 @@
+{
+  "label": "Public-safe Lambeth / Thames cached sample pack",
+  "site_id": "lambeth-8-albert-embankment",
+  "description": "Cached public-source fixture pack for Gate 1. It uses small official-source samples and OSM-style context notes without live runtime API calls or operational claims.",
+  "data_mode": "cached-public-fixture",
+  "created_utc": "2026-06-29T00:00:00Z",
+  "not_live_api": true,
+  "limitations": [
+    "This pack is a public-safe cached sample, not a live official data pull.",
+    "It must not be used as certified RAMS, emergency guidance, or work approval.",
+    "Labels are intentionally conservative and require current source checks before site work."
+  ],
+  "location": {
+    "label": "8 Albert Embankment and land to the rear",
+    "latitude": 51.492099,
+    "longitude": -0.118712,
+    "authority": "London Borough of Lambeth",
+    "coordinate_system": "WGS84",
+    "confidence": "medium",
+    "source_ids": [
+      "public-lambeth-location"
+    ]
+  },
+  "sources": [
+    {
+      "id": "public-lambeth-location",
+      "label": "Cached site marker for 8 Albert Embankment",
+      "kind": "location",
+      "status": "cached-public",
+      "origin": "Cached public geography marker for 8 Albert Embankment and land to the rear; no live geocoding call",
+      "attribution": "Public place name and approximate WGS84 coordinate used as non-operational demo context",
+      "freshness": "Sample checked 2026-06-29; verify current maps before use",
+      "confidence": "medium",
+      "trustBoundary": "Public-safe cached fixture",
+      "awsMapping": "Future DynamoDB site/session metadata"
+    },
+    {
+      "id": "public-planning-data-brownfield-lambeth",
+      "label": "UK Planning Data brownfield-land BLR059",
+      "kind": "planning_dataset",
+      "status": "cached-public",
+      "origin": "Cached reduced record from planning.data.gov.uk entity API: brownfield-land entity 1719372, reference BLR059, 8 Albert Embankment and land to the rear; runtime does not call the API",
+      "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Source: Planning Data brownfield-land dataset. Crown copyright and database right 2026.",
+      "freshness": "Sample checked 2026-06-29; verify current Planning Data records before use",
+      "confidence": "medium",
+      "trustBoundary": "Public official dataset cached as fixture",
+      "awsMapping": "Future S3 source object plus source metadata"
+    },
+    {
+      "id": "public-ea-flood-context",
+      "label": "UK Planning Data flood-risk-zone sample",
+      "kind": "flood_context",
+      "status": "cached-public",
+      "origin": "Cached reduced records from planning.data.gov.uk entity API: flood-risk-zone entities 65232137 reference 232138/2 level 2 and 65657427 reference 106807/3 level 3; runtime does not call the API",
+      "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Source: Planning Data flood-risk-zone dataset, derived from Environment Agency flood zones. Crown copyright and database right 2026.",
+      "freshness": "Sample checked 2026-06-29; verify current Environment Agency and Planning Data sources before use",
+      "confidence": "medium",
+      "trustBoundary": "Public official dataset cached as fixture",
+      "awsMapping": "Future S3 evidence object plus source metadata"
+    },
+    {
+      "id": "public-lambeth-planning-context",
+      "label": "Lambeth planning/context note",
+      "kind": "planning_document",
+      "status": "cached-public",
+      "origin": "Handcrafted planning-style context note for Demo1; no portal scraping",
+      "attribution": "London Borough of Lambeth planning and public-register sources should be checked live in production",
+      "freshness": "Cached sample note prepared 2026-06-29; not live",
+      "confidence": "medium",
+      "trustBoundary": "Public-safe cached fixture",
+      "awsMapping": "Future S3 evidence object and Bedrock extraction input"
+    },
+    {
+      "id": "public-highway-access-context",
+      "label": "OpenStreetMap-style highway and access context note",
+      "kind": "access_context",
+      "status": "cached-public",
+      "origin": "Small cached context note shaped for future OpenStreetMap/Overpass extraction around River Thames, Lambeth Bridge, Albert Embankment, Vauxhall Walk, Waterloo to Reading rail line, and nearby office frontage; no routing, highway, or Overpass API call at runtime",
+      "attribution": "OpenStreetMap data is licensed under the Open Data Commons Open Database Licence; this fixture is a handcrafted demo-context note and must be replaced with a licensed extract before claiming OSM-derived facts",
+      "freshness": "Cached sample note prepared 2026-06-29; not live",
+      "confidence": "low",
+      "trustBoundary": "Public-safe cached fixture",
+      "awsMapping": "Future S3 evidence object plus source metadata"
+    }
+  ],
+  "geospatial": {
+    "source_ids": [
+      "public-lambeth-location",
+      "public-planning-data-brownfield-lambeth",
+      "public-ea-flood-context",
+      "public-highway-access-context"
+    ],
+    "evidence_ids": [
+      "ev-lambeth-geospatial-context",
+      "ev-lambeth-brownfield-context",
+      "ev-lambeth-flood-context",
+      "ev-lambeth-access-context"
+    ],
+    "features": [
+      {
+        "id": "lambeth-brownfield-sample",
+        "type": "planning_constraint",
+        "label": "Cached brownfield-land planning context",
+        "confidence": "medium",
+        "sourceIds": [
+          "public-planning-data-brownfield-lambeth"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-brownfield-context"
+        ],
+        "risk_note": "Brownfield record BLR059 shows planning-history context can affect first-pass review; verify current records before use."
+      },
+      {
+        "id": "lambeth-thames-edge",
+        "type": "watercourse",
+        "label": "Thames river-edge context",
+        "confidence": "medium",
+        "sourceIds": [
+          "public-ea-flood-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-flood-context"
+        ],
+        "risk_note": "Review current flood and river-edge constraints before any site planning."
+      },
+      {
+        "id": "lambeth-bridge-approach",
+        "type": "bridge",
+        "label": "Bridge approach and traffic interface",
+        "confidence": "low",
+        "sourceIds": [
+          "public-highway-access-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-access-context"
+        ],
+        "risk_note": "Lambeth Bridge and Albert Embankment access, stopping, loading, and traffic-management assumptions need current checks."
+      },
+      {
+        "id": "lambeth-public-realm",
+        "type": "public_realm",
+        "label": "Dense public-realm interface",
+        "confidence": "medium",
+        "sourceIds": [
+          "public-highway-access-context",
+          "public-lambeth-planning-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-access-context",
+          "ev-lambeth-planning-context"
+        ],
+        "risk_note": "Pedestrian, cyclist, and frontage interfaces may constrain delivery and works sequencing."
+      },
+      {
+        "id": "lambeth-basement-services",
+        "type": "buried_services",
+        "label": "Urban buried-services screening prompt",
+        "confidence": "low",
+        "sourceIds": [
+          "public-lambeth-planning-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-planning-context"
+        ],
+        "risk_note": "Urban utility density is plausible; current statutory utility records are required before intrusive works."
+      }
+    ]
+  },
+  "planning": {
+    "file": "planning_context.txt",
+    "source_ids": [
+      "public-lambeth-planning-context",
+      "public-planning-data-brownfield-lambeth",
+      "public-ea-flood-context",
+      "public-highway-access-context"
+    ],
+    "evidence_ids": [
+      "ev-lambeth-planning-context",
+      "ev-lambeth-brownfield-context",
+      "ev-lambeth-flood-context",
+      "ev-lambeth-access-context"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "ev-lambeth-geospatial-context",
+      "title": "Cached 8 Albert Embankment geospatial context",
+      "source": "fixtures/public-lambeth-thames/pack.json",
+      "status": "cached-public",
+      "sourceIds": [
+        "public-lambeth-location"
+      ],
+      "freshness": "Sample prepared 2026-06-29; not live",
+      "confidence": "medium",
+      "why_it_matters": "Provides a realistic public-realm and river-edge site shape for Gate 1 without live API dependencies."
+    },
+    {
+      "id": "ev-lambeth-brownfield-context",
+      "title": "Cached Planning Data brownfield-land BLR059 sample",
+      "source": "Planning Data brownfield-land entity 1719372 / reference BLR059 cached sample; fixtures/public-lambeth-thames/pack.json",
+      "status": "cached-public",
+      "sourceIds": [
+        "public-planning-data-brownfield-lambeth"
+      ],
+      "freshness": "Sample checked 2026-06-29; verify current Planning Data records before use",
+      "confidence": "medium",
+      "why_it_matters": "Shows that a public brownfield register record can add planning-history review context without scraping planning-portal PDFs."
+    },
+    {
+      "id": "ev-lambeth-flood-context",
+      "title": "Cached Thames flood-context note",
+      "source": "Planning Data flood-risk-zone entities 65232137 and 65657427 cached sample; fixtures/public-lambeth-thames/pack.json",
+      "status": "cached-public",
+      "sourceIds": [
+        "public-ea-flood-context"
+      ],
+      "freshness": "Sample checked 2026-06-29; verify against current Environment Agency and Planning Data sources",
+      "confidence": "medium",
+      "why_it_matters": "Flags that river-edge or flood-zone checks belong in the review workflow."
+    },
+    {
+      "id": "ev-lambeth-access-context",
+      "title": "Cached highway/access context note",
+      "source": "fixtures/public-lambeth-thames/pack.json",
+      "status": "cached-public",
+      "sourceIds": [
+        "public-highway-access-context"
+      ],
+      "freshness": "Sample prepared 2026-06-29; not live",
+      "confidence": "low",
+      "why_it_matters": "Prompts access, stopping, loading, and traffic-interface review without making operational claims."
+    },
+    {
+      "id": "ev-lambeth-planning-context",
+      "title": "Cached planning-style context note",
+      "source": "fixtures/public-lambeth-thames/planning_context.txt",
+      "status": "cached-public",
+      "sourceIds": [
+        "public-lambeth-planning-context"
+      ],
+      "freshness": "Sample prepared 2026-06-29; verify live planning records before use",
+      "confidence": "medium",
+      "why_it_matters": "Lets the agent demonstrate source-registered planning-context extraction from a cached public-safe pack."
+    }
+  ],
+  "hazards": [
+    {
+      "id": "cached-brownfield-planning-context",
+      "title": "Brownfield and planning-history review",
+      "category": "planning_constraint",
+      "source": "cached public fixture pack",
+      "sourceIds": [
+        "public-planning-data-brownfield-lambeth"
+      ],
+      "evidenceIds": [
+        "ev-lambeth-brownfield-context"
+      ],
+      "confidence": "medium",
+      "note": "Cached Planning Data brownfield-land record BLR059 demonstrates how planning-history context can shape the review pack; current official records must be checked before relying on it."
+    },
+    {
+      "id": "cached-thames-flood-context",
+      "title": "River-edge and flood-context review",
+      "category": "flood_context",
+      "source": "cached public fixture pack",
+      "sourceIds": [
+        "public-ea-flood-context"
+      ],
+      "evidenceIds": [
+        "ev-lambeth-flood-context"
+      ],
+      "confidence": "medium",
+      "note": "The Thames-side setting should trigger current flood-map and river-edge checks before any site-specific RAMS work."
+    },
+    {
+      "id": "cached-lambeth-access",
+      "title": "Urban access and stopping constraints",
+      "category": "access",
+      "source": "cached public fixture pack",
+      "sourceIds": [
+        "public-highway-access-context"
+      ],
+      "evidenceIds": [
+        "ev-lambeth-access-context"
+      ],
+      "confidence": "low",
+      "note": "Bridge approach, busier roads, and public-realm interfaces may constrain delivery, parking, and loading assumptions."
+    },
+    {
+      "id": "cached-public-interface",
+      "title": "Pedestrian and cyclist interface",
+      "category": "public_realm",
+      "source": "cached public fixture pack",
+      "sourceIds": [
+        "public-highway-access-context",
+        "public-lambeth-planning-context"
+      ],
+      "evidenceIds": [
+        "ev-lambeth-access-context",
+        "ev-lambeth-planning-context"
+      ],
+      "confidence": "medium",
+      "note": "The pack flags likely public-interface constraints for review, not a confirmed traffic-management requirement."
+    },
+    {
+      "id": "cached-urban-utilities",
+      "title": "Buried-services screening prompt",
+      "category": "buried_services",
+      "source": "cached public fixture pack",
+      "sourceIds": [
+        "public-lambeth-planning-context"
+      ],
+      "evidenceIds": [
+        "ev-lambeth-planning-context"
+      ],
+      "confidence": "low",
+      "note": "Urban utility density is plausible; current statutory plans and competent review are needed before intrusive works."
+    }
+  ]
+}

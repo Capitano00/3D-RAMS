@@ -2,7 +2,7 @@
 
 3D-RAMS is a hackathon Demo1 agent that turns a site coordinate into a 3D pre-visit briefing pack.
 
-The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, or hosted infrastructure. The production-shaped path can also make one Amazon Bedrock call per run for briefing generation when AWS credentials are configured, while preserving deterministic fallback.
+The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, or hosted infrastructure. The default UI uses a cached public Lambeth / Thames fixture pack, and the production-shaped path can also make one Amazon Bedrock call per run for briefing generation when AWS credentials are configured, while preserving deterministic fallback.
 
 ## Problem Statement
 
@@ -18,11 +18,11 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 
 ## Demo Workflow
 
-1. User enters a coordinate.
-2. The backend resolves the location fixture.
-3. The agent loads mock geospatial features.
+1. User enters a coordinate or selects the cached public Lambeth data pack.
+2. The backend resolves the selected fixture pack or synthetic fallback.
+3. The agent loads cached-public, synthetic, or fallback geospatial features.
 4. The agent builds a Cesium scene configuration.
-5. The agent loads a synthetic planning-document fixture.
+5. The agent loads cached-public or synthetic planning/context notes.
 6. The agent extracts candidate hazard notes.
 7. The agent creates 3D annotations.
 8. The agent generates a RAMS-style briefing.
@@ -34,10 +34,11 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 | Component | Demo1 Status | Notes |
 | --- | --- | --- |
 | Agent workflow | Real Python code | Tool sequence, evidence, trace, safety gate, deterministic fallback, and response shape are implemented. |
+| Public data pack | Cached public fixture | `fixtures/public-lambeth-thames` includes source metadata for a Lambeth / Thames public-data pack anchored on 8 Albert Embankment. Runtime makes no live public-data calls. |
 | Bedrock briefing | Optional live AWS path | Uses one `InvokeModel` call per run when `ENABLE_BEDROCK=true`; deterministic briefing remains the fallback. |
 | 3D viewer | Real React/Vite + CesiumJS UI | Uses a token-free Cesium canvas plus local scene overlay and annotations. |
-| Geospatial features | Mocked fixture | `fixtures/geospatial_features.json` is public-safe synthetic data. |
-| Planning documents | Mocked fixture | `fixtures/planning_report.txt` is synthetic and not a real LPA document. |
+| Geospatial features | Cached-public or mocked fixture | Default pack uses cached public-source metadata; synthetic fallback uses `fixtures/geospatial_features.json`. |
+| Planning/context notes | Cached-public or synthetic fixture | Default pack uses cached public-safe notes and source metadata; synthetic fallback uses `fixtures/planning_report.txt`. |
 | AWS | Partially live when configured | Bedrock briefing can be live; DynamoDB, S3, CloudWatch, Guardrails, and AgentCore remain production-path stages. |
 | Google Maps / Earth / 3D Tiles | Not used | Kept out of Demo1 to avoid key, cost, licensing, and freshness risk. |
 
@@ -54,6 +55,8 @@ bash scripts/start-dev.sh
 Codespaces should forward the frontend on port `5173` and backend on port `8000`. Use [docs/team-test-guide.md](docs/team-test-guide.md) for the scenario checklist and feedback template.
 
 No AWS, Google Maps, Cesium ion token, or real site data is required.
+
+The UI defaults to the cached `public-lambeth-thames` pack. Use the `Data pack` control to switch to the older synthetic fixture path.
 
 ## Bedrock Mode
 
@@ -119,6 +122,7 @@ curl -X POST http://localhost:8000/api/run ^
 | Scenario | How to Run | Expected Result |
 | --- | --- | --- |
 | Happy path | Click `Run` | Scene, annotations, briefing, evidence, and trace are returned. |
+| Cached public pack | Leave `Data pack` as `Lambeth public cache`, click `Run` | Sources include cached Planning Data / flood context and OSM-style access context with attribution and freshness labels. |
 | Missing data | Disable `Planning fixture`, click `Run` | Briefing continues with a planning-evidence limitation. |
 | Tool failure | Enable `Map fallback`, click `Run` | Trace marks geospatial loading as `fallback`. |
 | Bedrock fallback | Enable Bedrock in UI while backend has no AWS config, or set `BEDROCK_SIMULATE_FAILURE=true` | Trace marks Bedrock step as `disabled` or `fallback`; deterministic briefing remains available. |

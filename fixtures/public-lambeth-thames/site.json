@@ -1,0 +1,14 @@
+{
+  "site_id": "lambeth-8-albert-embankment",
+  "name": "8 Albert Embankment and land to the rear",
+  "demo_label": "Lambeth / Thames public-data fixture",
+  "centroid": {
+    "latitude": 51.492099,
+    "longitude": -0.118712
+  },
+  "authority": "London Borough of Lambeth",
+  "is_cached": true,
+  "data_claim": "Mixed cached public-source records and handcrafted demo context",
+  "runtime_live_api_calls": false,
+  "boundary": "Public cached fixture for demo review only; not operational site advice."
+}

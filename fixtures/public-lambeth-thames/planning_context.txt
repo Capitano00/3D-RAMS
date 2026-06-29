@@ -1,0 +1,12 @@
+Cached public-safe planning/context note for Gate 1.
+
+Area: Lambeth / Thames public-realm sample area near Lambeth Bridge.
+Mode: handcrafted cached fixture, not a live Lambeth planning portal, Environment Agency, TfL, utility, or street-works lookup.
+
+Review prompts:
+- Flood and river-edge context: the Thames-side setting should trigger a current official flood-map and river-edge constraint check.
+- Access context: bridge approaches, busier roads, stopping/loading limits, and public-realm interfaces may affect delivery and works sequencing.
+- Public interface: pedestrian and cyclist movement should be considered before any traffic-management or exclusion-zone assumptions are made.
+- Urban buried services: current statutory utility records and competent review are required before intrusive works.
+
+This note is for demo evidence-shape only. It is not certified RAMS, emergency guidance, work approval, or operational advice.

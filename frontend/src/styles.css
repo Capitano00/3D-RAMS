@@ -19,7 +19,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -147,7 +148,7 @@ h4 {
 
 .control-strip {
   display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 180px)) repeat(3, minmax(112px, max-content)) repeat(3, max-content);
+  grid-template-columns: minmax(180px, 250px) repeat(2, minmax(120px, 180px)) repeat(3, minmax(112px, max-content)) repeat(3, max-content);
   align-items: end;
   gap: 10px;
   margin: 10px 0 16px;
@@ -161,7 +162,8 @@ label {
   font-weight: 800;
 }
 
-input {
+input,
+select {
   min-height: 40px;
   border: 1px solid #c9d2ce;
   border-radius: 6px;

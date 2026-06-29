@@ -2,7 +2,7 @@
 
 Use this guide to test the Demo1 flow before judging or submission. The app is intentionally local-first: it should run with public fixtures only, without Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data. Bedrock mode is available only when the backend has AWS credentials and `ENABLE_BEDROCK=true`; deterministic fallback remains available.
 
-3D-RAMS turns a coordinate into an inspectable 3D pre-visit briefing pack:
+3D-RAMS turns a coordinate into an inspectable 3D pre-visit briefing pack. The default UI uses the cached `public-lambeth-thames` fixture pack for a Lambeth / Thames public-data example anchored on 8 Albert Embankment. It does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services during the demo.
 
 1. coordinate input;
 2. location fixture lookup;
@@ -86,6 +86,7 @@ Leave the default coordinate and options unchanged, then click:
 
 Expected result: the app shows a 3D scene, annotations, RAMS-style briefing, evidence register, agent trace, and Architecture + Workflow visualizer.
 The runtime pill should show `disabled`, `real`, or `fallback` for briefing mode.
+The `Data pack` control should show `Lambeth public cache` by default.
 
 ### Step 7: Run Six Test Scenarios
 
@@ -94,6 +95,8 @@ Use demo fixture data only. Do not enter real client sites, confidential project
 | Scenario | What To Do | Expected Result |
 | --- | --- | --- |
 | Happy path | Leave defaults and click `Run`. | Scene, annotations, briefing, evidence, trace, and visualizer appear. |
+| Cached public pack | Leave `Data pack` as `Lambeth public cache`, then click `Run`. | Evidence includes cached Planning Data / flood context and OSM-style access context with source and freshness labels. |
+| Synthetic fallback pack | Change `Data pack` to `Synthetic default`, then click `Run`. | App still works using the original synthetic fixture path. |
 | Missing planning fixture | Turn off `Planning fixture`, then click `Run`. | App still works and explains planning evidence limitations. |
 | Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial loading using fallback. |
 | Bedrock disabled/fallback | Leave `Bedrock` on, but run without AWS config, or ask War Room to simulate failure. | App still works; trace shows Bedrock as disabled or fallback and keeps deterministic briefing. |
@@ -118,6 +121,7 @@ Do not upload real site data, private documents, client material, secrets, or AP
 | `frontend` | The website you click on. |
 | `backend` | The local agent/API that receives the coordinate and returns briefing data. |
 | `fixtures` | Fake/synthetic demo data, not real client data. |
+| `fixtures/public-lambeth-thames` | Cached public-source fixture pack and attribution files for the Lambeth / Thames example. |
 | `scripts/start-dev.sh` | One-command startup script for Codespaces. |
 | `docs/team-test-guide.md` | This testing checklist. |
 | `.github/ISSUE_TEMPLATE` | Feedback form for teammate testing. |

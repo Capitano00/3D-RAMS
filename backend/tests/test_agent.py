@@ -1,10 +1,13 @@
 import unittest
 import sys
 import os
+import json
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app import fixtures as fixture_module
 from app.agent import run_site_briefing
 
 
@@ -41,6 +44,8 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("request", result)
         self.assertIn("runtime", result)
         self.assertEqual(result["runtime"]["briefingMode"], "disabled")
+        self.assertIsNone(result["request"]["fixturePack"])
+        self.assertEqual(result["runtime"]["fixturePackMode"], "synthetic-default")
         self.assertIn("sources", result)
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
@@ -77,6 +82,98 @@ class SiteBriefingAgentTests(unittest.TestCase):
 
         confidences = {annotation["confidence"] for annotation in result["annotations"]}
         self.assertIn("low", confidences)
+
+    def test_lambeth_fixture_pack_returns_cached_public_sources_and_hazards(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        self.assertEqual(result["request"]["fixturePack"], "public-lambeth-thames")
+        self.assertEqual(result["runtime"]["fixturePack"], "public-lambeth-thames")
+        self.assertEqual(result["runtime"]["fixturePackMode"], "cached-public-fixture")
+        self.assertFalse(result["runtime"]["liveApiCalls"])
+        self.assertEqual(result["location"]["authority"], "London Borough of Lambeth")
+        self.assertEqual(result["scene"]["provider"], "cesium-local-cached-fixture")
+        self.assertEqual(result["scene"]["dataMode"], "cached-public-fixture")
+        self.assertTrue(result["safety"]["allowed"])
+
+        source_statuses = {source["id"]: source["status"] for source in result["sources"]}
+        self.assertEqual(source_statuses["public-ea-flood-context"], "cached-public")
+        self.assertEqual(source_statuses["public-lambeth-planning-context"], "cached-public")
+
+        evidence_statuses = {item["id"]: item["status"] for item in result["evidence"]}
+        self.assertEqual(evidence_statuses["ev-lambeth-flood-context"], "cached-public")
+        self.assertTrue(all(item.get("sourceIds") for item in result["evidence"]))
+
+        hazard_titles = {annotation["title"] for annotation in result["annotations"]}
+        self.assertIn("River-edge and flood-context review", hazard_titles)
+        self.assertTrue(all(annotation["sourceIds"] for annotation in result["annotations"]))
+        self.assertTrue(all(hazard["sourceIds"] for hazard in result["hazards"]))
+        self.assertTrue(all(hazard["evidenceIds"] for hazard in result["hazards"]))
+
+        hazard_step = next(step for step in result["trace"] if step["name"] == "extract_hazard_notes")
+        self.assertEqual(hazard_step["output"]["dataMode"], "cached-public-fixture")
+        self.assertIn("public-ea-flood-context", hazard_step["sourceIds"])
+        self.assertIn("ev-lambeth-flood-context", hazard_step["evidenceIds"])
+        self.assertEqual(result["architecture"]["runOverview"]["fixturePack"], "public-lambeth-thames")
+        self.assertTrue(
+            any(
+                item["component"] == "Fixture pack" and "cached public fixture" in item["status"]
+                for item in result["architecture"]["realVsMocked"]
+            )
+        )
+
+    def test_unknown_fixture_pack_falls_back_to_synthetic_defaults(self):
+        result = run_site_briefing({"fixturePack": "missing-pack", "useBedrock": False})
+
+        self.assertIsNone(result["runtime"]["fixturePack"])
+        self.assertEqual(result["runtime"]["fixturePackMode"], "synthetic-default")
+        self.assertEqual(result["scene"]["provider"], "cesium-local-fixture")
+        fallback_step = next(step for step in result["trace"] if step["name"] == "load_fixture_pack")
+        self.assertEqual(fallback_step["status"], "fallback")
+        self.assertIn("synthetic defaults", fallback_step["fallbackReason"])
+
+    def test_fixture_pack_path_traversal_falls_back_to_synthetic_defaults(self):
+        result = run_site_briefing({"fixturePack": "../public-lambeth-thames", "useBedrock": False})
+
+        self.assertIsNone(result["runtime"]["fixturePack"])
+        self.assertEqual(result["runtime"]["fixturePackMode"], "synthetic-default")
+        fallback_step = next(step for step in result["trace"] if step["name"] == "load_fixture_pack")
+        self.assertEqual(fallback_step["status"], "fallback")
+        self.assertIn("not allowed", fallback_step["fallbackReason"])
+
+    def test_fixture_pack_planning_file_cannot_escape_pack_directory(self):
+        previous_fixtures = fixture_module.FIXTURES
+        previous_allowed = fixture_module.ALLOWED_FIXTURE_PACKS
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "malicious"
+            pack_dir.mkdir()
+            (temp_path / "secret.txt").write_text("PRIVATE", encoding="utf-8")
+            (pack_dir / "pack.json").write_text(
+                json.dumps(
+                    {
+                        "location": {
+                            "label": "Malicious fixture",
+                            "latitude": 51.5,
+                            "longitude": -0.1,
+                        },
+                        "planning": {"file": "../secret.txt"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            try:
+                fixture_module.FIXTURES = temp_path
+                fixture_module.ALLOWED_FIXTURE_PACKS = {"malicious"}
+                pack, warning = fixture_module.load_fixture_pack("malicious")
+            finally:
+                fixture_module.FIXTURES = previous_fixtures
+                fixture_module.ALLOWED_FIXTURE_PACKS = previous_allowed
+
+        self.assertIsNone(warning)
+        self.assertIsNotNone(pack)
+        self.assertIsNone(pack["planning"]["text"])
+        self.assertTrue(any("missing" in item.lower() for item in pack["warnings"]))
 
     def test_architecture_visualizer_contract_tracks_sources_trace_and_aws_mapping(self):
         result = run_site_briefing({"goal": "Pre-visit RAMS scoping pack"})

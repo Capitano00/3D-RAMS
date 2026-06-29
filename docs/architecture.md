@@ -11,8 +11,8 @@ flowchart LR
     User["User enters coordinate and test options"] --> UI["React/Vite UI"]
     UI --> API["FastAPI POST /api/run"]
     API --> Agent["Deterministic Demo1 agent loop"]
-    Agent --> Locate["Resolve location fixture"]
-    Agent --> Geo["Load geospatial fixture or fallback"]
+    Agent --> Locate["Resolve location or cached fixture pack"]
+    Agent --> Geo["Load synthetic, cached-public, or fallback features"]
     Agent --> Scene["Build 3D scene config"]
     Agent --> Planning["Load synthetic planning fixture"]
     Agent --> Hazards["Extract candidate hazard notes"]
@@ -41,7 +41,8 @@ flowchart TB
 
     subgraph Fixtures["Public-safe fixture boundary"]
         GeoFixture["Mock geospatial features"]
-        PlanningFixture["Synthetic planning text"]
+        PublicPack["Cached Lambeth public fixture pack"]
+        PlanningFixture["Synthetic or cached planning text"]
     end
 
     subgraph FutureSources["Future live-source boundary"]
@@ -51,6 +52,7 @@ flowchart TB
 
     Form --> Runtime
     Runtime --> GeoFixture
+    Runtime --> PublicPack
     Runtime --> PlanningFixture
     Runtime -. "future" .-> LPA
     Runtime -. "future" .-> MapData
@@ -105,7 +107,7 @@ sequenceDiagram
     A->>Obs: Emit trace, latency, status, and evidence ids
 ```
 
-Demo1 can run without Bedrock, but it now has a live Bedrock briefing path when `ENABLE_BEDROCK=true`. The deterministic briefing remains the fallback, and the Bedrock step is limited to one model call per agent run.
+Demo1 can run without Bedrock, but it now has a live Bedrock briefing path when `ENABLE_BEDROCK=true`. The deterministic briefing remains the fallback, and the Bedrock step is limited to one model call per agent run. The default UI uses the cached `public-lambeth-thames` pack anchored on 8 Albert Embankment. Runtime does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services.
 
 ## Evidence, Trace, And Observability Flow
 
@@ -151,10 +153,11 @@ The safety gate is deliberately visible. Judges and teammates should be able to 
 | Area | Current Source | Current Status | Visible In UI | Production AWS Mapping | Upgrade Risk |
 | --- | --- | --- | --- | --- | --- |
 | Agent loop | Python backend | Real deterministic code plus optional Bedrock briefing | Tool timeline and trace | Bedrock model/tool planning | Model variability and evaluation |
+| Public fixture pack | `fixtures/public-lambeth-thames` | Cached public-source metadata and attribution files | Source register, evidence, trace, briefing | S3 source pack plus source registry | Source freshness, licence handling, and overclaiming |
 | Request state | Browser form payload | Real | Run overview | DynamoDB run/session record | Data privacy and retention |
 | 3D viewer | React/Vite + CesiumJS | Real token-free local scene plus overlay | 3D scene | Static frontend plus API runtime | Performance on low-power devices |
-| Geospatial features | `fixtures/geospatial_features.json` | Mocked or fallback | Sources and annotations | S3 source object plus live geospatial APIs | Licensing, freshness, key management |
-| Planning context | `fixtures/planning_report.txt` | Synthetic fixture or unavailable | Sources, evidence, briefing limits | S3 documents plus Bedrock extraction | Scraping reliability and citations |
+| Geospatial features | Synthetic fixture or cached public pack | Mocked, cached-public, or fallback | Sources and annotations | S3 source object plus live geospatial APIs | Licensing, freshness, key management |
+| Planning context | Synthetic fixture or cached public pack | Synthetic, cached-public, or unavailable | Sources, evidence, briefing limits | S3 documents plus Bedrock extraction | Scraping reliability and citations |
 | Bedrock briefing | Amazon Bedrock when configured | Optional live AWS call with deterministic fallback | Runtime mode, trace, and briefing | Evaluated Bedrock adapter with CloudWatch traces | Cost, model access, latency, and fallback quality |
 | Safety gate | Python rules | Real Demo1 policy | Safety pill and visualizer | Guardrails plus human review queue | Overclaiming or hidden unsafe edge cases |
 | Evidence register | API response | Real response object | Evidence cards | S3 evidence pack | Source traceability |

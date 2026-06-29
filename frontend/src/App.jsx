@@ -6,10 +6,11 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const DEFAULT_REQUEST = {
-  siteName: "Demo rural field fixture",
-  latitude: 52.2053,
-  longitude: -1.6022,
+  siteName: "8 Albert Embankment and land to the rear",
+  latitude: 51.492099,
+  longitude: -0.118712,
   goal: "Pre-visit RAMS scoping pack",
+  fixturePack: "public-lambeth-thames",
   includePlanningFixture: true,
   simulateMapFailure: false,
   useBedrock: true,
@@ -197,7 +198,7 @@ function WorkflowVisualizer({ architecture }) {
         <div>
           <span>Coordinate</span>
           <strong>{overview.coordinate}</strong>
-          <small>{overview.planningFixture} planning, {overview.mapMode} map</small>
+          <small>{overview.fixturePack}, {overview.planningFixture} planning, {overview.mapMode} map</small>
         </div>
         <div>
           <span>Safety</span>
@@ -346,6 +347,16 @@ function App() {
       </header>
 
       <section className="control-strip">
+        <label>
+          Data pack
+          <select
+            value={request.fixturePack || ""}
+            onChange={(event) => updateRequest("fixturePack", event.target.value || null)}
+          >
+            <option value="public-lambeth-thames">Lambeth public cache</option>
+            <option value="">Synthetic default</option>
+          </select>
+        </label>
         <label>
           Latitude
           <input
