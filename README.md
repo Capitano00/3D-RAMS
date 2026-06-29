@@ -1,5 +1,7 @@
 # 3D-RAMS
 
+![CI](https://github.com/Capitano00/3D-RAMS/actions/workflows/ci.yml/badge.svg)
+
 3D-RAMS is a hackathon Demo1 agent that turns a site coordinate into a 3D pre-visit briefing pack.
 
 The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, or hosted infrastructure. The default UI uses a cached public Lambeth / Thames fixture pack, and the production-shaped path can also make one Amazon Bedrock call per run for briefing generation when AWS credentials are configured, while preserving deterministic fallback.
@@ -68,7 +70,7 @@ python scripts/evaluate-demo.py
 
 The evaluation runner covers nine deterministic scenarios, including cached-public happy path, missing planning evidence, map fallback, Bedrock-disabled fallback, unsafe request blocking, low-confidence output, architecture payload shape, and unknown pack fallback. See [docs/evaluation.md](docs/evaluation.md).
 
-GitHub Actions also runs the backend tests, deterministic evaluation, and frontend build on pushes and pull requests.
+GitHub Actions also runs the backend tests, deterministic evaluation, and frontend build on pushes and pull requests. See [docs/mvp-readiness.md](docs/mvp-readiness.md) for the current readiness snapshot, verified scenarios, and remaining gates.
 
 For contribution expectations, safety boundaries, and handoff checklist, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
