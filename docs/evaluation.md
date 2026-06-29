@@ -20,6 +20,12 @@ python scripts/evaluate-demo.py --write docs/evaluation-results/latest.json
 
 `latest.json` is intentionally ignored by Git because it is generated proof, not source documentation. Commit a curated snapshot only after manager and quality-review approval.
 
+## Continuous Verification
+
+GitHub Actions runs the same deterministic evaluation on pushes and pull requests, alongside backend compile checks, backend unit tests, and the frontend production build.
+
+The CI workflow does not use AWS credentials, Google Maps keys, live planning portals, or hosted infrastructure.
+
 ## Exit Codes
 
 | Exit Code | Meaning |

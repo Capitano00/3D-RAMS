@@ -68,6 +68,8 @@ python scripts/evaluate-demo.py
 
 The evaluation runner covers nine deterministic scenarios, including cached-public happy path, missing planning evidence, map fallback, Bedrock-disabled fallback, unsafe request blocking, low-confidence output, architecture payload shape, and unknown pack fallback. See [docs/evaluation.md](docs/evaluation.md).
 
+GitHub Actions also runs the backend tests, deterministic evaluation, and frontend build on pushes and pull requests.
+
 ## Bedrock Mode
 
 The app defaults to deterministic fallback unless the backend is started with Bedrock enabled.
