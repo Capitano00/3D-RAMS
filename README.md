@@ -70,6 +70,8 @@ The evaluation runner covers nine deterministic scenarios, including cached-publ
 
 GitHub Actions also runs the backend tests, deterministic evaluation, and frontend build on pushes and pull requests.
 
+For contribution expectations, safety boundaries, and handoff checklist, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 To run the full local verification stack before sharing changes in Codespaces/Linux/macOS:
 
 ```bash

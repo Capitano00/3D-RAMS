@@ -48,12 +48,16 @@ Small docs-only changes can use a lightweight review, but the public/private bou
 
 ## Verification
 
-Before pushing changes, run the narrowest relevant checks:
+Before pushing changes, run the standard local verification stack when practical:
 
 ```bash
-python -m compileall backend/app backend/tests
-python -m unittest discover -s backend/tests -q
-cd frontend && npm run build
+bash scripts/check-demo.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1
 ```
 
 If a check cannot be run, record the blocker clearly.
