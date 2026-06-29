@@ -70,6 +70,30 @@ The evaluation runner covers nine deterministic scenarios, including cached-publ
 
 GitHub Actions also runs the backend tests, deterministic evaluation, and frontend build on pushes and pull requests.
 
+To run the full local verification stack before sharing changes in Codespaces/Linux/macOS:
+
+```bash
+bash scripts/check-demo.sh
+```
+
+On a fresh Codespace or local clone, install dependencies as part of the check:
+
+```bash
+bash scripts/check-demo.sh --install
+```
+
+On Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1
+```
+
+On a fresh Windows clone:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
+```
+
 ## Bedrock Mode
 
 The app defaults to deterministic fallback unless the backend is started with Bedrock enabled.

@@ -22,9 +22,29 @@ python scripts/evaluate-demo.py --write docs/evaluation-results/latest.json
 
 ## Continuous Verification
 
-GitHub Actions runs the same deterministic evaluation on pushes and pull requests, alongside backend compile checks, backend unit tests, and the frontend production build.
+GitHub Actions runs the same deterministic evaluation on pushes and pull requests, alongside backend compile checks, backend unit/API contract tests, and the frontend production build.
 
 The CI workflow does not use AWS credentials, Google Maps keys, live planning portals, or hosted infrastructure.
+
+Run the same local verification stack in Codespaces/Linux/macOS with:
+
+```bash
+bash scripts/check-demo.sh
+```
+
+Use `bash scripts/check-demo.sh --install` on a fresh Codespace or local clone.
+
+On Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1
+```
+
+On a fresh Windows clone:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
+```
 
 ## Exit Codes
 

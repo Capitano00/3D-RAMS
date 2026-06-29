@@ -28,20 +28,6 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - name: Install backend dependencies
-        run: python -m pip install --disable-pip-version-check -r backend/requirements.txt
-
-      - name: Compile backend and scripts
-        run: python -m compileall backend/app backend/tests scripts
-
-      - name: Run backend tests
-        run: python -m unittest discover -s backend/tests -q
-
-      - name: Run deterministic demo evaluation
-        run: python scripts/evaluate-demo.py
-        env:
-          ENABLE_BEDROCK: "false"
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -49,10 +35,5 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
+      - name: Run local verification stack
+        run: bash scripts/check-demo.sh --install
