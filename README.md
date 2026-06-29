@@ -74,6 +74,8 @@ GitHub Actions also runs the backend tests, deterministic evaluation, frontend b
 
 For contribution expectations, safety boundaries, and handoff checklist, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+For backend request/response shape and validation behavior, see [docs/api-contract.md](docs/api-contract.md).
+
 To run the full local verification stack before sharing changes in Codespaces/Linux/macOS:
 
 ```bash
@@ -159,6 +161,12 @@ Agent run:
 curl -X POST http://localhost:8000/api/run ^
   -H "Content-Type: application/json" ^
   -d "{\"latitude\":52.2053,\"longitude\":-1.6022}"
+```
+
+OpenAPI schema:
+
+```bash
+curl http://localhost:8000/openapi.json
 ```
 
 ## Demo Scenarios

@@ -9,7 +9,7 @@ This page is a public-safe readiness snapshot for teammates, judges, and contrib
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Local app startup | Ready for teammate testing | Codespaces/start script documented in [team-test-guide.md](team-test-guide.md). |
-| Backend API | Verified | `/health` and `/api/run` are covered by API contract tests. |
+| Backend API | Verified | `/health`, `/api/run`, request validation, and OpenAPI schema are covered by API contract tests. See [api-contract.md](api-contract.md). |
 | Agent workflow | Verified in deterministic mode | `scripts/evaluate-demo.py` checks nine scenarios. |
 | Frontend build | Verified | `scripts/check-demo.sh` and CI run the production build. |
 | HTTP runtime smoke | Verified | One-command checks start backend and frontend preview, then verify `/health`, `/api/run`, and the frontend shell. |

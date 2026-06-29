@@ -59,6 +59,41 @@ class ApiContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["trace"]), 9)
         self.assertIn("architecture", result)
 
+    def test_run_endpoint_accepts_fixture_pack_alias(self):
+        with EnvPatch(ENABLE_BEDROCK="false"):
+            response = self.client.post(
+                "/api/run",
+                json={"fixture_pack": "public-lambeth-thames", "useBedrock": False},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["runtime"]["fixturePack"], "public-lambeth-thames")
+        self.assertEqual(result["request"]["fixturePack"], "public-lambeth-thames")
+
+    def test_run_endpoint_rejects_invalid_latitude(self):
+        response = self.client.post(
+            "/api/run",
+            json={"latitude": "north", "longitude": -0.118712, "useBedrock": False},
+        )
+
+        self.assertEqual(response.status_code, 422)
+        errors = response.json()["detail"]
+        self.assertTrue(any(error["loc"][-1] == "latitude" for error in errors))
+
+    def test_openapi_documents_run_request_schema(self):
+        response = self.client.get("/openapi.json")
+
+        self.assertEqual(response.status_code, 200)
+        schema = response.json()
+        run_operation = schema["paths"]["/api/run"]["post"]
+        request_ref = run_operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        request_schema_name = request_ref.rsplit("/", 1)[-1]
+        request_schema = schema["components"]["schemas"][request_schema_name]
+        self.assertIn("latitude", request_schema["properties"])
+        self.assertIn("longitude", request_schema["properties"])
+        self.assertIn("fixturePack", request_schema["properties"])
+
     def test_run_endpoint_reports_missing_planning_warning(self):
         with EnvPatch(ENABLE_BEDROCK="false"):
             response = self.client.post(

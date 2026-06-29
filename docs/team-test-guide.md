@@ -164,6 +164,8 @@ The backend exposes a health check endpoint and an `/api/run` endpoint. The defa
 
 `coordinate or data-pack input -> fixture-pack lookup -> cached-public/synthetic features -> scene config -> cached-public/synthetic planning context -> hazard extraction -> annotations -> briefing -> safety gate -> evidence/trace/architecture visualizer`
 
+For the exact request/response fields and validation behavior, see [api-contract.md](api-contract.md).
+
 ## Local Fallback Setup
 
 Run this only if Codespaces is unavailable or slow.
