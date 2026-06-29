@@ -71,13 +71,14 @@ The deterministic evaluation runner covers:
 | Bedrock | Optional local model-assisted briefing only; no hosted public endpoint. |
 | AWS production path | Architecture path only for DynamoDB, S3, CloudWatch, Guardrails, and AgentCore. |
 | Safety/RAMS | Human-review briefing only; not certified RAMS, work approval, or emergency guidance. |
-| Impact metrics | Numeric speed-up claims still need stopwatch baseline evidence. |
+| Impact metrics | [impact-baseline.md](impact-baseline.md) is ready; numeric speed-up claims still need a completed and reviewed timed run. |
 
 ## Before Public Demo Or Submission
 
 - Run `bash scripts/check-demo.sh` or the PowerShell equivalent.
 - Confirm the latest GitHub Actions run is green.
 - Use [demo-proof.md](demo-proof.md) for the 90-second script and recording checklist.
+- Use [impact-baseline.md](impact-baseline.md) before making numeric speed-up claims.
 - Use [demo-recording-runbook.md](demo-recording-runbook.md) for fallback recording acceptance criteria.
 - Keep the demo on fixture data unless a new public-safe source adapter has been reviewed.
 - State clearly what is real, cached, mocked, fallback, and future.
@@ -88,7 +89,7 @@ The deterministic evaluation runner covers:
 | Gate | Responsible Party | Status |
 | --- | --- | --- |
 | Teammate feedback | Project team | Ready to collect through GitHub issue template. |
-| Stopwatch baseline | Demo reviewer | Pending before numeric speed-up claims. |
+| Stopwatch baseline | Demo reviewer | Worksheet ready; measured run pending before numeric speed-up claims. |
 | Fallback recording | Demo reviewer | Runbook ready; actual recording pending before final demo package. |
 | AWS budget/payment guardrail | AWS account owner | Pending before heavy live AWS use. |
 | Hosted public endpoint | Project team | Deferred unless Codespaces fails for teammates or submission needs it. |

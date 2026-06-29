@@ -42,6 +42,8 @@ Conservative claim:
 
 3D-RAMS does not prove end-to-end RAMS automation. It proves that the first-pass desk-review workflow can be compressed into an inspectable review pack while keeping source uncertainty and human review visible.
 
+Use [impact-baseline.md](impact-baseline.md) before making any numeric speed-up claim. Until a timed baseline has been completed and reviewed, keep impact language qualitative.
+
 ## Test Scenarios
 
 For repeatable backend proof, run `python scripts/evaluate-demo.py` from the repo root. The runner forces no-AWS deterministic mode and checks the scenarios below plus unknown fixture-pack fallback. See [evaluation.md](evaluation.md).
