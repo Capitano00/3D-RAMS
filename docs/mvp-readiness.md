@@ -6,6 +6,12 @@ This page is a public-safe readiness snapshot for teammates, judges, and contrib
 
 ## Current Status
 
+Latest verified snapshot:
+
+- Commit: `2f3e105`
+- GitHub Actions: run `28363827560` passed on `main`.
+- Full local no-AWS verification: `powershell -ExecutionPolicy Bypass -File .\scripts\check-demo.ps1` passed with backend/API tests, deterministic evaluation, frontend build, and HTTP runtime smoke.
+
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Local app startup | Ready for teammate testing | Codespaces/start script documented in [team-test-guide.md](team-test-guide.md). |
@@ -91,5 +97,5 @@ The deterministic evaluation runner covers:
 | Teammate feedback | Project team | Ready to collect through GitHub issue template. |
 | Stopwatch baseline | Demo reviewer | Worksheet ready; measured run pending before numeric speed-up claims. |
 | Fallback recording | Demo reviewer | Runbook ready; actual recording pending before final demo package. |
-| AWS budget/payment guardrail | AWS account owner | Pending before heavy live AWS use. |
+| AWS budget/payment guardrail | AWS account owner | Pending before controlled live Bedrock verification, repeated live Bedrock use, or additional AWS services. |
 | Hosted public endpoint | Project team | Deferred unless Codespaces fails for teammates or submission needs it. |
