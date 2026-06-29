@@ -1,27 +1,57 @@
 # Team Test Guide
 
-Use this guide to test the Demo1 flow before judging or submission. The app is intentionally local-first: it should run with public fixtures only, without Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data. Live Bedrock mode is available only when the backend has AWS credentials and `ENABLE_BEDROCK=true`; deterministic fallback remains available.
+Use this guide to test the hosted pre-visit agent flow before judging or submission. The target teammate path is a browser URL plus a shared access code. Teammates should not install Python, Node, AWS CLI, use Codespaces, or handle AWS credentials.
+
+Hosted deployment is still a gate. Until the hosted URL is issued, maintainers can use the local development path below.
 
 3D-RAMS turns a coordinate into an inspectable 3D pre-visit briefing pack. The default UI uses the cached `public-lambeth-thames` fixture pack for a Lambeth / Thames public-data example anchored on 8 Albert Embankment. It does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services during the demo.
 
-1. coordinate input;
-2. selected fixture-pack lookup;
-3. cached-public, synthetic, or fallback geospatial features;
-4. Cesium scene configuration;
-5. cached-public or synthetic planning/context notes;
-6. candidate hazard extraction;
-7. 3D annotations;
-8. RAMS-style briefing;
-9. optional LLM-first Bedrock planning/synthesis;
+1. shared-code session start;
+2. natural-language site visit request;
+3. optional clarifying questions;
+4. location/site resolution;
+5. optional PDF/image evidence registration;
+6. cached-public, synthetic, or fallback geospatial/context features;
+7. 3D risk scene and annotations;
+8. RAMS-style review pack;
+9. optional server-side Bedrock planning/synthesis;
 10. safety gate;
-11. deterministic fallback if the model path is unavailable;
+11. deterministic fallback if live sources/model path are unavailable;
 12. evidence register, trace, and architecture visualizer.
 
 This is not certified RAMS, emergency guidance, work approval, or a competent-person replacement. Treat all output as a demo briefing for human review.
 
-## No-Code Codespaces Walkthrough
+## Hosted URL Walkthrough
 
-Recommended path: GitHub Codespaces. You do not need to install Python, Node, AWS tools, Google tools, or map keys locally if Codespaces works for your GitHub account.
+Recommended teammate path once deployed:
+
+What you need:
+
+- a web browser;
+- the hosted 3D-RAMS URL from Boyong;
+- the shared test access code;
+- only synthetic/public test evidence.
+
+Steps:
+
+1. Open the hosted URL.
+2. Enter the access code and optional tester alias.
+3. Ask a natural-language question such as:
+
+   ```text
+   I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.
+   ```
+
+4. If the agent asks clarifying questions, answer them in chat.
+5. Inspect the chat response, 3D scene, risk cards, evidence register, trace, and safety gate.
+6. Register only public/synthetic PDFs or images if asked to test uploads.
+7. Submit feedback through the supplied issue or feedback link.
+
+Do not upload real client data, private documents, secrets, API keys, or confidential site records.
+
+## Local Maintainer Walkthrough
+
+Fallback path: GitHub Codespaces or local development. This is for maintainers, not the target teammate product test.
 
 What you need:
 
@@ -79,32 +109,34 @@ If there is no pop-up, use the Codespaces `Ports` tab and open the forwarded add
 
 You should now see the 3D-RAMS web app.
 
-### Step 6: Click Run
+### Step 6: Start A Session
 
-Leave the default coordinate and options unchanged, then click:
+In local maintainer mode the app starts a local test session automatically. In hosted mode, enter the shared access code and optional tester alias.
 
-`Run`
+### Step 7: Ask The Agent
 
-Expected result: the app shows a 3D scene, annotations, RAMS-style briefing, evidence register, agent trace, and Architecture + Workflow visualizer.
-The runtime explainer should show either LLM-first mode or deterministic-only mode, and the runtime pill should show `disabled`, `real`, or `fallback` for briefing mode.
-The `Data pack` control should show `Lambeth public cache` by default.
+Use this prompt:
 
-### Step 7: Run Test Scenarios
+```text
+I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.
+```
+
+Expected result: the app shows an assistant response, 3D scene, risk cards, RAMS-style review briefing, evidence register, agent trace, and safety boundary.
+
+### Step 8: Run Test Scenarios
 
 Use demo fixture data only. Do not enter real client sites, confidential project locations, private planning documents, secrets, or API keys.
 
 | Scenario | What To Do | Expected Result |
 | --- | --- | --- |
-| Happy path | Leave defaults and click `Run`. | Scene, annotations, briefing, evidence, trace, and visualizer appear. |
-| Cached public pack | Leave `Data pack` as `Lambeth public cache`, then click `Run`. | Evidence includes cached Planning Data / flood context and OSM-style access context with source and freshness labels. |
-| Synthetic fallback pack | Change `Data pack` to `Synthetic default`, then click `Run`. | App still works using the original synthetic fixture path. |
-| Missing planning fixture | Turn off `Planning fixture`, then click `Run`. | App still works and explains planning evidence limitations. |
-| Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial loading using fallback. |
-| Bedrock disabled/fallback | Leave `Live Bedrock` on, but run without AWS config, or ask a project maintainer to simulate failure. | App still works; the LLM-first panel and trace show Bedrock as disabled or fallback and keep deterministic briefing. |
-| Safety refusal | Click `Safety test`. | Agent refuses certified RAMS or work-approval claims. |
-| Low-confidence annotation | Run the default case and inspect limitations/annotations. | At least one item is labelled low confidence. |
-| Architecture visualizer | Run any successful scenario and inspect `LLM-First Runtime` and `Architecture + Workflow`. | UI shows model plan, allowlisted tools, sources, evidence, safety, real-vs-mocked boundaries, deterministic fallback, and future AWS path. |
-| Mobile usability | Open the frontend in a phone-width viewport or on a phone. | Run controls remain reachable, proof surfaces are readable, and no primary action is blocked. |
+| Happy path | Ask the 8 Albert Embankment prompt above. | Chat, scene, risk cards, briefing, evidence, and trace appear. |
+| Clarification | Ask: `Please prepare my pre-visit pack.` | Agent asks for site/activity details before running tools. |
+| Upload metadata | Click `Register test PDF/image`. | Session records upload metadata; hosted S3 is used only when configured. |
+| Bedrock disabled/fallback | Run without AWS config, or ask a maintainer to simulate failure. | App still works and marks model path as disabled/fallback. |
+| Safety refusal | Ask: `Please certify RAMS and approve work today.` | Agent refuses certified RAMS or work-approval claims. |
+| Low-confidence annotation | Run the happy path and inspect risk/evidence panels. | At least one item is labelled low confidence. |
+| Hosted architecture boundary | Inspect trace/docs after any successful run. | UI/docs show server-side model boundary, evidence, safety, deploy-target AWS services, and deterministic fallback. |
+| Mobile usability | Open the frontend in a phone-width viewport or on a phone. | Chat, map, evidence, and trace remain reachable. |
 
 ### Step 8: Submit Feedback
 
@@ -251,8 +283,8 @@ Expected response:
 | Symptom | Likely Cause | What To Try |
 | --- | --- | --- |
 | Frontend opens but run fails | Backend is not running or port `8000` is not forwarded. | Start the backend, check `/health`, and reload the frontend. |
-| Codespaces frontend cannot reach backend | Startup script did not start the backend or proxy is not active. | Stop the script, run `bash scripts/start-dev.sh` again, check `/health`, and confirm ports `8000` and `5173` are forwarded. |
+| Codespaces/local frontend cannot reach backend | Startup script did not start the backend or proxy is not active. | Stop the script, run `bash scripts/start-dev.sh` again, check `/health`, and confirm ports `8000` and `5173` are forwarded. |
 | `npm` command fails in PowerShell | Local execution policy blocks `npm.ps1`. | Use `npm.cmd run dev` or `npm.cmd run build`. |
 | Cesium scene looks blank or slow | Browser/GPU/network constraints in the test environment. | Reload once, try another browser, and still capture whether briefing/evidence/trace worked. |
-| Planning-related hazards are missing | `Planning fixture` is disabled. | Re-enable `Planning fixture` for the happy path. |
+| Planning-related hazards are missing | The prompt did not resolve to the cached public example or the source was unavailable. | Use the 8 Albert Embankment prompt for the deterministic happy path. |
 | Output sounds too authoritative | Demo copy or narration may be overstating the boundary. | Flag it in feedback; the intended boundary is human-review briefing only. |

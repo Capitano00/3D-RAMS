@@ -66,3 +66,45 @@ class SiteBriefRequest(BaseModel):
 
     def to_agent_request(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)
+
+
+class SessionStartRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    accessCode: str | None = Field(
+        default=None,
+        max_length=160,
+        description="Shared tester access code. The backend validates it before any model call.",
+    )
+    testerAlias: str | None = Field(
+        default=None,
+        max_length=80,
+        description="Optional tester alias for evaluation tracing. Do not put private data here.",
+    )
+
+
+class UploadUrlRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sessionId: str = Field(min_length=8, max_length=80)
+    filename: str = Field(min_length=1, max_length=180)
+    contentType: Literal["application/pdf", "image/png", "image/jpeg"] = Field(
+        description="Allowed hosted MVP evidence upload type.",
+    )
+    sizeBytes: int | None = Field(default=None, ge=0, le=10_000_000)
+
+
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sessionId: str = Field(min_length=8, max_length=80)
+    message: str = Field(min_length=1, max_length=3000)
+    uploadedFileIds: list[str] = Field(default_factory=list, max_length=8)
+    useBedrock: bool = Field(default=True)
+
+
+class SessionResponse(BaseModel):
+    sessionId: str
+    testerAlias: str | None
+    accessLabel: str
+    runtime: dict[str, Any]

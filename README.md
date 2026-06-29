@@ -2,9 +2,9 @@
 
 ![CI](https://github.com/Capitano00/3D-RAMS/actions/workflows/ci.yml/badge.svg)
 
-3D-RAMS is a hackathon Demo1 agent that turns a site coordinate into a 3D pre-visit briefing pack.
+3D-RAMS is a hosted pre-visit agent product that turns a natural-language site visit request into an inspectable 3D review pack.
 
-The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, or hosted infrastructure. The default UI uses a cached public Lambeth / Thames fixture pack. When `ENABLE_BEDROCK=true` and maintainer AWS credentials are configured, the run becomes LLM-first for planning/synthesis while keeping deterministic tools, trace, safety, and a no-AWS fallback path.
+The current rebuild makes chat the primary interface: a tester asks for a site visit briefing, the backend runs server-side tools, and the UI updates with a 3D risk scene, evidence register, trace, confidence/fallback notes, safety gate, and RAMS-style review pack for human review. Bedrock access stays server-side.
 
 ## Problem Statement
 
@@ -20,45 +20,40 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 
 ## Demo Workflow
 
-1. User enters a coordinate or selects the cached public Lambeth data pack.
-2. The backend resolves the selected fixture pack or synthetic fallback.
-3. The agent loads cached-public, synthetic, or fallback geospatial features.
-4. The agent builds a Cesium scene configuration.
-5. The agent loads cached-public or synthetic planning/context notes.
-6. The agent extracts candidate hazard notes.
-7. The agent creates 3D annotations.
-8. The model planner can synthesize a plan and call only allowlisted tools when live Bedrock is enabled.
-9. The agent synthesizes a RAMS-style briefing from tool results and evidence.
-10. A safety gate blocks certified RAMS, work approval, and emergency guidance claims.
-11. Deterministic fallback remains available if the model step is disabled, rejected, or fails.
-12. The UI shows the 3D scene, briefing, evidence register, trace, runtime mode, and architecture visualizer.
+1. User starts a test session with a shared access code.
+2. User asks for a site visit review pack in natural language.
+3. Agent asks clarifying questions if the site/activity is missing.
+4. Backend resolves the site using live-first adapters or cached fallback fixtures.
+5. Agent registers uploaded PDF/image evidence metadata.
+6. Agent runs allowlisted location, context, weather, map, risk, briefing, and safety tools.
+7. Backend optionally calls Amazon Bedrock server-side when enabled.
+8. UI updates chat, 3D scene, risk cards, evidence, trace, and safety boundary.
+9. Session/run metadata is shaped for DynamoDB evaluation tracing.
 
 ## Real vs Mocked
 
 | Component | Demo1 Status | Notes |
 | --- | --- | --- |
-| Agent workflow | Real Python code | Tool sequence, evidence, trace, safety gate, deterministic fallback, and response shape are implemented. Frontend now explains both LLM-first and deterministic runs. |
+| Agent workflow | Real Python code | Chat session, tool sequence, evidence, trace, safety gate, deterministic fallback, and response shape are implemented. |
 | Public data pack | Cached public fixture | `fixtures/public-lambeth-thames` includes source metadata for a Lambeth / Thames public-data pack anchored on 8 Albert Embankment. Runtime makes no live public-data calls. |
 | Bedrock planner + briefing | Optional live AWS path | Maintainer-only live Bedrock path uses a bounded planner/synthesis path, capped at 4 model calls per run, when `ENABLE_BEDROCK=true`; deterministic fallback remains available. |
 | 3D viewer | Real React/Vite + CesiumJS UI | Uses a token-free Cesium canvas plus local scene overlay and annotations. |
 | Geospatial features | Cached-public or mocked fixture | Default pack uses cached public-source metadata; synthetic fallback uses `fixtures/geospatial_features.json`. |
 | Planning/context notes | Cached-public or synthetic fixture | Default pack uses cached public-safe notes and source metadata; synthetic fallback uses `fixtures/planning_report.txt`. |
-| AWS | Partially live when configured | Bedrock briefing can be live; DynamoDB, S3, CloudWatch, Guardrails, and AgentCore remain production-path stages. |
+| AWS | Deploy-ready interfaces | Bedrock can be live server-side when configured; Lambda adapter, S3 upload adapter, and DynamoDB trace adapter are present. Amplify/API Gateway/Lambda deployment remains a gate. |
 | Google Maps / Earth / 3D Tiles | Not used | Kept out of Demo1 to avoid key, cost, licensing, and freshness risk. |
 
-## Teammate Testing
+## Hosted Teammate Testing
 
-The easiest teammate test path is GitHub Codespaces. Open the repo in Codespaces, then run:
+Target teammate path is a hosted browser URL plus a shared access code. Teammates should not run Python, Node, Codespaces, AWS CLI, or AWS credentials.
 
-```bash
-bash scripts/start-dev.sh
-```
+Hosted deployment is not yet complete. The deploy-ready product path is documented in [docs/hosted-aws-product.md](docs/hosted-aws-product.md).
 
-Codespaces should forward the frontend on port `5173` and backend on port `8000`. Use [docs/team-test-guide.md](docs/team-test-guide.md) for the scenario checklist and feedback template.
+Local development remains available for maintainers while the AWS deployment gates are cleared. Use [docs/team-test-guide.md](docs/team-test-guide.md) for the current scenario checklist.
 
 No AWS, Google Maps, Cesium ion token, or real site data is required.
 
-The UI defaults to the cached `public-lambeth-thames` pack. Use the `Data pack` control to switch to the older synthetic fixture path.
+The chat UI defaults to a public-safe Lambeth example when the prompt references 8 Albert Embankment or when local fallback needs a deterministic fixture.
 
 For the 90-second walkthrough, before/after proof, and recording checklist, use [docs/demo-proof.md](docs/demo-proof.md).
 
@@ -78,7 +73,7 @@ GitHub Actions also runs the backend tests, deterministic evaluation, frontend b
 
 For contribution expectations, safety boundaries, and handoff checklist, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For backend request/response shape and validation behavior, see [docs/api-contract.md](docs/api-contract.md).
+For backend request/response shape and validation behavior, including `/api/session/start`, `/api/upload-url`, and `/api/chat`, see [docs/api-contract.md](docs/api-contract.md).
 
 To run the full local verification stack before sharing changes in Codespaces/Linux/macOS:
 
@@ -110,7 +105,7 @@ The check runs backend compile/tests, deterministic evaluation, frontend product
 
 The app defaults to deterministic fallback unless the backend is started with Bedrock enabled. In the current milestone, the intended public explanation is:
 
-- `Live Bedrock enabled`: LLM-first planner/synthesis path, with allowlisted tool calls, evidence trace, safety gate, and deterministic fallback.
+- `Hosted Bedrock enabled`: server-side LLM planner/synthesis path, with allowlisted tool calls, evidence trace, safety gate, and deterministic fallback.
 - `No AWS / Bedrock disabled`: deterministic agent path only.
 - `Future AWS path`: CloudWatch, S3, DynamoDB, Guardrails, and AgentCore remain later production-shaped stages.
 
@@ -134,7 +129,7 @@ Run a low-volume smoke test:
 python scripts/bedrock-smoke.py
 ```
 
-Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client/site data. The UI shows whether a run used LLM-first runtime, deterministic mode, or fallback. Live Bedrock remains maintainer-only.
+Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client/site data. The UI shows whether a run used LLM-first runtime, deterministic mode, or fallback. Hosted Bedrock remains server-side and maintainer-controlled until the AWS deployment gate is cleared.
 
 ## Local Quickstart
 
@@ -182,14 +177,13 @@ curl http://localhost:8000/openapi.json
 
 | Scenario | How to Run | Expected Result |
 | --- | --- | --- |
-| Happy path | Click `Run` | Scene, annotations, briefing, evidence, and trace are returned. |
-| Cached public pack | Leave `Data pack` as `Lambeth public cache`, click `Run` | Sources include cached Planning Data / flood context and OSM-style access context with attribution and freshness labels. |
-| Missing data | Disable `Planning fixture`, click `Run` | Briefing continues with a planning-evidence limitation. |
-| Tool failure | Enable `Map fallback`, click `Run` | Trace marks geospatial loading as `fallback`. |
-| Bedrock fallback | Enable `Live Bedrock` in UI while backend has no AWS config, or set `BEDROCK_SIMULATE_FAILURE=true` | LLM-first panel and trace mark the model step as `disabled` or `fallback`; deterministic briefing remains available. |
-| Unsafe request | Click `Safety test` | Safety gate blocks certified RAMS/work approval behavior. |
-| Low confidence | Normal run | Imagery-derived bridge indicator is labelled low confidence. |
-| Architecture visualizer | Normal run | UI shows model plan, allowlisted tools, evidence flow, safety gate, AWS path, and real-vs-mocked status. |
+| Happy path | Ask: `I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.` | Chat, scene, risk cards, briefing, evidence, and trace are returned. |
+| Clarification | Ask for a pack without giving a site. | Agent asks targeted questions before running tools. |
+| Upload metadata | Register a test PDF/image. | Upload evidence metadata is attached to the session; S3 is used only when configured. |
+| Bedrock fallback | Run without backend Bedrock config, or set `BEDROCK_SIMULATE_FAILURE=true`. | Runtime marks model path as disabled/fallback; deterministic briefing remains available. |
+| Unsafe request | Ask the agent to certify RAMS or approve work. | Safety gate blocks certified RAMS/work approval behavior. |
+| Low confidence | Run the Lambeth prompt and inspect risk/evidence panels. | Low-confidence items remain visible for human review. |
+| Architecture visualizer | Inspect architecture docs/trace after a run. | UI/docs show server-side Bedrock boundary, evidence flow, safety gate, and deploy-target AWS services. |
 
 ## AWS Production Path
 

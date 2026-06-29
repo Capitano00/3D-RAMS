@@ -25,6 +25,14 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_list(name: str, default: list[str]) -> list[str]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    return items or default
+
+
 @dataclass(frozen=True)
 class RuntimeConfig:
     bedrock_requested: bool
@@ -37,6 +45,13 @@ class RuntimeConfig:
     bedrock_max_model_calls: int
     bedrock_mock_response: bool
     bedrock_simulate_failure: bool
+    app_env: str
+    allowed_origins: list[str]
+    app_access_token_hash: str | None
+    app_access_code_label: str
+    s3_upload_bucket: str | None
+    dynamodb_session_table: str | None
+    upload_retention_days: int
 
     @classmethod
     def from_env(cls, *, request_bedrock: bool = True) -> "RuntimeConfig":
@@ -55,6 +70,16 @@ class RuntimeConfig:
             bedrock_max_model_calls=min(max(_env_int("BEDROCK_MAX_MODEL_CALLS", 4), 0), 4),
             bedrock_mock_response=_env_bool("BEDROCK_MOCK_RESPONSE", False),
             bedrock_simulate_failure=_env_bool("BEDROCK_SIMULATE_FAILURE", False),
+            app_env=os.getenv("APP_ENV", "local"),
+            allowed_origins=_env_list(
+                "ALLOWED_ORIGINS",
+                ["http://localhost:5173", "http://127.0.0.1:5173"],
+            ),
+            app_access_token_hash=os.getenv("APP_ACCESS_TOKEN_HASH") or None,
+            app_access_code_label=os.getenv("APP_ACCESS_CODE_LABEL", "local-dev"),
+            s3_upload_bucket=os.getenv("S3_UPLOAD_BUCKET") or None,
+            dynamodb_session_table=os.getenv("DYNAMODB_SESSION_TABLE") or None,
+            upload_retention_days=_env_int("UPLOAD_RETENTION_DAYS", 7),
         )
 
     def public_runtime(self, *, status: str, fallback_reason: str | None = None) -> dict[str, object]:

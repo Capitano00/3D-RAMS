@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.main import app  # noqa: E402
+from app.access import hash_access_code  # noqa: E402
 
 
 class EnvPatch:
@@ -118,6 +119,32 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(result["modelCalls"], [])
         self.assertEqual(result["fallback"]["status"], "fallback")
 
+    def test_run_endpoint_requires_access_header_when_hosted_access_hash_is_set(self):
+        with EnvPatch(
+            APP_ACCESS_TOKEN_HASH=hash_access_code("team-code"),
+            ENABLE_BEDROCK="true",
+            BEDROCK_MOCK_RESPONSE="true",
+        ):
+            response = self.client.post(
+                "/api/run",
+                json={"fixturePack": "public-lambeth-thames", "useBedrock": True},
+            )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_run_endpoint_accepts_access_header_when_hosted_access_hash_is_set(self):
+        with EnvPatch(
+            APP_ACCESS_TOKEN_HASH=hash_access_code("team-code"),
+            ENABLE_BEDROCK="false",
+        ):
+            response = self.client.post(
+                "/api/run",
+                headers={"X-3DRAMS-Access": "team-code"},
+                json={"fixturePack": "public-lambeth-thames", "useBedrock": False},
+            )
+
+        self.assertEqual(response.status_code, 200)
+
     def test_run_endpoint_reports_missing_planning_warning(self):
         with EnvPatch(ENABLE_BEDROCK="false"):
             response = self.client.post(
@@ -155,6 +182,110 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(result["annotations"], [])
         self.assertEqual(result["hazards"], [])
         self.assertIn("certify rams", result["safety"]["triggeredRules"])
+
+    def test_session_start_allows_local_dev_without_access_hash(self):
+        with EnvPatch(APP_ACCESS_TOKEN_HASH=None):
+            response = self.client.post(
+                "/api/session/start",
+                json={"testerAlias": "qa"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result["sessionId"].startswith("session-"))
+        self.assertEqual(result["accessLabel"], "local-dev")
+        self.assertEqual(result["runtime"]["accessMode"], "local-dev-open")
+
+    def test_session_start_rejects_invalid_access_code_when_hash_is_set(self):
+        with EnvPatch(APP_ACCESS_TOKEN_HASH="bad-hash"):
+            response = self.client.post(
+                "/api/session/start",
+                json={"accessCode": "wrong"},
+            )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_chat_endpoint_returns_clarifying_questions_without_site_signal(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Please prepare my pre-visit pack.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result["needsClarification"])
+        self.assertEqual(result["runtime"]["activeAgentMode"], "clarification")
+        self.assertGreaterEqual(len(result["clarifyingQuestions"]), 1)
+        self.assertEqual(result["modelCalls"], [])
+
+    def test_chat_endpoint_runs_hosted_agent_contract_with_public_fixture(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertFalse(result["needsClarification"])
+        self.assertIn("RAMS-style pre-visit review pack", result["assistantMessage"])
+        self.assertIn("uiState", result)
+        self.assertIn("scene", result["uiState"])
+        self.assertIn("evidence", result["uiState"])
+        self.assertIn("trace", result["uiState"])
+        self.assertTrue(result["safety"]["allowed"])
+        self.assertEqual(result["runtime"]["hostedProductMode"], True)
+
+    def test_chat_endpoint_reports_actual_memory_fallback_when_dynamodb_is_unavailable(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="false",
+            APP_ACCESS_TOKEN_HASH=None,
+            DYNAMODB_SESSION_TABLE="missing-local-table",
+            AWS_EC2_METADATA_DISABLED="true",
+        ):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(session["runtime"]["sessionTraceMode"], "memory-fallback")
+        self.assertEqual(result["runtime"]["sessionTraceMode"], "memory-fallback")
+
+    def test_upload_url_returns_local_mock_when_s3_is_unconfigured(self):
+        with EnvPatch(APP_ACCESS_TOKEN_HASH=None, S3_UPLOAD_BUCKET=None):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/upload-url",
+                json={
+                    "sessionId": session["sessionId"],
+                    "filename": "site-photo.jpg",
+                    "contentType": "image/jpeg",
+                    "sizeBytes": 1024,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["status"], "mocked")
+        self.assertEqual(result["storageMode"], "local-mock")
 
 
 if __name__ == "__main__":

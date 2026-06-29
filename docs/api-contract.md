@@ -1,15 +1,19 @@
 # API Contract
 
-3D-RAMS exposes a small local API for the demo frontend, runtime smoke tests, and teammate inspection.
+3D-RAMS exposes a hosted-product API for the chat-first pre-visit agent, plus the older `/api/run` compatibility route used by regression tests.
 
-The API is intentionally local-first. It does not require AWS credentials, Google keys, live planning portals, hosted infrastructure, real site data, or private documents.
+The frontend never calls Bedrock directly. Hosted model calls, uploads, session tracing, and safety checks happen server-side.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Confirms the backend is reachable. |
-| `POST` | `/api/run` | Runs the coordinate-to-briefing agent workflow. |
+| `POST` | `/api/session/start` | Validates the shared access code and starts a tester session. |
+| `POST` | `/api/upload-url` | Registers PDF/image evidence and returns an S3 presigned upload URL when hosted storage is configured. |
+| `POST` | `/api/chat` | Runs the chat-first hosted agent workflow. |
+| `GET` | `/api/session/{sessionId}` | Returns session metadata and run summaries for refresh/debug. |
+| `POST` | `/api/run` | Compatibility route for the older coordinate-to-briefing workflow. |
 | `GET` | `/openapi.json` | Returns the generated OpenAPI schema from FastAPI. |
 
 ## Health Response
@@ -21,7 +25,62 @@ The API is intentionally local-first. It does not require AWS credentials, Googl
 }
 ```
 
-## Run Request
+## Session Start
+
+`POST /api/session/start`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `accessCode` | string or null | Shared tester code. If `APP_ACCESS_TOKEN_HASH` is configured, invalid or missing codes return `401`. |
+| `testerAlias` | string or null | Optional tester alias for evaluation tracing. Do not put private data here. |
+
+Response:
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId` | Opaque session id used by chat/upload calls. |
+| `testerAlias` | Optional alias echoed back. |
+| `accessLabel` | Backend-side access-code label, not the code itself. |
+| `runtime` | Access and trace mode metadata. |
+
+## Upload URL
+
+`POST /api/upload-url`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `sessionId` | string | Session id from `/api/session/start`. |
+| `filename` | string | Original filename for metadata only. |
+| `contentType` | string | `application/pdf`, `image/png`, or `image/jpeg`. |
+| `sizeBytes` | number or null | Must be no more than 10 MB when supplied. |
+
+If `S3_UPLOAD_BUCKET` is configured, the response includes a short-lived presigned `uploadUrl`. In local mode it returns `local-mock://...` so the UI and tests can exercise the flow without S3.
+
+## Chat Request
+
+`POST /api/chat`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `sessionId` | string | Required tester session id. |
+| `message` | string | Natural-language user request, for example a site visit briefing prompt. |
+| `uploadedFileIds` | string array | Optional ids returned by `/api/upload-url`. |
+| `useBedrock` | boolean | Requests server-side Bedrock. Environment config still controls whether Bedrock is used. |
+
+Important response fields:
+
+| Field | Meaning |
+| --- | --- |
+| `assistantMessage` | Natural-language agent response. |
+| `needsClarification` | Whether the agent needs more site/activity information before running tools. |
+| `clarifyingQuestions` | Questions for the user when needed. |
+| `uiState` | Map, annotations, hazards, evidence, sources, briefing, safety, trace, and architecture data for the frontend panels. |
+| `runtime` | Hosted mode, Bedrock/fallback mode, latency, and session trace mode. |
+| `trace` | Ordered visible tool timeline. |
+| `modelCalls` | Server-side model call metadata when Bedrock is actually used. |
+| `safety` | Safety gate result. |
+
+## Compatibility Run Request
 
 All fields are optional. Unknown fields are ignored so teammate test payloads can stay forgiving, but known fields are validated.
 

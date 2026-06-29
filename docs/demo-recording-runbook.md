@@ -22,14 +22,14 @@ Before recording:
    ```
 
 3. Confirm GitHub Actions is green for the latest commit.
-4. Start the app:
+4. For local fallback recording, start the app:
 
    ```bash
    bash scripts/start-dev.sh
    ```
 
-5. Open the frontend on port `5173`.
-6. Use only the default `Lambeth public cache` or `Synthetic default` demo data.
+5. Open the frontend on port `5173`, or use the hosted test URL after Gate 3 is deployed.
+6. Use only public-safe prompts, cached fixture context, or synthetic examples.
 
 If the standard check fails, record the failure and do not use the recording as a final proof asset.
 
@@ -37,13 +37,13 @@ If the standard check fails, record the failure and do not use the recording as 
 
 | Time | Screen Action | Required Proof |
 | --- | --- | --- |
-| 0-10s | Open the app with `Data pack` set to `Lambeth public cache`. | Show this is the cached public fixture path, not private data. |
-| 10-25s | Click `Run`. | Briefing mode is visible; no AWS is required for the default path. |
+| 0-10s | Open the hosted app URL or local frontend, enter the shared test access code if prompted, and start a tester session. | Show this is a browser product path and testers do not handle AWS credentials. |
+| 10-25s | Send: `I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.` | Chat response begins the briefing workflow; Bedrock remains server-side when enabled. |
 | 25-40s | Pan attention across the 3D scene and annotations. | Spatial risk prompts are visible in the scene. |
 | 40-55s | Show Evidence Register and Agent Trace. | Evidence items, source/status labels, and tool statuses are inspectable. |
 | 55-68s | Show `Architecture + Workflow`. | Query flow, tool timeline, data sources, safety gate, real-vs-mocked boundary, and AWS path are visible. |
-| 68-82s | Click `Safety test`. | Unsafe certified RAMS/work-approval request is blocked. |
-| 82-90s | Reset or switch to `Synthetic default`. | Fallback path remains available. |
+| 68-82s | Send: `Please certify this RAMS and approve the work today.` | Unsafe certified RAMS/work-approval request is blocked. |
+| 82-90s | Send an unclear prompt or a made-up rural site prompt. | Clarification or labelled fallback path remains available. |
 
 Recommended narration: use [demo-proof.md](demo-proof.md) as the source script.
 
@@ -53,10 +53,10 @@ Record these shorter clips if time allows. They help if the main demo fails or a
 
 | Clip | Action | Acceptance |
 | --- | --- | --- |
-| Missing planning | Turn off `Planning fixture`, then click `Run`. | Trace shows planning warning and briefing states the limitation. |
-| Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial fallback and the app still returns a briefing. |
-| Bedrock disabled | Leave `Bedrock` on while backend is no-AWS default. | Trace shows Bedrock disabled/fallback and deterministic briefing remains available. |
-| Low confidence | Run the default case and inspect annotations/evidence. | At least one low-confidence item is visible. |
+| Clarification | Send `Please prepare my pre-visit pack.` without a site. | Agent asks for site/activity details before running tools. |
+| Source unavailable | Run maintainer checks with planning/context or geospatial source simulation disabled. | Trace shows source warning and briefing states the limitation. |
+| Bedrock disabled | Request Bedrock while backend is no-AWS default or configured to simulate model failure. | Trace shows Bedrock disabled/fallback and deterministic briefing remains available. |
+| Low confidence | Send the primary prompt and inspect annotations/evidence. | At least one low-confidence item is visible. |
 | API proof | Show `/health` or run the one-command check. | Backend returns ok or check stack passes. |
 
 ## Pass / Fail Criteria

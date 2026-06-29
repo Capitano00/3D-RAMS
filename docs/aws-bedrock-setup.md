@@ -2,6 +2,8 @@
 
 This guide is for maintainers who want to test the optional live Bedrock LLM-first path. It is not required for normal teammate testing, Codespaces testing, CI, or the deterministic demo.
 
+For the hosted product rebuild, Bedrock must remain server-side behind API Gateway/Lambda. Do not expose Bedrock credentials, AWS profiles, or model calls from the browser.
+
 Default 3D-RAMS behavior remains local and no-AWS:
 
 - `ENABLE_BEDROCK=false`;
@@ -18,6 +20,16 @@ Before repeated live Bedrock testing:
 2. Confirm payment preferences are understood.
 3. Create a small budget alert, such as `25 USD/month`.
 4. Keep usage low: no more than 4 Bedrock model calls per maintainer run.
+
+For hosted teammate testing, use a stricter first gate:
+
+- shared access code required before any model call;
+- API Gateway throttling enabled;
+- Lambda reserved concurrency considered;
+- target one Bedrock synthesis call per run until evaluation proves more calls are needed;
+- `BEDROCK_MAX_TOKENS=1200`;
+- `BEDROCK_TEMPERATURE=0.2`;
+- CloudWatch logs only structured run metadata, not access codes or uploaded file contents.
 5. Never use real client data, private site records, secrets, or access-controlled documents in prompts.
 
 For one-off local smoke testing, use short fixture prompts only and stop if the response is slow, repeatedly failing, or unexpectedly costly.

@@ -1,6 +1,6 @@
 # 3D-RAMS Architecture
 
-This document is the public, living architecture reference for Demo1. It explains what the agent does today, what is mocked, what is real, and how the same run shape can map to AWS later.
+This document is the public, living architecture reference for the 3D-RAMS hosted pre-visit agent. It explains what the agent does today, what is mocked, what is real, and how the run shape maps to AWS.
 
 3D-RAMS creates a pre-visit briefing pack for human review. It does not create certified RAMS, emergency guidance, approval to work, or a competent-person replacement.
 
@@ -10,9 +10,31 @@ The milestone now has three public-safe runtime interpretations:
 
 - `Current live Bedrock planner`: maintainer-only path when `ENABLE_BEDROCK=true` and AWS credentials are present. The model plans/synthesizes, but tools, evidence, and safety remain explicit and inspectable.
 - `Current no-AWS fallback`: deterministic local path when Bedrock is disabled, unavailable, rejected by safety, or fails.
+- `Hosted product path`: browser user opens a hosted URL, starts a shared-code test session, chats with the pre-visit agent, and receives chat, 3D scene, evidence, trace, confidence, and safety output.
 - `Future AWS services`: CloudWatch, S3, DynamoDB, Guardrails, and AgentCore are production-shaped follow-on stages, not a current deployment claim.
 
-## Query-To-Brief Flow
+## Hosted Chat-To-Brief Flow
+
+```mermaid
+flowchart LR
+    User["Browser user"] --> UI["Amplify React chat UI"]
+    UI --> APIGW["API Gateway HTTP API"]
+    APIGW --> Lambda["Lambda FastAPI backend"]
+    Lambda --> Session["Shared-code session + tester alias"]
+    Lambda --> Agent["FieldBrief Agent Orchestrator"]
+    Agent --> Tools["Allowlisted tools"]
+    Tools --> Location["Location resolver"]
+    Tools --> Planning["Planning/context adapter"]
+    Tools --> Weather["Weather adapter"]
+    Tools --> Upload["S3 PDF/image metadata"]
+    Agent --> Bedrock["Bedrock deploy target"]
+    Lambda --> TraceStore["DynamoDB trace target"]
+    Lambda --> Logs["CloudWatch log target"]
+    Lambda --> UIState["Chat, 3D scene, evidence, trace, safety"]
+    UIState --> UI
+```
+
+## Compatibility Query-To-Brief Flow
 
 ```mermaid
 flowchart LR
