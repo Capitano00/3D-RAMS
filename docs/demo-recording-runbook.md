@@ -55,9 +55,9 @@ Record these shorter clips if time allows. They help if the main demo fails or a
 | --- | --- | --- |
 | Missing planning | Turn off `Planning fixture`, then click `Run`. | Trace shows planning warning and briefing states the limitation. |
 | Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial fallback and the app still returns a briefing. |
-| Bedrock disabled | Leave `Bedrock` on while backend is no-AWS default. | Trace shows Bedrock disabled/fallback and deterministic briefing remains available. |
+| Bedrock disabled | Leave `Bedrock` on while AgentCore is in no-AWS default mode. | Trace shows Bedrock disabled/fallback and deterministic briefing remains available. |
 | Low confidence | Run the default case and inspect annotations/evidence. | At least one low-confidence item is visible. |
-| API proof | Show `/health` or run the one-command check. | Backend returns ok or check stack passes. |
+| API proof | Show `/ping` or run the one-command check. | AgentCore returns healthy or check stack passes. |
 
 ## Pass / Fail Criteria
 
@@ -73,7 +73,7 @@ The recording is usable if it shows:
 
 The recording is not usable as final proof if:
 
-- the app fails to load or the backend is unavailable;
+- the app fails to load or the AgentCore runtime is unavailable;
 - evidence or trace is skipped entirely;
 - the safety boundary is not shown;
 - the narration claims certified RAMS, work approval, emergency guidance, live planning extraction, or production deployment;

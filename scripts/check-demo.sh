@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 INSTALL=false
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${TMPDIR:-/tmp}/3d-rams-pycache}"
 
 for arg in "$@"; do
   case "$arg" in
@@ -16,14 +18,14 @@ for arg in "$@"; do
 Usage: bash scripts/check-demo.sh [--install]
 
 Runs the local no-AWS verification stack:
-  - backend/script compile check
-  - backend unit and API contract tests
+  - AgentCore package/script compile check
+  - AgentCore workflow and invocation tests
   - deterministic demo evaluation
   - frontend production build
-  - backend/frontend HTTP runtime smoke test
+  - AgentCore/frontend HTTP runtime smoke test
 
 Options:
-  --install  Install backend and frontend dependencies before checking.
+  --install  Install AgentCore Python package and frontend dependencies before checking.
 USAGE
       exit 0
       ;;
@@ -36,8 +38,8 @@ USAGE
 done
 
 if [ "$INSTALL" = true ]; then
-  echo "Installing backend dependencies"
-  python -m pip install --disable-pip-version-check -r backend/requirements.txt
+  echo "Installing AgentCore Python package"
+  "$PYTHON_BIN" -m pip install --disable-pip-version-check -e app/rams_agentcore
 
   echo "Installing frontend dependencies"
   (
@@ -50,14 +52,21 @@ if [ "$INSTALL" = true ]; then
   )
 fi
 
-echo "Compiling backend, tests, and scripts"
-python -m compileall backend/app backend/tests scripts
+echo "Compiling AgentCore package, tests, and scripts"
+"$PYTHON_BIN" -m compileall \
+  app/rams_agentcore/main.py \
+  app/rams_agentcore/mcp_client \
+  app/rams_agentcore/model \
+  app/rams_agentcore/skills \
+  app/rams_agentcore/tests \
+  app/rams_agentcore/three_d_rams \
+  scripts
 
-echo "Running backend unit and API contract tests"
-python -m unittest discover -s backend/tests -q
+echo "Running AgentCore workflow and invocation tests"
+"$PYTHON_BIN" -m unittest discover -s app/rams_agentcore/tests -q
 
 echo "Running deterministic no-AWS demo evaluation"
-ENABLE_BEDROCK=false python scripts/evaluate-demo.py
+ENABLE_BEDROCK=false "$PYTHON_BIN" scripts/evaluate-demo.py
 
 echo "Building frontend"
 (
@@ -69,7 +78,7 @@ echo "Building frontend"
   npm run build
 )
 
-echo "Running backend/frontend HTTP runtime smoke test"
-python scripts/smoke-runtime.py
+echo "Running AgentCore/frontend HTTP runtime smoke test"
+"$PYTHON_BIN" scripts/smoke-runtime.py
 
 echo "3D-RAMS local verification passed."

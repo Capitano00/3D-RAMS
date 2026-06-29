@@ -2,7 +2,7 @@
 
 3D-RAMS includes a deterministic local evaluation runner for the Demo1 workflow.
 
-The runner is designed for teammate testing, demo rehearsal, and sponsor/judge review. It proves that the backend agent can execute the core review workflow without live AWS, Google Maps, planning portal scraping, or private data.
+The runner is designed for teammate testing, demo rehearsal, and sponsor/judge review. It proves that the AgentCore workflow can execute the core review workflow without live AWS, Google Maps, planning portal scraping, or private data.
 
 ## Run The Evaluation
 
@@ -22,7 +22,7 @@ python scripts/evaluate-demo.py --write docs/evaluation-results/latest.json
 
 ## Continuous Verification
 
-GitHub Actions runs the same deterministic evaluation on pushes and pull requests, alongside backend compile checks, backend unit/API contract tests, the frontend production build, and a no-AWS HTTP runtime smoke test.
+GitHub Actions runs the same deterministic evaluation on pushes and pull requests, alongside AgentCore package tests, the frontend production build, and a no-AWS HTTP runtime smoke test.
 
 The CI workflow does not use AWS credentials, Google Maps keys, live planning portals, or hosted infrastructure.
 
@@ -82,7 +82,7 @@ This keeps the evaluation stable and cheap. It also proves that the app remains 
 ## What This Proves
 
 - The agent workflow is repeatable in local no-key mode.
-- The backend and frontend preview can start over HTTP and serve the default no-AWS runtime path.
+- The AgentCore runtime and frontend preview can start over HTTP and serve the default no-AWS runtime path.
 - Output remains inspectable through evidence, source IDs, trace steps, confidence labels, and safety decisions.
 - The default demo uses cached public-safe fixture data and does not make live public-data calls.
 - Bedrock is optional for the MVP and not required for teammate testing.

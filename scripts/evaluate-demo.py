@@ -11,10 +11,10 @@ from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKEND = ROOT / "backend"
-sys.path.insert(0, str(BACKEND))
+AGENTCORE_APP = ROOT / "app" / "rams_agentcore"
+sys.path.insert(0, str(AGENTCORE_APP))
 
-from app.agent import run_site_briefing  # noqa: E402
+from three_d_rams.agent import run_site_briefing  # noqa: E402
 
 
 Check = Callable[[dict[str, Any]], tuple[bool, str]]

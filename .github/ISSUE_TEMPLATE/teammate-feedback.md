@@ -14,7 +14,7 @@ assignees: ""
 - Did Codespaces work? Yes / No / Not tested
 - Did setup work on the first try? Yes / No
 - Frontend opened on port `5173`? Yes / No / Not tested
-- Backend `/health` returned ok? Yes / No / Not tested
+- AgentCore `/ping` returned healthy? Yes / No / Not tested
 
 ## Self-Check Result
 
@@ -41,7 +41,7 @@ Optional but useful if you are comfortable using the terminal.
 
 ## Bugs Or Failures
 
-Describe any broken behavior, console errors, backend errors, blank views, slow steps, or confusing results.
+Describe any broken behavior, console errors, runtime errors, blank views, slow steps, or confusing results.
 
 ## Confusing Parts
 

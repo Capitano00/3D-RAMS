@@ -382,3 +382,24 @@ Revisit this ADR after the team defines:
 - the AWS account, region, IAM role, and budget guardrails.
 
 At that point, implement the AgentCore adapter and run the CLI validation/package path against the repository root.
+
+## Implementation Update 2026-06-29
+
+The scaffold-first runtime migration has been implemented in the repository:
+
+- `agentcore/agentcore.json` and CDK project structure exist at the repo root.
+- `app/rams_agentcore/main.py` is the AgentCore runtime entrypoint.
+- The former backend workflow modules now live under `app/rams_agentcore/three_d_rams/`.
+- Runtime fixtures are packaged under `app/rams_agentcore/fixtures/`.
+- The frontend now calls the AgentCore invocation adapter through `/agentcore/invocations`.
+- The legacy `backend/` FastAPI compatibility layer has been removed after tests and scripts were migrated.
+
+The remaining ADR3 work is no longer “move the old backend into AgentCore.” It is now:
+
+1. Replace the current deterministic supervisor function with the ADR2 supervisor/reviewer workflow shape.
+2. Decide which project-defined tools remain inline Python functions, which become AgentCore tools, and which should be exposed through AgentCore Gateway/MCP.
+3. Implement the AgentVerse entry agent that adapts ASI:ONE intake into the AgentCore supervisor invocation, because direct ASI:ONE-to-AgentCore exposure was not viable in local testing.
+4. Define the structured report JSON schema and review-agent pass/fail contract before claiming review-passed visualization.
+5. Run AgentCore validation, package, dry-run deploy, and then real cloud smoke after AWS account/IAM/budget settings are settled.
+
+ADR 0004 now owns the AgentVerse entry-agent and adapter boundary. The adapter should validate confirmed intake and map payloads, while ADR3 remains focused on AgentCore runtime, Harness, packaging, and deployment conventions.

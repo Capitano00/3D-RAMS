@@ -1,6 +1,6 @@
 # Team Test Guide
 
-Use this guide to test the Demo1 flow before judging or submission. The app is intentionally local-first: it should run with public fixtures only, without Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data. Bedrock mode is available only when the backend has AWS credentials and `ENABLE_BEDROCK=true`; deterministic fallback remains available.
+Use this guide to test the Demo1 flow before judging or submission. The app is intentionally local-first: it should run with public fixtures only, without Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data. Bedrock mode is available only when the AgentCore runtime has AWS credentials and `ENABLE_BEDROCK=true`; deterministic fallback remains available.
 
 3D-RAMS turns a coordinate into an inspectable 3D pre-visit briefing pack. The default UI uses the cached `public-lambeth-thames` fixture pack for a Lambeth / Thames public-data example anchored on 8 Albert Embankment. It does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services during the demo.
 
@@ -34,7 +34,7 @@ Open:
 
 <https://github.com/Capitano00/3D-RAMS>
 
-You should see folders such as `.devcontainer`, `backend`, `frontend`, `docs`, `fixtures`, and `scripts`.
+You should see folders such as `.devcontainer`, `app`, `frontend`, `docs`, `fixtures`, and `scripts`.
 
 ### Step 2: Create A Codespace
 
@@ -52,7 +52,7 @@ Wait until Codespaces finishes preparing the workspace. The devcontainer setup r
 bash scripts/start-dev.sh --install-only
 ```
 
-That pre-installs backend and frontend dependencies.
+That pre-installs AgentCore and frontend dependencies.
 
 ### Step 4: Open The Terminal
 
@@ -66,7 +66,7 @@ Paste:
 bash scripts/start-dev.sh
 ```
 
-This starts the FastAPI backend on port `8000` and the Vite frontend on port `5173`.
+This starts the AgentCore runtime on port `8080` and the Vite frontend on port `5173`.
 
 ### Step 5: Open The Frontend
 
@@ -117,7 +117,7 @@ Do not upload real site data, private documents, client material, secrets, or AP
 
 ## Optional Self-Check
 
-If you are comfortable running one extra terminal command, this checks the backend tests, API contract tests, deterministic evaluation, frontend build, and a no-AWS backend/frontend HTTP runtime smoke test.
+If you are comfortable running one extra terminal command, this checks the AgentCore tests, invocation contract, deterministic evaluation, frontend build, and a no-AWS AgentCore/frontend HTTP runtime smoke test.
 
 Codespaces/Linux/macOS:
 
@@ -143,41 +143,37 @@ On a fresh Windows clone, use:
 powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 ```
 
-This check starts local backend and frontend preview servers, then shuts them down. It does not use AWS, Google Maps, live planning portals, hosted infrastructure, real site data, or secrets.
+This check starts local AgentCore and frontend preview servers, then shuts them down. It does not use AWS, Google Maps, live planning portals, hosted infrastructure, real site data, or secrets.
 
 ## Plain-English Repo Map
 
 | Part | Meaning |
 | --- | --- |
 | `frontend` | The website you click on. |
-| `backend` | The local agent/API that receives the coordinate and returns briefing data. |
+| `app/rams_agentcore` | The AgentCore runtime that receives the coordinate and returns briefing data. |
 | `fixtures` | Public-safe cached and synthetic demo data, not client data. |
 | `fixtures/public-lambeth-thames` | Cached public-source fixture pack and attribution files for the Lambeth / Thames example. Runtime makes no live public-data calls. |
 | `scripts/start-dev.sh` | One-command startup script for Codespaces. |
 | `scripts/check-demo.sh` / `scripts/check-demo.ps1` | One-command local verification scripts for tests, evaluation, frontend build, and runtime smoke. |
-| `scripts/smoke-runtime.py` | No-AWS HTTP smoke test for backend health, agent run, and frontend preview shell. |
+| `scripts/smoke-runtime.py` | No-AWS HTTP smoke test for AgentCore health, invocation, and frontend preview shell. |
 | `docs/team-test-guide.md` | This testing checklist. |
 | `.github/ISSUE_TEMPLATE` | Feedback form for teammate testing. |
 | `.devcontainer` | Codespaces setup recipe. |
 
-The backend exposes a health check endpoint and an `/api/run` endpoint. The default agent workflow is:
+The AgentCore runtime exposes `/ping` and `/invocations`. The default agent workflow is:
 
 `coordinate or data-pack input -> fixture-pack lookup -> cached-public/synthetic features -> scene config -> cached-public/synthetic planning context -> hazard extraction -> annotations -> briefing -> safety gate -> evidence/trace/architecture visualizer`
 
-For the exact request/response fields and validation behavior, see [api-contract.md](api-contract.md).
+For the AgentCore invocation fields and validation behavior, see [api-contract.md](api-contract.md).
 
-## Local Fallback Setup
+## Local Setup
 
 Run this only if Codespaces is unavailable or slow.
 
-Backend:
+AgentCore runtime:
 
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+agentcore dev --runtime rams_agentcore --skip-deploy --no-browser --no-traces --logs --port 8080
 ```
 
 Frontend:
@@ -198,7 +194,7 @@ Only use this if you are testing the live AWS path. Do not paste secrets into ch
 
 The full optional setup and troubleshooting guide is [aws-bedrock-setup.md](aws-bedrock-setup.md). Confirm payment preferences and a small budget alert before repeated live testing. Normal teammate testing does not need AWS.
 
-Backend environment:
+AgentCore runtime environment:
 
 ```bash
 ENABLE_BEDROCK=true
@@ -219,16 +215,16 @@ Keep usage low: one Bedrock call per agent run, short fixture prompts only, and 
 
 ## Health Check
 
-If the UI cannot run, confirm the backend health check:
+If the UI cannot run, confirm the AgentCore runtime health check:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8080/ping
 ```
 
-Expected response:
+Expected response includes:
 
 ```json
-{"status":"ok","service":"3d-rams-demo1"}
+{"status":"Healthy"}
 ```
 
 ## What Judges Or Teammates Should Inspect
@@ -247,8 +243,8 @@ Expected response:
 
 | Symptom | Likely Cause | What To Try |
 | --- | --- | --- |
-| Frontend opens but run fails | Backend is not running or port `8000` is not forwarded. | Start the backend, check `/health`, and reload the frontend. |
-| Codespaces frontend cannot reach backend | Startup script did not start the backend or proxy is not active. | Stop the script, run `bash scripts/start-dev.sh` again, check `/health`, and confirm ports `8000` and `5173` are forwarded. |
+| Frontend opens but run fails | AgentCore runtime is not running or port `8080` is not forwarded. | Start the runtime, check `/ping`, and reload the frontend. |
+| Codespaces frontend cannot reach AgentCore | Startup script did not start AgentCore or the Vite proxy is not active. | Stop the script, run `bash scripts/start-dev.sh` again, check `/ping`, and confirm ports `8080` and `5173` are forwarded. |
 | `npm` command fails in PowerShell | Local execution policy blocks `npm.ps1`. | Use `npm.cmd run dev` or `npm.cmd run build`. |
 | Cesium scene looks blank or slow | Browser/GPU/network constraints in the test environment. | Reload once, try another browser, and still capture whether briefing/evidence/trace worked. |
 | Planning-related hazards are missing | `Planning fixture` is disabled. | Re-enable `Planning fixture` for the happy path. |

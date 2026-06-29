@@ -9,10 +9,10 @@ This page is a public-safe readiness snapshot for teammates, judges, and contrib
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Local app startup | Ready for teammate testing | Codespaces/start script documented in [team-test-guide.md](team-test-guide.md). |
-| Backend API | Verified | `/health`, `/api/run`, request validation, and OpenAPI schema are covered by API contract tests. See [api-contract.md](api-contract.md). |
+| AgentCore invocation API | Verified | `/ping`, `/invocations`, request normalization, and output envelope are covered by AgentCore tests. See [api-contract.md](api-contract.md). |
 | Agent workflow | Verified in deterministic mode | `scripts/evaluate-demo.py` checks nine scenarios. |
 | Frontend build | Verified | `scripts/check-demo.sh` and CI run the production build. |
-| HTTP runtime smoke | Verified | One-command checks start backend and frontend preview, then verify `/health`, `/api/run`, and the frontend shell. |
+| HTTP runtime smoke | Verified | One-command checks start AgentCore and frontend preview, then verify `/ping`, `/invocations`, and the frontend shell. |
 | Public fixture pack | Ready for demo use | `public-lambeth-thames` cached fixture uses public-safe source metadata and no live runtime calls. |
 | Architecture visualizer | Ready for demo use | UI and [architecture.md](architecture.md) show tool sequence, boundaries, trace, and AWS path. |
 | Safety gate | Verified for demo boundary | Unsafe certified RAMS/work-approval requests are blocked in tests and evaluation. |
@@ -45,7 +45,7 @@ Fresh Windows clone:
 powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 ```
 
-These checks compile code, run backend/API tests, run deterministic evaluation, build the frontend, and start a no-AWS backend/frontend HTTP smoke test. They do not require AWS credentials, Google keys, Cesium ion tokens, live planning portals, hosted infrastructure, real site data, or private documents.
+These checks compile code, run AgentCore tests, run deterministic evaluation, build the frontend, and start a no-AWS AgentCore/frontend HTTP smoke test. They do not require AWS credentials, Google keys, Cesium ion tokens, live planning portals, hosted infrastructure, real site data, or private documents.
 
 ## Verified Scenarios
 

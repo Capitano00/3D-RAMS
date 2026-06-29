@@ -46,7 +46,7 @@ Use [impact-baseline.md](impact-baseline.md) before making any numeric speed-up 
 
 ## Test Scenarios
 
-For repeatable backend proof, run `python scripts/evaluate-demo.py` from the repo root. The runner forces no-AWS deterministic mode and checks the scenarios below plus unknown fixture-pack fallback. See [evaluation.md](evaluation.md).
+For repeatable AgentCore workflow proof, run `python scripts/evaluate-demo.py` from the repo root. The runner forces no-AWS deterministic mode and checks the scenarios below plus unknown fixture-pack fallback. See [evaluation.md](evaluation.md).
 
 | Scenario | How To Run | Proof Point |
 | --- | --- | --- |
@@ -63,13 +63,13 @@ For repeatable backend proof, run `python scripts/evaluate-demo.py` from the rep
 
 | Area | Status |
 | --- | --- |
-| Backend agent loop | Real local Python workflow. |
+| AgentCore runtime loop | Real local Python workflow. |
 | Frontend viewer | Real React/Cesium UI with token-free local overlay. |
 | Lambeth fixture pack | Cached public-source demo pack with attribution and no live runtime calls. |
 | Bedrock briefing | Optional live AWS call only when explicitly configured. |
 | Planning portals/PDFs | Not scraped in MVP. |
 | Google 3D / Earth | Not required in MVP. |
-| CloudWatch, DynamoDB, S3, Guardrails, AgentCore | Future production path, not live MVP infrastructure. |
+| CloudWatch, DynamoDB, S3, Guardrails | Future production path, not live MVP infrastructure. |
 
 ## Recording Checklist
 

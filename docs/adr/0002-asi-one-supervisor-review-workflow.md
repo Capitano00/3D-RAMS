@@ -111,6 +111,7 @@ sequenceDiagram
 ## Boundary Model
 
 - ASI:ONE is the entry, intake, clarification, and confirmation layer.
+- Because ASI:ONE cannot directly expose the AWS AgentCore runtime endpoint in the tested path, the first user-facing agent should be implemented in AgentVerse and should wake the AgentCore supervisor after intake confirmation.
 - The realtime chatbot guides the user from ambiguous natural language toward confirmed review inputs.
 - The supervisor agent owns planning, area definition, task dispatch, reasoning, gap analysis, and structured JSON assembly.
 - Specialist subagents collect and summarize domain-specific evidence through defined 3D-RAMS tools and Tavily-backed open web search.
@@ -136,3 +137,11 @@ Tradeoffs:
 ## Next Review Trigger
 
 Revisit this decision when the team defines the report JSON schema, subagent list, tool contracts, and review harness. The next architecture pass should map this workflow onto the AgentCore deployment plan from ADR 0001.
+
+## Implementation Update 2026-06-29
+
+The practical entry chain is now:
+
+`ASI:ONE user surface -> AgentVerse intake agent -> AgentCore supervisor runtime -> specialist tools/subagents -> review agents -> frontend visualization`.
+
+This changes the first boundary from “ASI:ONE directly submits to supervisor” to “AgentVerse adapts the ASI:ONE interaction into the AgentCore supervisor invocation.” The supervisor and review workflow still belongs in AgentCore; AgentVerse should remain the entry and wake-up layer.

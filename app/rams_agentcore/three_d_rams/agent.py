@@ -23,6 +23,7 @@ from .tools import (
 
 def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     request = request or {}
+    upstream_context = request.get("agentcoreUpstream")
     request_summary = normalize_request(request)
     fixture_pack, fixture_pack_warning = load_fixture_pack(request_summary["fixturePack"])
     if fixture_pack:
@@ -101,6 +102,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
 
     return {
         "runId": "demo1-local-run",
+        "upstream": upstream_context,
         "request": request_summary,
         "runtime": runtime,
         "location": location,

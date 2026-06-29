@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1320" height="560" viewBox="0 0 1320 560" role="img" aria-labelledby="title desc">
   <title id="title">3D-RAMS query-to-brief architecture flow</title>
-  <desc id="desc">User submits a coordinate and options to a React UI and FastAPI endpoint. A deterministic agent loop runs fixture-backed tools, can optionally call Amazon Bedrock once for briefing text, passes through a safety gate, returns an inspectable review pack, and can later emit observability to AWS with human review in the loop.</desc>
+  <desc id="desc">User submits a coordinate and options to a React UI and AgentCore invocation endpoint. A deterministic agent loop runs fixture-backed tools, can optionally call Amazon Bedrock once for briefing text, passes through a safety gate, returns an inspectable review pack, and can later emit observability to AWS with human review in the loop.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" />
@@ -38,7 +38,7 @@
   <rect class="lane" x="584" y="112" width="424" height="324" rx="18" />
   <rect class="lane" x="1032" y="112" width="248" height="324" rx="18" />
   <text class="lane-title" x="64" y="140">BROWSER / FRONTEND</text>
-  <text class="lane-title" x="396" y="140">API</text>
+  <text class="lane-title" x="396" y="140">AGENTCORE</text>
   <text class="lane-title" x="608" y="140">AGENT + SAFETY</text>
   <text class="lane-title" x="1056" y="140">REVIEW OUTPUT</text>
 
@@ -50,12 +50,12 @@
   <rect class="node" x="208" y="178" width="116" height="82" rx="14" />
   <text class="step" x="228" y="205">02</text>
   <text class="label" x="228" y="227">React UI</text>
-  <text class="small" x="228" y="247">POST /api/run</text>
+  <text class="small" x="228" y="247">POST /invocations</text>
 
   <rect class="node" x="400" y="178" width="132" height="82" rx="14" />
   <text class="step" x="420" y="205">03</text>
-  <text class="label" x="420" y="227">FastAPI</text>
-  <text class="small" x="420" y="247">POST /api/run</text>
+  <text class="label" x="420" y="227">AgentCore</text>
+  <text class="small" x="420" y="247">POST /invocations</text>
 
   <rect class="node node-accent" x="612" y="178" width="154" height="82" rx="14" />
   <text class="step" x="634" y="205">04</text>

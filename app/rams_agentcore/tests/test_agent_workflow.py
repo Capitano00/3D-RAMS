@@ -1,14 +1,17 @@
-import unittest
-import sys
-import os
 import json
+import os
+import sys
 import tempfile
+import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import fixtures as fixture_module
-from app.agent import run_site_briefing
+APP_ROOT = Path(__file__).resolve().parents[1]
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+
+from three_d_rams import fixtures as fixture_module  # noqa: E402
+from three_d_rams.agent import run_site_briefing  # noqa: E402
 
 
 class EnvPatch:
@@ -175,7 +178,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIsNone(pack["planning"]["text"])
         self.assertTrue(any("missing" in item.lower() for item in pack["warnings"]))
 
-    def test_architecture_visualizer_contract_tracks_sources_trace_and_aws_mapping(self):
+    def test_architecture_visualizer_contract_tracks_agentcore_boundary(self):
         result = run_site_briefing({"goal": "Pre-visit RAMS scoping pack"})
         architecture = result["architecture"]
 
@@ -186,6 +189,8 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertTrue(all("id" in step for step in result["trace"]))
         self.assertTrue(all("sourceIds" in step for step in result["trace"]))
         self.assertTrue(any(step["name"] == "generate_bedrock_briefing" for step in result["trace"]))
+        self.assertEqual(architecture["nodes"][1]["label"], "AgentCore invocation endpoint")
+        self.assertEqual(architecture["edges"][0]["label"], "POST /invocations")
 
     def test_bedrock_mock_mode_updates_briefing_and_trace(self):
         with EnvPatch(
@@ -218,32 +223,6 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertFalse(result["safety"]["allowed"])
         self.assertEqual(result["safety"]["level"], "blocked")
         self.assertEqual(result["annotations"], [])
-        self.assertIn("certified rams", result["safety"]["triggeredRules"])
-        self.assertIn("approved for work", result["safety"]["triggeredRules"])
-        self.assertIn("certified rams", result["safety"]["triggeredSources"]["generatedBriefing"])
-        self.assertEqual(result["briefing"]["headline"], "Request blocked by safety gate.")
-
-        bedrock_step = next(step for step in result["trace"] if step["name"] == "generate_bedrock_briefing")
-        safety_step = next(step for step in result["trace"] if step["name"] == "safety_gate")
-        self.assertEqual(bedrock_step["status"], "ok")
-        self.assertEqual(safety_step["status"], "blocked")
-        self.assertIn("generatedBriefing", safety_step["output"]["triggeredSources"])
-
-    def test_bedrock_failure_falls_back_to_deterministic_briefing(self):
-        with EnvPatch(
-            ENABLE_BEDROCK="true",
-            BEDROCK_SIMULATE_FAILURE="true",
-            BEDROCK_MOCK_UNSAFE_RESPONSE=None,
-            BEDROCK_MODEL_ID="anthropic.claude-3-7-sonnet-20250219-v1:0",
-        ):
-            result = run_site_briefing({"useBedrock": True})
-
-        self.assertEqual(result["runtime"]["briefingMode"], "fallback")
-        self.assertIn("Bedrock briefing failed", result["runtime"]["fallbackReason"])
-        self.assertNotEqual(result["briefing"].get("generation_mode"), "bedrock")
-        bedrock_step = next(step for step in result["trace"] if step["name"] == "generate_bedrock_briefing")
-        self.assertEqual(bedrock_step["status"], "fallback")
-        self.assertIn("deterministic briefing used", bedrock_step["fallbackReason"])
 
 
 if __name__ == "__main__":

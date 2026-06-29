@@ -32,7 +32,7 @@ def generate_bedrock_briefing(
     try:
         import boto3
     except ImportError as exc:
-        raise BedrockAdapterError("boto3 is not installed in the backend environment.") from exc
+        raise BedrockAdapterError("boto3 is not installed in the AgentCore runtime environment.") from exc
 
     session_kwargs = {}
     if config.aws_profile:

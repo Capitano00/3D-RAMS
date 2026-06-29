@@ -57,3 +57,14 @@ Revisit this decision after the 3D-RAMS agent workflow and harness are documente
 - how to wrap or migrate `/api/run` into an AgentCore-compatible invocation endpoint;
 - what should be registered in AgentVerse or the AgentCore registry/catalog surface;
 - which parts remain deterministic local code, which parts use Bedrock, and which parts become managed AWS services.
+
+## Implementation Update 2026-06-29
+
+The repository has moved past the original local FastAPI backend boundary:
+
+- the default runtime is now the AgentCore CLI dev runtime under `app/rams_agentcore`;
+- the invocation contract is `/ping` and `/invocations`;
+- the legacy `backend/` compatibility layer has been removed;
+- the frontend remains a separate Vite UI and calls AgentCore through a local Vite proxy.
+
+The team also confirmed that ASI:ONE cannot directly expose or invoke the AWS AgentCore endpoint in the desired entry flow. The entry agent therefore needs to live in AgentVerse. That AgentVerse agent should own user-facing intake and wake the AgentCore supervisor runtime with a confirmed, structured payload.

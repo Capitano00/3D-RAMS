@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -12,7 +13,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 
 
@@ -50,7 +50,7 @@ def _wait_for(label: str, check, timeout_seconds: int) -> None:
     raise RuntimeError(f"{label} did not become ready within {timeout_seconds}s: {last_error}")
 
 
-def _start_backend(api_port: int) -> subprocess.Popen:
+def _start_agentcore(api_port: int) -> subprocess.Popen:
     env = {
         **os.environ,
         "ENABLE_BEDROCK": "false",
@@ -60,22 +60,23 @@ def _start_backend(api_port: int) -> subprocess.Popen:
     }
     return subprocess.Popen(
         [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            "127.0.0.1",
+            "agentcore",
+            "dev",
+            "--runtime",
+            "rams_agentcore",
+            "--skip-deploy",
+            "--no-browser",
+            "--no-traces",
+            "--logs",
             "--port",
             str(api_port),
-            "--log-level",
-            "warning",
         ],
-        cwd=BACKEND,
+        cwd=ROOT,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        start_new_session=os.name != "nt",
     )
 
 
@@ -101,12 +102,40 @@ def _start_frontend(frontend_port: int) -> subprocess.Popen:
 def _stop_process(process: subprocess.Popen | None) -> None:
     if process is None or process.poll() is not None:
         return
-    process.terminate()
+    if os.name != "nt":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    else:
+        process.terminate()
     try:
         process.wait(timeout=8)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name != "nt":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
         process.wait(timeout=8)
+
+
+def _stop_repo_orphans() -> None:
+    if os.name == "nt":
+        return
+    patterns = [
+        str(ROOT / "app" / "rams_agentcore" / ".venv" / "bin" / "uvicorn main:app"),
+        str(ROOT / "frontend" / "node_modules" / ".bin" / "vite"),
+    ]
+    for pattern in patterns:
+        try:
+            output = subprocess.check_output(["pgrep", "-f", pattern], text=True)
+        except subprocess.CalledProcessError:
+            continue
+        for line in output.splitlines():
+            try:
+                os.kill(int(line), signal.SIGTERM)
+            except (ProcessLookupError, ValueError):
+                pass
 
 
 def _tail_output(process: subprocess.Popen | None) -> str:
@@ -122,11 +151,11 @@ def _validate_agent_response(result: dict) -> None:
     required = ["scene", "briefing", "evidence", "trace", "architecture", "safety", "runtime"]
     missing = [key for key in required if key not in result]
     if missing:
-        raise AssertionError(f"/api/run response missing keys: {missing}")
+        raise AssertionError(f"/invocations output.run missing keys: {missing}")
     if not result["evidence"]:
-        raise AssertionError("/api/run returned no evidence entries")
+        raise AssertionError("/invocations returned no evidence entries")
     if not result["trace"]:
-        raise AssertionError("/api/run returned no trace entries")
+        raise AssertionError("/invocations returned no trace entries")
     if result["runtime"].get("briefingMode") not in {"disabled", "fallback", "real", "mocked"}:
         raise AssertionError(f"unexpected briefingMode: {result['runtime'].get('briefingMode')}")
     if result["safety"].get("allowed") is not True:
@@ -134,7 +163,7 @@ def _validate_agent_response(result: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a no-AWS HTTP smoke test against backend and frontend runtime servers.")
+    parser = argparse.ArgumentParser(description="Run a no-AWS HTTP smoke test against AgentCore and frontend runtime servers.")
     parser.add_argument("--api-port", type=int, default=int(os.getenv("RAMS_SMOKE_API_PORT", "8765")))
     parser.add_argument("--frontend-port", type=int, default=int(os.getenv("RAMS_SMOKE_FRONTEND_PORT", "8766")))
     parser.add_argument("--timeout", type=int, default=int(os.getenv("RAMS_SMOKE_TIMEOUT", "45")))
@@ -143,31 +172,34 @@ def main() -> int:
     if not (FRONTEND / "dist" / "index.html").exists():
         raise SystemExit("frontend/dist is missing. Run `npm run build` before smoke-runtime.")
 
-    backend: subprocess.Popen | None = None
+    agentcore: subprocess.Popen | None = None
     frontend: subprocess.Popen | None = None
     api_base = f"http://127.0.0.1:{args.api_port}"
     frontend_base = f"http://127.0.0.1:{args.frontend_port}"
 
     try:
-        backend = _start_backend(args.api_port)
-        _wait_for("backend", lambda: _request_json(f"{api_base}/health"), args.timeout)
+        agentcore = _start_agentcore(args.api_port)
+        _wait_for("AgentCore", lambda: _request_json(f"{api_base}/ping"), args.timeout)
 
         frontend = _start_frontend(args.frontend_port)
         _wait_for("frontend", lambda: _request_text(frontend_base), args.timeout)
 
-        health = _request_json(f"{api_base}/health")
-        if health != {"status": "ok", "service": "3d-rams-demo1"}:
+        health = _request_json(f"{api_base}/ping")
+        if health.get("status") not in {"Healthy", "ok"}:
             raise AssertionError(f"unexpected health response: {health}")
 
-        result = _request_json(
-            f"{api_base}/api/run",
+        invocation = _request_json(
+            f"{api_base}/invocations",
             {
-                "fixturePack": "public-lambeth-thames",
-                "includePlanningFixture": True,
-                "simulateMapFailure": False,
-                "useBedrock": False,
+                "input": {
+                    "fixturePack": "public-lambeth-thames",
+                    "includePlanningFixture": True,
+                    "simulateMapFailure": False,
+                    "useBedrock": False,
+                }
             },
         )
+        result = invocation["output"]["run"]
         _validate_agent_response(result)
 
         frontend_html = _request_text(frontend_base)
@@ -178,7 +210,7 @@ def main() -> int:
             json.dumps(
                 {
                     "status": "ok",
-                    "backend": health,
+                    "agentcore": health,
                     "frontend": {"served": True, "port": args.frontend_port},
                     "agent": {
                         "briefingMode": result["runtime"]["briefingMode"],
@@ -194,13 +226,14 @@ def main() -> int:
     except (urllib.error.URLError, RuntimeError, AssertionError) as exc:
         print(f"Runtime smoke failed: {exc}", file=sys.stderr)
         _stop_process(frontend)
-        _stop_process(backend)
-        print("Backend output:", _tail_output(backend), file=sys.stderr)
+        _stop_process(agentcore)
+        print("AgentCore output:", _tail_output(agentcore), file=sys.stderr)
         print("Frontend output:", _tail_output(frontend), file=sys.stderr)
         return 1
     finally:
         _stop_process(frontend)
-        _stop_process(backend)
+        _stop_process(agentcore)
+        _stop_repo_orphans()
 
 
 if __name__ == "__main__":

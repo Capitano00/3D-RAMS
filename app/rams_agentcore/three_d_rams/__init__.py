@@ -1,2 +1,1 @@
-"""3D-RAMS backend package."""
-
+"""3D-RAMS AgentCore runtime package."""

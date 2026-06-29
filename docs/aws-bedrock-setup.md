@@ -44,14 +44,10 @@ Do not commit `.env`, AWS credentials, SSO cache files, API keys, or local shell
 
 ## Smoke Test
 
-Install backend dependencies first if needed:
+Install the AgentCore Python package first if needed:
 
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-cd ..
+python -m pip install -e app/rams_agentcore
 ```
 
 Then run:
@@ -87,7 +83,7 @@ Bedrock is not the source of truth for evidence extraction in the current MVP. T
 | --- | --- | --- |
 | `AccessDeniedException` | Model access, profile, or permission issue. | Confirm the selected model is enabled in the target region and the active SSO profile can invoke it. |
 | `Unable to locate credentials` | SSO session is not active or profile name is wrong. | Re-authenticate with AWS SSO for the selected profile, then rerun the smoke test. |
-| `boto3 is not installed` | Backend dependencies are missing. | Install `backend/requirements.txt` in the active Python environment. |
+| `boto3 is not installed` | AgentCore package dependencies are missing. | Install `app/rams_agentcore` in the active Python environment. |
 | Smoke test falls back | Bedrock is disabled, simulated failure is set, or the model call failed. | Check environment variables and rerun once; keep deterministic mode if failures continue. |
 | Output sounds too authoritative | Model wording crossed the demo safety boundary. | Treat as a bug; local safety scan should block unsafe claims, and the deterministic fallback remains available. |
 
@@ -97,7 +93,7 @@ Bedrock is not the source of truth for evidence extraction in the current MVP. T
 - Do not add AWS credentials to GitHub, Codespaces secrets, issues, screenshots, or chat.
 - Do not send real client or private site data to the model.
 - Do not claim certified RAMS, emergency response guidance, work approval, or production deployment.
-- Do not add DynamoDB, S3, CloudWatch, Guardrails, or AgentCore until the core Bedrock path and demo proof are stable.
+- Do not add DynamoDB, S3, CloudWatch, or Guardrails until the core Bedrock path and demo proof are stable.
 
 ## Production Path Later
 

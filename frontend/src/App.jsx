@@ -3,7 +3,7 @@ import { AlertTriangle, GitBranch, Play, RotateCcw, ShieldCheck } from "lucide-r
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const AGENTCORE_URL = import.meta.env.VITE_AGENTCORE_URL || "/agentcore/invocations";
 
 const DEFAULT_REQUEST = {
   siteName: "8 Albert Embankment and land to the rear",
@@ -306,13 +306,16 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/run`, {
+      const response = await fetch(AGENTCORE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextRequest),
+        body: JSON.stringify({ input: nextRequest }),
       });
       if (!response.ok) throw new Error(`API returned ${response.status}`);
-      setRun(await response.json());
+      const payload = await response.json();
+      const nextRun = payload.output?.run;
+      if (!nextRun) throw new Error("AgentCore response did not include output.run");
+      setRun(nextRun);
     } catch (err) {
       setError(err.message);
     } finally {

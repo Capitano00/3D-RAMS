@@ -9,7 +9,7 @@ This document is the public, living architecture reference for Demo1. It explain
 ```mermaid
 flowchart LR
     User["User enters coordinate and test options"] --> UI["React/Vite UI"]
-    UI --> API["FastAPI POST /api/run"]
+    UI --> API["AgentCore POST /invocations"]
     API --> Agent["Deterministic Demo1 agent loop"]
     Agent --> Locate["Resolve location or cached fixture pack"]
     Agent --> Geo["Load synthetic, cached-public, or fallback features"]
@@ -24,6 +24,25 @@ flowchart LR
     Output --> UI
 ```
 
+## AgentVerse Entry And AgentCore Supervisor Boundary
+
+```mermaid
+flowchart LR
+    User["ASI:ONE user"] --> Entry["AgentVerse entry agent"]
+    Entry --> Intake["Clarify, collect materials, confirm launch"]
+    Intake --> Adapter["AgentVerse-to-AgentCore adapter"]
+    Adapter --> Runtime["AgentCore supervisor runtime"]
+    Runtime --> Tools["Specialist subagents and project tools"]
+    Runtime --> Review["Review-agent gate"]
+    Review --> Report["Structured report JSON"]
+    Report --> Adapter
+    Adapter --> Entry
+    Entry --> User
+    Report --> UI["Frontend visualization"]
+```
+
+The adapter exists only at the AgentVerse-to-AgentCore boundary. It handles launch-readiness validation, request mapping, and future IAM/signing. Supervisor planning, specialist subagents, tool calls, reasoning, report assembly, and review loops belong inside AgentCore.
+
 ## Data Flow And Trust Boundaries
 
 ```mermaid
@@ -33,7 +52,7 @@ flowchart TB
         Viewer["3D scene and workflow visualizer"]
     end
 
-    subgraph Backend["FastAPI backend boundary"]
+    subgraph RuntimeBoundary["AgentCore runtime boundary"]
         Runtime["Agent runtime"]
         Trace["Trace builder"]
         Safety["Safety policy"]
@@ -68,12 +87,12 @@ flowchart TB
 sequenceDiagram
     participant U as User
     participant UI as Frontend
-    participant API as FastAPI
+    participant API as AgentCore Runtime
     participant A as Agent Loop
     participant F as Fixtures
 
     U->>UI: Submit coordinate and options
-    UI->>API: POST /api/run
+    UI->>API: POST /invocations
     API->>A: run_site_briefing
     A->>A: resolve_location
     A->>F: load_geospatial_features
@@ -125,7 +144,7 @@ flowchart LR
     Visualizer -. "future" .-> DDB["DynamoDB run record"]
 ```
 
-Each backend tool emits a compact trace object:
+Each runtime tool emits a compact trace object:
 
 - `id`, `name`, `type`, `status`, `summary`;
 - `startedAt`, `endedAt`, `durationMs`;
@@ -152,7 +171,7 @@ The safety gate is deliberately visible. Judges and teammates should be able to 
 
 | Area | Current Source | Current Status | Visible In UI | Production AWS Mapping | Upgrade Risk |
 | --- | --- | --- | --- | --- | --- |
-| Agent loop | Python backend | Real deterministic code plus optional Bedrock briefing | Tool timeline and trace | Bedrock model/tool planning | Model variability and evaluation |
+| Agent loop | AgentCore Python runtime | Real deterministic code plus optional Bedrock briefing | Tool timeline and trace | Bedrock model/tool planning | Model variability and evaluation |
 | Public fixture pack | `fixtures/public-lambeth-thames` | Cached public-source metadata and attribution files | Source register, evidence, trace, briefing | S3 source pack plus source registry | Source freshness, licence handling, and overclaiming |
 | Request state | Browser form payload | Real | Run overview | DynamoDB run/session record | Data privacy and retention |
 | 3D viewer | React/Vite + CesiumJS | Real token-free local scene plus overlay | 3D scene | Static frontend plus API runtime | Performance on low-power devices |
@@ -180,8 +199,7 @@ Future reasoning should produce inspectable review flags, not unsupported instru
 ```mermaid
 flowchart TB
     UI["React UI"] --> Edge["CloudFront or static hosting"]
-    UI --> APIGW["API Gateway or App Runner endpoint"]
-    APIGW --> Runtime["Agent runtime service"]
+    UI --> Runtime["AgentCore Runtime endpoint"]
     Runtime --> Bedrock["Amazon Bedrock briefing generation"]
     Runtime --> Guardrails["Bedrock Guardrails"]
     Runtime --> DDB["DynamoDB run state and approvals"]
@@ -196,7 +214,7 @@ flowchart TB
 
 ## Visualizer Contract
 
-The `/api/run` response keeps the visualizer in the normal agent response. There is no separate visualizer endpoint.
+The `/invocations` response keeps the visualizer in `output.run`. There is no separate visualizer endpoint.
 
 Core fields:
 

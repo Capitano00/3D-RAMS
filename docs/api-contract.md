@@ -1,29 +1,44 @@
-# API Contract
+# AgentCore Invocation Contract
 
-3D-RAMS exposes a small local API for the demo frontend, runtime smoke tests, and teammate inspection.
+3D-RAMS exposes the local demo runtime through the AgentCore dev server. The frontend calls the Vite proxy path `/agentcore/invocations`, which forwards to AgentCore Runtime `/invocations`.
 
-The API is intentionally local-first. It does not require AWS credentials, Google keys, live planning portals, hosted infrastructure, real site data, or private documents.
+The runtime is local-first. It does not require AWS credentials, Google keys, live planning portals, hosted infrastructure, real site data, or private documents.
+
+AgentVerse and ASI:ONE should not call AgentCore directly in the current architecture. The intended cross-platform path is documented in [agentverse-agentcore-adapter-contract.md](agentverse-agentcore-adapter-contract.md): AgentVerse entry agent confirms intake, the adapter validates and signs/invokes AgentCore, then delivery returns to the entry agent.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Confirms the backend is reachable. |
-| `POST` | `/api/run` | Runs the coordinate-to-briefing agent workflow. |
-| `GET` | `/openapi.json` | Returns the generated OpenAPI schema from FastAPI. |
+| `GET` | `/ping` | Confirms the AgentCore runtime is reachable. |
+| `POST` | `/invocations` | Runs the coordinate-to-briefing agent workflow. |
 
-## Health Response
+## Ping Response
+
+The AgentCore dev server returns a health object that includes:
 
 ```json
 {
-  "status": "ok",
-  "service": "3d-rams-demo1"
+  "status": "Healthy"
 }
 ```
 
-## Run Request
+## Invocation Request
 
-All fields are optional. Unknown fields are ignored so teammate test payloads can stay forgiving, but known fields are validated.
+The request body must use the AgentCore envelope:
+
+```json
+{
+  "input": {
+    "fixturePack": "public-lambeth-thames",
+    "includePlanningFixture": true,
+    "simulateMapFailure": false,
+    "useBedrock": false
+  }
+}
+```
+
+Known `input` fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -35,28 +50,29 @@ All fields are optional. Unknown fields are ignored so teammate test payloads ca
 | `fixture_pack` | string or null | Backward-compatible alias for `fixturePack`. |
 | `includePlanningFixture` | boolean | Defaults to `true`. Set `false` to test missing planning/context behavior. |
 | `simulateMapFailure` | boolean | Defaults to `false`. Set `true` to force the geospatial fallback path. |
-| `useBedrock` | boolean | Defaults to `true`. Bedrock is still used only when backend environment settings enable it. |
+| `useBedrock` | boolean | Defaults to `true`. Bedrock is used only when runtime environment settings enable it. |
 | `additionalRequest` | string | Optional user instruction. Unsafe RAMS/work-approval claims are blocked. |
+| `upstream` | object | Optional upstream metadata from AgentVerse, ASI:ONE, or another entry agent. |
 
-Example no-AWS request:
+## Invocation Response
+
+The response keeps the AgentCore output envelope:
 
 ```json
 {
-  "fixturePack": "public-lambeth-thames",
-  "includePlanningFixture": true,
-  "simulateMapFailure": false,
-  "useBedrock": false
+  "output": {
+    "reportStatus": "review_required",
+    "workflowMode": "cached_public_fixture",
+    "run": {}
+  }
 }
 ```
 
-Invalid coordinates return a `422` validation response before the agent runs.
-
-## Run Response
-
-The response is an inspectable review pack. Important top-level fields include:
+Important `output.run` fields:
 
 | Field | Meaning |
 | --- | --- |
+| `upstream` | Optional entry-agent/session metadata passed through the adapter. |
 | `request` | Normalized request summary used by the agent. |
 | `runtime` | Fixture mode, Bedrock mode, fallback reason, and live-call status. |
 | `location` | Resolved site label and coordinate. |
@@ -71,6 +87,6 @@ The response is an inspectable review pack. Important top-level fields include:
 
 ## Safety And Data Boundary
 
-The API returns a pre-visit review pack for human review only. It does not produce certified RAMS, emergency guidance, work approval, legal advice, or a competent-person replacement.
+The runtime returns a pre-visit review pack for human review only. It does not produce certified RAMS, emergency guidance, work approval, legal advice, or a competent-person replacement.
 
-Do not send real client data, private site records, access-controlled planning documents, secrets, API keys, or AWS credentials to the API or issue tracker.
+Do not send real client data, private site records, access-controlled planning documents, secrets, API keys, or AWS credentials to the runtime or issue tracker.

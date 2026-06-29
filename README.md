@@ -21,7 +21,7 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 ## Demo Workflow
 
 1. User enters a coordinate or selects the cached public Lambeth data pack.
-2. The backend resolves the selected fixture pack or synthetic fallback.
+2. The AgentCore runtime resolves the selected fixture pack or synthetic fallback.
 3. The agent loads cached-public, synthetic, or fallback geospatial features.
 4. The agent builds a Cesium scene configuration.
 5. The agent loads cached-public or synthetic planning/context notes.
@@ -54,7 +54,7 @@ The easiest teammate test path is GitHub Codespaces. Open the repo in Codespaces
 bash scripts/start-dev.sh
 ```
 
-Codespaces should forward the frontend on port `5173` and backend on port `8000`. Use [docs/team-test-guide.md](docs/team-test-guide.md) for the scenario checklist and feedback template.
+Codespaces should forward the frontend on port `5173` and AgentCore runtime on port `8080`. Use [docs/team-test-guide.md](docs/team-test-guide.md) for the scenario checklist and feedback template.
 
 No AWS, Google Maps, Cesium ion token, or real site data is required.
 
@@ -66,7 +66,7 @@ For measured impact without overclaiming speed-up, use [docs/impact-baseline.md]
 
 For a step-by-step fallback recording sequence and pass/fail criteria, use [docs/demo-recording-runbook.md](docs/demo-recording-runbook.md).
 
-For repeatable local proof of the backend workflow, run:
+For repeatable local proof of the AgentCore workflow, run:
 
 ```bash
 python scripts/evaluate-demo.py
@@ -74,11 +74,13 @@ python scripts/evaluate-demo.py
 
 The evaluation runner covers nine deterministic scenarios, including cached-public happy path, missing planning evidence, map fallback, Bedrock-disabled fallback, unsafe request blocking, low-confidence output, architecture payload shape, and unknown pack fallback. See [docs/evaluation.md](docs/evaluation.md).
 
-GitHub Actions also runs the backend tests, deterministic evaluation, frontend build, and HTTP runtime smoke on pushes and pull requests. See [docs/mvp-readiness.md](docs/mvp-readiness.md) for the current readiness snapshot, verified scenarios, and remaining gates.
+GitHub Actions also runs the AgentCore tests, deterministic evaluation, frontend build, and HTTP runtime smoke on pushes and pull requests. See [docs/mvp-readiness.md](docs/mvp-readiness.md) for the current readiness snapshot, verified scenarios, and remaining gates.
 
 For contribution expectations, safety boundaries, and handoff checklist, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For backend request/response shape and validation behavior, see [docs/api-contract.md](docs/api-contract.md).
+For AgentCore invocation shape and validation behavior, see [docs/api-contract.md](docs/api-contract.md).
+
+For the AgentVerse entry-agent and AWS AgentCore adapter boundary, see [docs/agentverse-agentcore-adapter-contract.md](docs/agentverse-agentcore-adapter-contract.md) and [ADR 0004](docs/adr/0004-agentverse-entry-agent-adapter-boundary.md).
 
 To run the full local verification stack before sharing changes in Codespaces/Linux/macOS:
 
@@ -104,11 +106,11 @@ On a fresh Windows clone:
 powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 ```
 
-The check runs backend compile/tests, deterministic evaluation, frontend production build, and a no-AWS HTTP runtime smoke against the backend and frontend preview.
+The check runs AgentCore package tests, deterministic evaluation, frontend production build, and a no-AWS HTTP runtime smoke against AgentCore and the frontend preview.
 
 ## Bedrock Mode
 
-The app defaults to deterministic fallback unless the backend is started with Bedrock enabled.
+The app defaults to deterministic fallback unless the AgentCore runtime is started with Bedrock enabled.
 
 Use the full optional setup guide in [docs/aws-bedrock-setup.md](docs/aws-bedrock-setup.md). Confirm cost guardrails before repeated live testing; the current recommendation is a small budget alert, one Bedrock call per agent run, `BEDROCK_MAX_TOKENS=1200`, and `BEDROCK_TEMPERATURE=0.2`.
 
@@ -133,14 +135,10 @@ Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client
 
 ## Local Quickstart
 
-Backend:
+AgentCore runtime:
 
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+agentcore dev --runtime rams_agentcore --skip-deploy --no-browser --no-traces --logs --port 8080
 ```
 
 Frontend:
@@ -156,21 +154,15 @@ Open `http://localhost:5173`.
 Health check:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8080/ping
 ```
 
-Agent run:
+AgentCore invocation:
 
 ```bash
-curl -X POST http://localhost:8000/api/run ^
+curl -X POST http://localhost:8080/invocations ^
   -H "Content-Type: application/json" ^
-  -d "{\"latitude\":52.2053,\"longitude\":-1.6022}"
-```
-
-OpenAPI schema:
-
-```bash
-curl http://localhost:8000/openapi.json
+  -d "{\"input\":{\"latitude\":52.2053,\"longitude\":-1.6022}}"
 ```
 
 ## Demo Scenarios
@@ -181,7 +173,7 @@ curl http://localhost:8000/openapi.json
 | Cached public pack | Leave `Data pack` as `Lambeth public cache`, click `Run` | Sources include cached Planning Data / flood context and OSM-style access context with attribution and freshness labels. |
 | Missing data | Disable `Planning fixture`, click `Run` | Briefing continues with a planning-evidence limitation. |
 | Tool failure | Enable `Map fallback`, click `Run` | Trace marks geospatial loading as `fallback`. |
-| Bedrock fallback | Enable Bedrock in UI while backend has no AWS config, or set `BEDROCK_SIMULATE_FAILURE=true` | Trace marks Bedrock step as `disabled` or `fallback`; deterministic briefing remains available. |
+| Bedrock fallback | Enable Bedrock in UI while AgentCore has no AWS config, or set `BEDROCK_SIMULATE_FAILURE=true` | Trace marks Bedrock step as `disabled` or `fallback`; deterministic briefing remains available. |
 | Unsafe request | Click `Safety test` | Safety gate blocks certified RAMS/work approval behavior. |
 | Low confidence | Normal run | Imagery-derived bridge indicator is labelled low confidence. |
 | Architecture visualizer | Normal run | UI shows tool sequence, boundaries, AWS path, and real-vs-mocked status. |
