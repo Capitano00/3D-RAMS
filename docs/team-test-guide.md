@@ -193,6 +193,8 @@ PowerShell note: if `npm run dev` is blocked by script execution policy, use `np
 
 Only use this if you are testing the live AWS path. Do not paste secrets into chat or commit `.env`.
 
+The full optional setup and troubleshooting guide is [aws-bedrock-setup.md](aws-bedrock-setup.md). Confirm payment preferences and a small budget alert before repeated live testing. Normal teammate testing does not need AWS.
+
 Backend environment:
 
 ```bash

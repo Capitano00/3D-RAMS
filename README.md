@@ -102,6 +102,8 @@ powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 
 The app defaults to deterministic fallback unless the backend is started with Bedrock enabled.
 
+Use the full optional setup guide in [docs/aws-bedrock-setup.md](docs/aws-bedrock-setup.md). Confirm cost guardrails before repeated live testing; the current recommendation is a small budget alert, one Bedrock call per agent run, `BEDROCK_MAX_TOKENS=1200`, and `BEDROCK_TEMPERATURE=0.2`.
+
 Recommended local settings:
 
 ```bash
