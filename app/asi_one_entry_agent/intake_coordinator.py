@@ -24,6 +24,7 @@ def build_entry_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "entryAgentId": str(payload.get("entryAgentId") or "@3d-rams"),
         "message": message,
         "confirmedByUser": bool(payload.get("confirmedByUser") or _looks_like_confirmation(message)),
+        "accessContext": _access_context(payload),
         "materials": _materials(payload),
         "runtimeOptions": _runtime_options(payload),
     }
@@ -33,6 +34,7 @@ def coordinate_intake(
     payload: dict[str, Any],
     *,
     model_json: Callable[[dict[str, Any]], dict[str, Any] | str] | None = None,
+    fallback_to_deterministic: bool = False,
 ) -> dict[str, Any]:
     turn = build_entry_turn(payload)
     if isinstance(payload.get("intake"), dict):
@@ -47,11 +49,28 @@ def coordinate_intake(
             "intake": payload["intake"],
             "caseId": payload.get("caseId"),
         }
+        response = validate_intake_result(parsed, turn)
+        response["intakeMode"] = "provided"
+        return response
     elif model_json:
-        parsed = _coerce_model_json(model_json(_model_prompt(turn)))
+        try:
+            parsed = _coerce_model_json(model_json(_model_prompt(turn)))
+            response = validate_intake_result(parsed, turn)
+            response["intakeMode"] = "llm"
+            return response
+        except Exception as exc:
+            if not fallback_to_deterministic:
+                raise
+            parsed = _deterministic_intake(turn)
+            response = validate_intake_result(parsed, turn)
+            response["intakeMode"] = "fallback"
+            response["fallbackReason"] = _fallback_reason(exc)
+            return response
     else:
         parsed = _deterministic_intake(turn)
-    return validate_intake_result(parsed, turn)
+    response = validate_intake_result(parsed, turn)
+    response["intakeMode"] = "deterministic"
+    return response
 
 
 def validate_intake_result(result: dict[str, Any], turn: dict[str, Any]) -> dict[str, Any]:
@@ -115,6 +134,7 @@ def build_confirmed_entry_payload(turn: dict[str, Any], intake_result: dict[str,
         "entryAgentId": turn["entryAgentId"],
         "caller": turn["caller"],
         "confirmedByUser": True,
+        "accessContext": turn.get("accessContext") or {},
         "intake": intake_result["intake"],
         "runtimeOptions": turn["runtimeOptions"],
     }
@@ -144,25 +164,24 @@ def _coerce_model_json(value: dict[str, Any] | str) -> dict[str, Any]:
 
 def _deterministic_intake(turn: dict[str, Any]) -> dict[str, Any]:
     message = str(turn.get("message") or "")
-    if not _has_site_signal(message):
+    missing_questions = _missing_critical_questions(message)
+    if missing_questions:
         return {
             "status": "clarification_required",
             "assistantMessage": "I need a little more information before I can launch the 3D-RAMS supervisor.",
-            "clarifyingQuestions": [
-                "Which site, address, landmark, neighbourhood, or coordinate should I assess?",
-                "What area should I cover around the site, for example a radius or boundary?",
-                "What is the planned visit activity?",
-            ],
+            "clarifyingQuestions": missing_questions,
         }
 
     scope = _area_scope(message)
+    materials = list(turn.get("materials") or [])
+    materials.extend(_material_hints(message))
     intake = {
         "locationText": _location_text(message),
         "locationCandidate": _location_candidate(message),
         "areaScope": scope,
         "userGoal": _goal(message),
         "userNotes": message,
-        "materials": turn.get("materials") or [],
+        "materials": materials,
     }
     return {
         "status": "launch_ready" if turn.get("confirmedByUser") else "confirmation_required",
@@ -229,6 +248,19 @@ def _materials(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return materials if isinstance(materials, list) else []
 
 
+def _access_context(payload: dict[str, Any]) -> dict[str, Any]:
+    runtime_options = payload.get("runtimeOptions") if isinstance(payload.get("runtimeOptions"), dict) else {}
+    context = (
+        payload.get("accessContext")
+        or payload.get("identityContext")
+        or payload.get("identity")
+        or runtime_options.get("accessContext")
+        or runtime_options.get("identityContext")
+        or {}
+    )
+    return context if isinstance(context, dict) else {}
+
+
 def _runtime_options(payload: dict[str, Any]) -> dict[str, Any]:
     options = dict(payload.get("runtimeOptions") or {}) if isinstance(payload.get("runtimeOptions"), dict) else {}
     options.setdefault("useBedrock", True)
@@ -251,7 +283,45 @@ def _optional_text(value: Any) -> str | None:
 
 
 def _has_site_signal(message: str) -> bool:
-    return bool(re.search(r"\b(albert embankment|street|road|lane|coordinate|near|site|lambeth)\b", message, re.I))
+    return bool(
+        _coordinate_pair(message)
+        or re.search(
+            r"\b(albert embankment|embankment|street|road|lane|coordinate|near|site|lambeth|postcode|address)\b",
+            message,
+            re.I,
+        )
+    )
+
+
+def _has_area_signal(message: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(\d+(?:\.\d+)?\s*(?:km|m|metre|meter|metres|meters)|radius|boundary|area|within)\b",
+            message,
+            re.I,
+        )
+    )
+
+
+def _has_goal_signal(message: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(survey|visit|inspection|walkover|rams|review|assessment|maintenance|construction|access|feasibility|pre-visit)\b",
+            message,
+            re.I,
+        )
+    )
+
+
+def _missing_critical_questions(message: str) -> list[str]:
+    questions: list[str] = []
+    if not _has_site_signal(message):
+        questions.append("Which site, address, landmark, neighbourhood, or coordinate should I assess?")
+    if not _has_area_signal(message):
+        questions.append("What area should I cover around the site, for example a radius or boundary?")
+    if not _has_goal_signal(message):
+        questions.append("What is the planned visit activity or review purpose?")
+    return questions
 
 
 def _looks_like_confirmation(message: str) -> bool:
@@ -272,19 +342,76 @@ def _area_scope(message: str) -> dict[str, Any]:
 def _location_text(message: str) -> str:
     if re.search(r"8\s+albert\s+embankment", message, re.I):
         return "8 Albert Embankment"
+    coordinate = _coordinate_pair(message)
+    if coordinate:
+        return f"{coordinate[0]:.6f}, {coordinate[1]:.6f}"
     return message[:160] or "User supplied site"
 
 
 def _location_candidate(message: str) -> dict[str, Any]:
     if re.search(r"8\s+albert\s+embankment", message, re.I):
         return {"label": "8 Albert Embankment", "lat": 51.492099, "lng": -0.118712, "confidence": 0.85}
+    coordinate = _coordinate_pair(message)
+    if coordinate:
+        return {
+            "label": f"{coordinate[0]:.6f}, {coordinate[1]:.6f}",
+            "lat": coordinate[0],
+            "lng": coordinate[1],
+            "confidence": 0.8,
+        }
     return {"label": _location_text(message), "confidence": 0.55}
 
 
 def _goal(message: str) -> str:
     if re.search(r"\bsurvey\b", message, re.I):
         return "survey pre-visit review"
+    if re.search(r"\b(inspection|walkover|visit)\b", message, re.I):
+        return "site visit pre-review"
+    if re.search(r"\b(access|maintenance|construction)\b", message, re.I):
+        return "access and site risk review"
     return "pre-visit RAMS-style review"
+
+
+def _material_hints(message: str) -> list[dict[str, Any]]:
+    if not re.search(
+        r"\b(pdf|drawing|plan|photo|image|document|material|upload|uploaded|file|access plan|site plan)\b",
+        message,
+        re.I,
+    ):
+        return []
+    return [
+        {
+            "type": "note",
+            "label": "Material hint from chat",
+            "summary": message[:180],
+        }
+    ]
+
+
+def _coordinate_pair(message: str) -> tuple[float, float] | None:
+    match = re.search(r"(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)", message)
+    if not match:
+        return None
+    lat = float(match.group(1))
+    lng = float(match.group(2))
+    if -90 <= lat <= 90 and -180 <= lng <= 180:
+        return lat, lng
+    return None
+
+
+def _fallback_reason(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "json" in message:
+        return "invalid_model_json"
+    if "timeout" in message or "timed out" in message:
+        return "bedrock_timeout"
+    if "access denied" in message or "not authorized" in message or "credential" in message:
+        return "bedrock_access_denied"
+    if isinstance(exc, IntakeValidationError):
+        return "schema_validation_failed"
+    if isinstance(exc, TimeoutError):
+        return "bedrock_timeout"
+    return "llm_intake_failed"
 
 
 def _confirmation_summary(intake: dict[str, Any]) -> str:

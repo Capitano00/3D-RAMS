@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ingest_material_references input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "materials": {
+      "type": "array",
+      "description": "ASI/ASI:ONE-owned material references or explicit local fixture/mock references.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "caseId": {
+      "type": ["string", "null"],
+      "description": "Confirmed case correlation id used to validate material case binding."
+    },
+    "upstream": {
+      "type": ["object", "null"],
+      "description": "Safe upstream ASI/ASI:ONE caller metadata. Raw identity tokens must not be included."
+    }
+  }
+}

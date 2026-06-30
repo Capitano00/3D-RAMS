@@ -13,7 +13,28 @@ for path in (TOOLS_ROOT, APP_ROOT):
         sys.path.insert(0, str(path))
 
 from rams_agent_tools import fixtures as fixture_module  # noqa: E402
+from rams_agent_tools.config import RuntimeConfig  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
+from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, validate_harness_output  # noqa: E402
+from supervisor_core.subagent_invoker import AgentCoreHarnessInvoker  # noqa: E402
+
+
+def authorized_material(case_id: str = "case_material_test_001") -> dict:
+    return {
+        "materialId": "asio_material_site_access_plan",
+        "sourceSystem": "asio",
+        "type": "application/pdf",
+        "label": "Site access plan",
+        "summary": "Uploaded by the ASI user for this case.",
+        "caseId": case_id,
+        "sizeBytes": 24576,
+        "access": {
+            "mode": "asio_authorized_reference",
+            "expiresAt": "2099-01-01T00:00:00Z",
+            "token": "DUMMY_MATERIAL_ACCESS_MARKER_SHOULD_NOT_LEAK",
+        },
+        "rawContent": "DUMMY RAW MATERIAL CONTENT SHOULD NOT LEAK",
+    }
 
 
 class EnvPatch:
@@ -156,6 +177,99 @@ class SiteBriefingAgentTests(unittest.TestCase):
             )
         )
 
+    def test_authorized_asio_material_reference_produces_safe_evidence_and_trace(self):
+        result = run_site_briefing(
+            {
+                "caseId": "case_material_test_001",
+                "fixturePack": "public-lambeth-thames",
+                "useBedrock": False,
+                "materials": [authorized_material()],
+            }
+        )
+
+        material_ingestion = result["materialIngestion"]
+        self.assertEqual(material_ingestion["status"], "ok")
+        self.assertEqual(material_ingestion["accepted"], 1)
+        self.assertEqual(material_ingestion["skipped"], [])
+        self.assertEqual(result["runtime"]["materialIngestionStatus"], "ok")
+        self.assertEqual(result["runtime"]["materialEvidenceCount"], 1)
+
+        evidence_by_id = {item["id"]: item for item in result["evidence"]}
+        self.assertIn("ev-material-asio-material-site-access-plan", evidence_by_id)
+        material_evidence = evidence_by_id["ev-material-asio-material-site-access-plan"]
+        self.assertEqual(material_evidence["status"], "authorized-material-fixture")
+        self.assertTrue(material_evidence["citations"])
+        self.assertFalse(material_evidence["citations"][0]["rawContentStored"])
+
+        hazard_ids = {item["id"] for item in result["hazards"]}
+        self.assertIn("material-asio-material-site-access-plan-access-plan-public-realm", hazard_ids)
+        trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
+        self.assertEqual(trace_step["status"], "ok")
+        self.assertEqual(trace_step["output"]["accepted"], 1)
+        self.assertIn("ev-material-asio-material-site-access-plan", trace_step["evidenceIds"])
+
+        serialized = json.dumps(result)
+        self.assertNotIn("DUMMY_MATERIAL_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
+        self.assertNotIn("DUMMY RAW MATERIAL CONTENT SHOULD NOT LEAK", serialized)
+
+    def test_denied_expired_and_oversized_materials_are_skipped_without_secret_leakage(self):
+        result = run_site_briefing(
+            {
+                "caseId": "case_material_test_002",
+                "useBedrock": False,
+                "materials": [
+                    {
+                        "materialId": "asio_material_denied",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Denied material",
+                        "caseId": "case_material_test_002",
+                        "access": {
+                            "mode": "asio_authorized_reference",
+                            "status": "denied",
+                            "token": "DENIED_DUMMY_ACCESS_MARKER_SHOULD_NOT_LEAK",
+                        },
+                        "rawContent": "DENIED DUMMY RAW CONTENT SHOULD NOT LEAK",
+                    },
+                    {
+                        "materialId": "asio_material_expired",
+                        "sourceSystem": "asio",
+                        "type": "image/png",
+                        "label": "Expired material",
+                        "caseId": "case_material_test_002",
+                        "access": {
+                            "mode": "asio_authorized_reference",
+                            "expiresAt": "2000-01-01T00:00:00Z",
+                        },
+                    },
+                    {
+                        "materialId": "asio_material_oversized",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Oversized material",
+                        "caseId": "case_material_test_002",
+                        "sizeBytes": 10 * 1024 * 1024 + 1,
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
+                ],
+            }
+        )
+
+        ingestion = result["materialIngestion"]
+        self.assertEqual(ingestion["status"], "warning")
+        self.assertEqual(ingestion["accepted"], 0)
+        reasons = {item["reason"] for item in ingestion["skipped"]}
+        self.assertEqual(reasons, {"denied", "expired", "oversized"})
+
+        trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
+        self.assertEqual(trace_step["status"], "warning")
+        self.assertEqual({item["reason"] for item in trace_step["output"]["skipped"]}, reasons)
+
+        serialized = json.dumps(result)
+        self.assertNotIn("DENIED_DUMMY_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
+        self.assertNotIn("DENIED DUMMY RAW CONTENT SHOULD NOT LEAK", serialized)
+        self.assertNotIn("rawContent", serialized)
+
     def test_unknown_fixture_pack_falls_back_to_synthetic_defaults(self):
         result = run_site_briefing({"fixturePack": "missing-pack", "useBedrock": False})
 
@@ -253,6 +367,70 @@ class SiteBriefingAgentTests(unittest.TestCase):
             "direct-local-harness-adapter",
         )
         self.assertEqual(result["runtime"]["subagentExecutionMode"], "direct-local-harness-adapter")
+
+    def test_subagent_outputs_use_shared_harness_envelope(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        self.assertEqual(result["runtime"]["harnessOutputSchemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
+        self.assertTrue(result["runtime"]["harnessContract"]["contractCompliant"])
+        self.assertEqual(result["runtime"]["harnessContract"]["fallbackCount"], 0)
+        self.assertEqual(len(result["subagentOutputs"]), 6)
+        self.assertEqual(
+            result["runtime"]["harnessContract"]["observedSubagents"],
+            [
+                "geospatial_subagent",
+                "planning_subagent",
+                "hazard_subagent",
+                "annotation_subagent",
+                "briefing_subagent",
+                "review_guardrail",
+            ],
+        )
+        for output in result["subagentOutputs"]:
+            self.assertEqual(validate_harness_output(output, expected_group=output["subagent"]["name"]), [])
+            self.assertEqual(output["schemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
+            self.assertIsInstance(output["data"], dict)
+            self.assertIsInstance(output["trace"], list)
+
+    def test_agentcore_harness_non_standard_output_uses_visible_contract_fallback(self):
+        class FakeHarnessClient:
+            def invoke_harness(self, **kwargs):
+                legacy_result = {
+                    "location": {"label": "Legacy Harness output"},
+                    "features": [],
+                    "scene": {},
+                    "trace": [],
+                }
+                return {
+                    "stream": [
+                        {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
+                        {
+                            "contentBlockDelta": {
+                                "contentBlockIndex": 0,
+                                "delta": {"text": json.dumps(legacy_result)},
+                            }
+                        },
+                    ]
+                }
+
+        with EnvPatch(RAMS_HARNESS_ARNS=json.dumps({"rams_geospatial_harness": "arn:test:geospatial"})):
+            invoker = AgentCoreHarnessInvoker(
+                config=RuntimeConfig.from_env(request_bedrock=False),
+                client=FakeHarnessClient(),
+            )
+            result = invoker.invoke_geospatial({}, fixture_pack=None)
+
+        self.assertEqual(result["schemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
+        self.assertEqual(result["status"], "fallback")
+        self.assertTrue(result["metadata"]["contractFallback"])
+        self.assertTrue(result["metadata"]["contractValidationIssues"])
+        self.assertTrue(
+            any(
+                step["name"] == "agentcore_harness_schema_fallback"
+                and step["fallbackReason"] == "agentcore_harness_output_contract_invalid"
+                for step in result["trace"]
+            )
+        )
 
     def test_bedrock_mock_mode_updates_briefing_and_trace(self):
         with EnvPatch(

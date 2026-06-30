@@ -68,6 +68,10 @@ class SiteBriefRequest(BaseModel):
         max_length=1000,
         description="Optional additional user instruction. Unsafe RAMS/work-approval claims are blocked by the safety gate.",
     )
+    materials: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="ASI/ASI:ONE-owned material references or explicit local fixture/mock references.",
+    )
 
     def to_agent_request(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)
@@ -84,6 +88,7 @@ class ReportIntake(BaseModel):
     siteName: str | None = None
     goal: str | None = None
     fixturePack: str | None = None
+    materials: list[dict[str, Any]] = Field(default_factory=list)
     includePlanningFixture: bool
     simulateMapFailure: bool
     useBedrock: bool
@@ -114,6 +119,11 @@ class ReportRuntime(BaseModel):
     modelCallCount: int = 0
     subagentExecutionMode: str | None = None
     caseId: str | None = None
+    materialIngestionStatus: str | None = None
+    materialEvidenceCount: int = 0
+    materialSkippedCount: int = 0
+    harnessOutputSchemaVersion: str | None = None
+    harnessContract: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutiveSummary(BaseModel):
@@ -208,6 +218,7 @@ class StructuredReport(BaseModel):
     reviewGate: ReviewGate
     dataQuality: DataQuality
     externalSignals: ExternalSignals = Field(default_factory=ExternalSignals)
+    materialIngestion: dict[str, Any] = Field(default_factory=dict)
     reasoning: dict[str, Any] = Field(default_factory=dict)
     llmPlan: dict[str, Any] = Field(default_factory=dict)
     modelCalls: list[dict[str, Any]] = Field(default_factory=list)

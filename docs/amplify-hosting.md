@@ -25,7 +25,7 @@ VITE_USE_LOCAL_ASIONE=false
 VITE_CESIUM_ION_TOKEN=
 ```
 
-`VITE_CLOUD_ENTRY_PROXY_URL` is public client configuration. The proxy behind that URL owns AWS signing and calls the cloud `asi_one_entry_agent` runtime.
+`VITE_CLOUD_ENTRY_PROXY_URL` is public client configuration. The proxy behind that URL owns AWS signing and calls the cloud `asi_one_entry_agent` runtime. It is a transport bridge only; it must not recreate `/api/chat`, `/api/run`, `/api/session/start`, or `/api/upload-url`.
 
 Do not set these local-only variables for hosted Amplify unless you are intentionally debugging a local tunnel:
 
@@ -79,10 +79,19 @@ After deployment:
 
 - Open the hosted Amplify URL.
 - Confirm the page loads static assets and the Cesium scene shell.
-- Submit the default FieldBrief prompt.
+- Submit the default FieldBrief ASI simulation prompt.
 - Confirm the browser request goes to `VITE_CLOUD_ENTRY_PROXY_URL`, not `/agentcore/invocations`.
 - Confirm the response renders map annotations, briefing, evidence, trace, and safety data.
 - Confirm no cloud-mode run contains `localAsiOneSubstitute: true`.
+
+For full ADR 0016 hosted workflow parity, run the AgentCore + ASI smoke against the same signed proxy:
+
+```bash
+RAMS_HOSTED_ENTRY_URL=https://<signed-proxy-domain>/invoke \
+python3 scripts/hosted-agentcore-asio-smoke.py
+```
+
+This hosted smoke covers entry clarification, confirmed supervisor launch, report-store write, identity-bound lookup, authorized/denied material references, and public-safe output. Amplify page-load verification alone is not enough to prove the hosted AgentCore + ASI topology.
 
 ## Legacy Manual ZIP Deploy
 

@@ -71,6 +71,9 @@ echo "Running AgentCore workflow and invocation tests"
 echo "Running entry-agent supervisor adapter tests"
 "$PYTHON_BIN" -m unittest discover -s app/asi_one_entry_agent/tests -q
 
+echo "Running AgentVerse proxy boundary tests"
+"$PYTHON_BIN" -m unittest discover -s agentverse/tests -q
+
 echo "Running deterministic no-AWS demo evaluation"
 ENABLE_BEDROCK=false "$PYTHON_BIN" scripts/evaluate-demo.py
 

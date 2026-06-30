@@ -78,6 +78,11 @@ VITE_CLOUD_ENTRY_PROXY_URL=http://127.0.0.1:8787/invoke npm run dev
 
 Use `VITE_USE_LOCAL_ASIONE=true` only for explicit no-AWS local testing.
 
+The frontend proxy exposes only transport endpoints: `GET /health`, `POST /invoke`, and `POST /`.
+It must not grow old FastAPI-compatible product routes such as `/api/chat`, `/api/run`,
+`/api/session/start`, or `/api/upload-url`. Intake and delivery belong in `asi_one_entry_agent`;
+report orchestration belongs in `rams_supervisor_runtime`.
+
 ## Hosted Agent Entry File
 
 Avoid registering the chat protocol twice. In AgentVerse, either put the full contents of

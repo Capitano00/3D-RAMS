@@ -282,12 +282,12 @@ def _text_from_json(payload: dict[str, Any]) -> str:
     entry_agent = output.get("entryAgent") if isinstance(output.get("entryAgent"), dict) else {}
     delivery = output.get("delivery") if isinstance(output.get("delivery"), dict) else {}
     summary = delivery.get("customerSummary") if isinstance(delivery.get("customerSummary"), dict) else {}
+    if entry_agent.get("assistantMessage"):
+        return _entry_agent_message(entry_agent)
     if output.get("assistantMessage"):
         return str(output["assistantMessage"])
     if summary.get("headline"):
         return str(summary["headline"])
-    if entry_agent.get("assistantMessage"):
-        return _entry_agent_message(entry_agent)
     if output:
         return json.dumps(output, ensure_ascii=False)
     return json.dumps(payload, ensure_ascii=False)

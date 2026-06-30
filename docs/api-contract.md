@@ -4,9 +4,21 @@
 
 The runtime is local-first. It does not require AWS credentials, Google keys, live planning portals, hosted infrastructure, real site data, or private documents.
 
+## Scope And Product Boundary
+
+This contract describes the AgentCore invocation surface, not a standalone product backend. `/ping` and `/invocations` are valid for local AgentCore development, tests, smoke checks, and runtime-to-runtime invocation.
+
+Hosted product entry should go through ASI/ASI:ONE or the development/debug FieldBrief entry simulation, then through the signed entry proxy configured by `VITE_CLOUD_ENTRY_PROXY_URL`. The proxy is transport-level: it signs and forwards entry-turn or report-lookup payloads to `asi_one_entry_agent`; it must not implement product orchestration, intake semantics, report generation, uploads, sessions, or old FastAPI-compatible product routes.
+
+The codebase intentionally does not expose `/api/chat`, `/api/run`, `/api/session/start`, or `/api/upload-url` as canonical contracts.
+
 AgentVerse and ASI:ONE should not call AgentCore directly in the current architecture. The intended cross-platform path is documented in [agentverse-agentcore-adapter-contract.md](agentverse-agentcore-adapter-contract.md): AgentVerse entry agent confirms intake, the adapter validates and signs/invokes AgentCore, then delivery returns to the entry agent.
 
-When `RAMS_REPORT_STORE_TABLE` is set in the supervisor runtime environment, the runtime writes a DynamoDB report-store item keyed by `caseId`. When it is unset, persistence is skipped and the no-AWS local demo behavior is unchanged.
+When `RAMS_REPORT_STORE_TABLE` is set in the supervisor runtime environment, the runtime writes a DynamoDB report-store item keyed by `caseId`. When it is unset, persistence is skipped and the no-AWS local demo behavior is unchanged. The stored item is a case-correlated report/evidence record, not a web session record.
+
+`caseId` is a workflow correlation id, not a bearer secret. Stored report lookup requires an ASI/ASI:ONE identity or authorized session context. The local FieldBrief path may send an explicit `dev_local` access context for no-AWS debugging; that bypass is not production authorization.
+
+Hosted report lookup is ASI/ASI:ONE identity-bound. `caseId` is a correlation id, not a bearer secret. Stored report items launched with a `reportAccess` context require the same non-secret binding before `run` or `structuredReport` is returned.
 
 ## Endpoints
 
@@ -45,7 +57,7 @@ Known `input` fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `caseId` | string | Optional entry-agent generated correlation id. Echoed in output, run, and structured report when provided. |
+| `caseId` | string | Optional entry-agent generated correlation id. If omitted in direct local/debug calls, the supervisor creates a deterministic `case_<hash>` id from the normalized request. |
 | `siteName` | string | Optional site label for briefing and visualizer output. |
 | `latitude` | number | Decimal degrees, `-90` to `90`. Defaults to fixture coordinate when omitted. |
 | `longitude` | number | Decimal degrees, `-180` to `180`. Defaults to fixture coordinate when omitted. |
@@ -56,7 +68,9 @@ Known `input` fields:
 | `simulateMapFailure` | boolean | Defaults to `false`. Set `true` to force the geospatial fallback path. |
 | `useBedrock` | boolean | Defaults to `true`. Bedrock is used only when runtime environment settings enable it. |
 | `additionalRequest` | string | Optional user instruction. Unsafe RAMS/work-approval claims are blocked. |
+| `materials` | array | Optional ASI/ASI:ONE-owned material references or explicit local fixture/mock references. Only bounded metadata is accepted: id, source system, type, label, summary, case id, source/evidence ids, and access mode/expiry/status. Raw files, raw material content, tokens, signed URLs, and credentials are not persisted or returned. |
 | `upstream` | object | Optional upstream metadata from AgentVerse, ASI:ONE, or another entry agent. |
+| `reportAccess` | object | Optional ASI/ASI:ONE identity/session binding metadata. `accessContext` is accepted as a compatibility alias, but `reportAccess` is the canonical field. Raw tokens must not be sent or stored. |
 
 ## Report Lookup Request
 
@@ -66,7 +80,21 @@ Stored reports can be loaded through the same AgentCore invocation path:
 {
   "input": {
     "operation": "getReport",
-    "caseId": "case_demo_fixture_001"
+    "caseId": "case_demo_fixture_001",
+    "reportAccess": {
+      "schemaVersion": "3d-rams.report-access.v1",
+      "mode": "asi_session",
+      "caseId": "case_demo_fixture_001",
+      "sessionId": "opaque-asi-session-reference",
+      "authorizedCaseIds": ["case_demo_fixture_001"],
+      "expiresAt": "<short-lived-iso-expiry>"
+    },
+    "upstream": {
+      "source": "AGENTVERSE",
+      "caseId": "case_demo_fixture_001",
+      "conversationId": "agentverse-session-id",
+      "entryAgentId": "@3d-rams"
+    }
   }
 }
 ```
@@ -78,13 +106,25 @@ Frontend cloud mode sends the same lookup through the entry proxy:
   "frontendInvoke": true,
   "operation": "getReport",
   "caseId": "case_demo_fixture_001",
-  "conversationId": "frontend-demo-session"
+  "conversationId": "opaque-frontend-session-reference",
+  "caller": "frontend",
+  "reportAccess": {
+    "schemaVersion": "3d-rams.report-access.v1",
+    "mode": "asi_session",
+    "caseId": "case_demo_fixture_001",
+    "sessionId": "opaque-frontend-session-reference",
+    "authorizedCaseIds": ["case_demo_fixture_001"]
+  }
 }
 ```
 
-The supervisor returns `output.run` and `output.structuredReport` when DynamoDB contains the case. If `RAMS_REPORT_STORE_TABLE` is unset or the item is missing, the response keeps the envelope shape but sets `output.reportStatus` to `not_found` and reports the reason in `output.persistence`.
+`reportAccess` is the current placeholder contract for the ASI/ASI:ONE-bound access assertion. Supported modes are `asi_identity`, `asi_session`, and explicit `dev_local` for local debugging. The runtime stores only hashed identity/session bindings in the report-store item, not raw ASI identity tokens, access assertions, signed URLs, or credentials.
+
+The supervisor returns `output.run` and `output.structuredReport` only when DynamoDB contains the case and the access context matches the stored case binding. If authorization fails, the response sets `output.reportStatus` to `access_denied`, includes a machine-readable reason in `output.reportAccess.reason`, and omits `run` and `structuredReport`. If `RAMS_REPORT_STORE_TABLE` is unset or the item is missing after authorization, the response keeps the envelope shape but sets `output.reportStatus` to `not_found` and reports the reason in `output.persistence`.
 
 The React frontend uses this contract for `/case/{caseId}` routes. A direct page load on that route performs a lookup instead of starting a fresh supervisor run.
+
+In hosted mode, `/case/{caseId}` lookup still goes through the signed entry proxy and `asi_one_entry_agent`. `caseId` is a correlation id, not a bearer secret; production report access remains ASI/ASI:ONE identity-bound per ADR 0013.
 
 ## Invocation Response
 
@@ -118,6 +158,7 @@ Important `output.structuredReport` fields:
 | `caseId` | Entry-agent generated correlation id, when present. It becomes the DynamoDB partition key only when `RAMS_REPORT_STORE_TABLE` is configured. |
 | `status` | `blocked`, `review_required`, or future `review_passed`. |
 | `intake` | Confirmed user intake and optional upstream AgentVerse metadata. |
+| `materialIngestion` | Safe material-ingestion status, accepted/skipped references, citations, and evidence/source ids. |
 | `site` | Resolved site label, coordinate, authority, confidence, and source ids. |
 | `executiveSummary` | User-facing headline, summary, priority checks, site-visit checks, limitations, and safety message. |
 | `sections` | Stable report sections with reference ids for sources, evidence, and trace steps. |
@@ -130,16 +171,29 @@ Important `output.structuredReport` fields:
 | `externalSignals` | Placeholder for future Tavily/open-web signals. Current prototype marks this as `not_configured`. |
 | `trace` | Ordered tool timeline for debugging and evidence inspection. |
 
+The trace is case-correlated. Each supervisor trace step includes `caseId`, and the step `output` includes the same id where the output is an object. This is the field to map into future CloudWatch search and trace correlation.
+
 Important `output.persistence` fields:
 
 | Field | Meaning |
 | --- | --- |
 | `mode` | `disabled` when no table is configured, or `dynamodb` when the report store path was attempted. |
-| `status` | `skipped`, `stored`, or `error`. Store errors are surfaced here without hiding the report payload. |
+| `status` | `skipped`, `stored`, `loaded`, `access_denied`, `not_found`, or `error`. Store errors are surfaced here without hiding a newly generated report payload. |
 | `tableName` | DynamoDB table name when configured. |
 | `caseId` | Partition key used for the stored item. |
 
-The DynamoDB item uses `caseId` as the partition key and stores report metadata plus the structured report payload. It is still a human-review demo report; persistence does not imply certified RAMS, legal approval, work approval, or independent review completion.
+The DynamoDB item uses `caseId` as the partition key and stores:
+
+- `schemaVersion: 3d-rams.report-store.v1`;
+- report metadata and workflow status;
+- `reportAccessBinding` with hashed subject/session references and optional expiry metadata;
+- `authorizationBinding` with non-secret ASI/ASI:ONE session or pre-hashed subject/organization references for audit/debug summary;
+- bounded `evidenceSummary`, `materialEvidenceSummary`, `citationMetadata`, and `traceSummary`;
+- the generated `structuredReport` and `run` payloads for detailed lookup.
+
+The record deliberately excludes raw ASI identity tokens, raw private material content, signed material URLs, shared access codes, AWS credentials, AgentCore secrets, and certified/approval-to-work claims. `caseId` is a correlation key, not a bearer token.
+
+Retention is explicit metadata on the item. `RAMS_REPORT_STORE_TTL_DAYS` can be used to publish an intended TTL value in the record; DynamoDB TTL/index wiring remains an infrastructure decision. Until that infrastructure exists, stored records must be treated as human-review demo evidence/report records and not production audit records.
 
 Important `output.run` fields:
 

@@ -5,6 +5,7 @@ from .architecture import architecture_snapshot
 from .briefing import apply_bedrock_briefing, generate_site_brief
 from .geospatial import build_scene_config, load_geospatial_features, resolve_location
 from .hazards import extract_hazard_notes
+from .materials import ingest_material_references, sanitize_material_references
 from .planning import load_planning_context
 from .registry import SUPERVISOR_HARNESS_SUBAGENTS, SUPERVISOR_TOOL_GROUPS, harness_for_group, tools_for_group
 from .request import normalize_request, source_register
@@ -22,11 +23,13 @@ __all__ = [
     "extract_hazard_notes",
     "generate_site_brief",
     "harness_for_group",
+    "ingest_material_references",
     "load_geospatial_features",
     "load_planning_context",
     "normalize_request",
     "resolve_location",
     "safety_gate",
+    "sanitize_material_references",
     "source_register",
     "tools_for_group",
     "trace_step",

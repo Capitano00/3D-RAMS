@@ -43,7 +43,7 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
     payload = payload or {}
     request = _extract_request(payload)
     if _is_report_lookup_request(request):
-        return load_report(str(request["caseId"]))
+        return load_report(str(request["caseId"]), access_context=_report_access_context(request))
 
     run = run_site_briefing(request)
     case_id = run.get("caseId") or request.get("caseId")
@@ -99,6 +99,21 @@ def _extract_request(payload: dict[str, Any]) -> dict[str, Any]:
 def _is_report_lookup_request(request: dict[str, Any]) -> bool:
     operation = str(request.get("operation") or request.get("action") or "").strip().lower()
     return operation in {"getreport", "get_report", "lookupreport", "lookup_report"} and bool(request.get("caseId"))
+
+
+def _report_access_context(request: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("reportAccess", "reportAccessContext", "accessContext"):
+        candidate = request.get(key)
+        if isinstance(candidate, dict):
+            return candidate
+
+    upstream = request.get("agentcoreUpstream") or request.get("upstream")
+    if isinstance(upstream, dict):
+        candidate = upstream.get("reportAccess")
+        if isinstance(candidate, dict):
+            return candidate
+
+    return None
 
 
 def _workflow_mode(run: dict[str, Any]) -> str:

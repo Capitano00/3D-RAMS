@@ -16,9 +16,11 @@ def reason_over_evidence(
     sources: list[dict[str, Any]],
     safety: dict[str, Any],
     external_signals: dict[str, Any] | None = None,
+    material_ingestion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Produce an inspectable reasoning artifact without exposing hidden reasoning."""
     open_web = (external_signals or {}).get("openWeb") or {"status": "not_configured", "items": []}
+    material_ingestion = material_ingestion or {"status": "disabled", "accepted": 0, "skipped": []}
     safety_allowed = bool(safety.get("allowed"))
     source_ids = _source_ids(sources)
     evidence_ids = _evidence_ids(evidence)
@@ -73,6 +75,18 @@ def reason_over_evidence(
             confidence="medium" if hazards and safety_allowed else "low",
         ),
         _section_fit(
+            section_id="user-materials",
+            status="supported" if material_ingestion.get("accepted") else "missing",
+            rationale=(
+                "Authorized ASI/ASI:ONE material references produced safe evidence summaries."
+                if material_ingestion.get("accepted")
+                else "No authorized material-derived evidence was available for this run."
+            ),
+            source_ids=_strings(material_ingestion.get("sourceIds")),
+            evidence_ids=_strings(material_ingestion.get("evidenceIds")),
+            confidence="medium" if material_ingestion.get("accepted") else "low",
+        ),
+        _section_fit(
             section_id="open-web-signals",
             status="supported" if open_web.get("items") else "missing",
             rationale=(
@@ -104,6 +118,7 @@ def reason_over_evidence(
         briefing=briefing,
         sources=sources,
         open_web=open_web,
+        material_ingestion=material_ingestion,
     )
     conflicts = []
     if not safety_allowed:
@@ -142,6 +157,9 @@ def reason_over_evidence(
                 "gapCount": len(gaps),
                 "conflictCount": len(conflicts),
                 "openWebStatus": open_web.get("status"),
+                "materialIngestionStatus": material_ingestion.get("status"),
+                "materialAccepted": material_ingestion.get("accepted"),
+                "materialSkipped": material_ingestion.get("skippedCount"),
             },
             source_ids=source_ids,
             evidence_ids=evidence_ids,
@@ -199,6 +217,7 @@ def _data_gaps(
     briefing: dict[str, Any],
     sources: list[dict[str, Any]],
     open_web: dict[str, Any],
+    material_ingestion: dict[str, Any],
 ) -> list[dict[str, Any]]:
     gaps: list[dict[str, Any]] = []
     if not _has_available_source(sources, "planning"):
@@ -217,6 +236,27 @@ def _data_gaps(
                 "severity": "low",
                 "message": "Open-web signals were not available for this run.",
                 "affectsSections": ["open-web-signals"],
+            }
+        )
+    if not material_ingestion.get("accepted"):
+        gaps.append(
+            {
+                "id": "user-materials",
+                "severity": "low",
+                "message": "No authorized material-derived evidence was available for this run.",
+                "affectsSections": ["user-materials", "candidate-findings"],
+            }
+        )
+    for skipped in material_ingestion.get("skipped") or []:
+        if not isinstance(skipped, dict):
+            continue
+        material_label = skipped.get("label") or skipped.get("materialId") or "material reference"
+        gaps.append(
+            {
+                "id": f"material-{skipped.get('reason', 'skipped')}",
+                "severity": "medium",
+                "message": f"Material reference '{material_label}' was skipped: {skipped.get('reason')}.",
+                "affectsSections": ["user-materials", "candidate-findings"],
             }
         )
     if not request.get("additionalRequest"):

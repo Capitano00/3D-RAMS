@@ -26,11 +26,11 @@ Check the current state:
 git status --short
 ```
 
-Keep changes scoped to one purpose. If a change touches backend, frontend, docs, fixtures, and workflow at once, split it unless the parts are tightly coupled.
+Keep changes scoped to one purpose. If a change touches AgentCore runtimes, frontend, docs, fixtures, and workflow at once, split it unless the parts are tightly coupled.
 
 ## Verification
 
-The standard check compiles backend/scripts, runs backend and API tests, runs deterministic evaluation, builds the frontend, and starts a no-AWS backend/frontend HTTP smoke test.
+The standard check compiles AgentCore packages and scripts, runs AgentCore runtime, entry-agent, and proxy boundary tests, runs deterministic evaluation, builds the frontend, and starts a no-AWS AgentCore/frontend HTTP smoke test.
 
 Codespaces/Linux/macOS:
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from decimal import Decimal
 from typing import Any
 
 from agentcore_client import invoke_runtime_json
@@ -12,7 +11,13 @@ from intake_coordinator import (
     build_entry_turn,
     coordinate_intake,
 )
-from supervisor_adapter import AdapterValidationError, build_agentcore_invocation, build_delivery_payload
+from llm_intake import deterministic_fallback_enabled, select_model_json
+from supervisor_adapter import (
+    AdapterValidationError,
+    build_agentcore_invocation,
+    build_delivery_payload,
+    build_report_access_context,
+)
 
 try:
     from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -116,7 +121,12 @@ def handle_invocation(
     turn = build_entry_turn(payload)
     if payload.get("confirmedByUser") is True and "intake" not in payload and turn["conversationId"] in _PENDING_INTAKES:
         payload = {**payload, "intake": _PENDING_INTAKES[turn["conversationId"]]}
-    intake_result = coordinate_intake(payload, model_json=model_json)
+    selected_model_json = select_model_json(payload, model_json)
+    intake_result = coordinate_intake(
+        payload,
+        model_json=selected_model_json,
+        fallback_to_deterministic=selected_model_json is not None and deterministic_fallback_enabled(),
+    )
     conversation_id = turn["conversationId"]
     user_id = str(payload.get("userId") or "3d-rams-entry-agent")
 
@@ -131,8 +141,9 @@ def handle_invocation(
                 "structuredReport": None,
                 "reportStatus": "entry_pending",
                 "workflowMode": "entry_intake",
+                "assistantMessage": intake_result["assistantMessage"],
                 "entryAgent": {
-                    "mode": "intake-coordinator",
+                    "mode": _entry_agent_mode(intake_result),
                     "adapterVersion": "asi-one-entry-agent-v2",
                     "conversationId": conversation_id,
                     **intake_result,
@@ -155,6 +166,7 @@ def handle_invocation(
         user_id=user_id,
     )
     delivery = build_delivery_payload(agentcore_response, entry_payload=confirmed_payload)
+    assistant_message = _delivery_assistant_message(delivery)
     output = agentcore_response.get("output") if isinstance(agentcore_response.get("output"), dict) else {}
     return {
         "output": {
@@ -165,13 +177,16 @@ def handle_invocation(
             "reportStatus": output.get("reportStatus") or delivery.get("status"),
             "workflowMode": output.get("workflowMode") or delivery.get("workflowMode"),
             "persistence": output.get("persistence"),
+            "assistantMessage": assistant_message,
             "entryAgent": {
                 "mode": "cloud-supervisor-handoff",
                 "adapterVersion": "asi-one-entry-agent-v2",
                 "conversationId": conversation_id,
                 "caseId": output.get("caseId") or delivery.get("caseId") or confirmed_payload["caseId"],
                 "status": "delivered",
-                "assistantMessage": delivery.get("customerSummary", {}).get("headline") or "Supervisor workflow completed.",
+                "assistantMessage": assistant_message,
+                "intakeMode": intake_result.get("intakeMode"),
+                "fallbackReason": intake_result.get("fallbackReason"),
                 "intake": intake_result["intake"],
             },
         }
@@ -296,14 +311,20 @@ def _handle_report_lookup(
     case_id = str(payload["caseId"])
     conversation_id = str(payload.get("conversationId") or payload.get("sessionId") or f"report-lookup-{case_id}")
     user_id = str(payload.get("userId") or "3d-rams-entry-agent")
-    response = _load_report_from_store(case_id)
-    if response is None:
-        response = invoke_runtime(
-            runtime_arn=runtime_arn,
-            payload={"input": {"operation": "getReport", "caseId": case_id}},
-            session_id=conversation_id,
-            user_id=user_id,
-        )
+    report_access = build_report_access_context(payload, case_id, conversation_id=conversation_id, user_id=user_id)
+    response = invoke_runtime(
+        runtime_arn=runtime_arn,
+        payload={
+            "input": {
+                "operation": "getReport",
+                "caseId": case_id,
+                "reportAccess": report_access,
+                "upstream": _lookup_upstream(payload, conversation_id),
+            }
+        },
+        session_id=conversation_id,
+        user_id=user_id,
+    )
     output = response.get("output") if isinstance(response.get("output"), dict) else {}
     return {
         "output": {
@@ -318,71 +339,68 @@ def _handle_report_lookup(
     }
 
 
-def _load_report_from_store(case_id: str) -> dict[str, Any] | None:
-    table_name = os.getenv("RAMS_REPORT_STORE_TABLE")
-    if not table_name:
-        return None
-    try:
-        import boto3
-    except ImportError:
-        return None
-
-    try:
-        table = boto3.resource("dynamodb").Table(table_name)
-        response = table.get_item(Key={"caseId": case_id})
-        item = response.get("Item") if isinstance(response, dict) else None
-    except Exception:
-        return None
-    if not isinstance(item, dict):
-        return {
-            "output": {
-                "caseId": case_id,
-                "reportStatus": "not_found",
-                "workflowMode": "report_lookup",
-                "persistence": {
-                    "mode": "dynamodb",
-                    "status": "not_found",
-                    "tableName": table_name,
-                    "caseId": case_id,
-                },
-            }
+def _lookup_upstream(payload: dict[str, Any], conversation_id: str) -> dict[str, Any]:
+    upstream = {
+        "source": _lookup_source(payload),
+        "caseId": str(payload.get("caseId")),
+        "conversationId": conversation_id,
+        "entryAgentId": str(payload.get("entryAgentId") or "@3d-rams"),
+        "authorizationMode": "identity_bound_report_lookup",
+    }
+    identity = payload.get("identity") or payload.get("authorizationContext") or {}
+    if isinstance(identity, dict):
+        safe_identity = {
+            key: identity[key]
+            for key in ("subjectRef", "organizationRef", "sessionRef", "issuer", "authMode")
+            if identity.get(key)
         }
-    return _json_safe(
-        {
-            "output": {
-                "caseId": case_id,
-                "reportStatus": item.get("reportStatus") or "unknown",
-                "workflowMode": item.get("workflowMode") or "report_lookup",
-                "structuredReport": item.get("structuredReport"),
-                "run": item.get("run"),
-                "persistence": {
-                    "mode": "dynamodb",
-                    "status": "loaded",
-                    "tableName": table_name,
-                    "caseId": case_id,
-                    "updatedAt": item.get("updatedAt"),
-                },
-            }
-        }
-    )
+        if safe_identity:
+            upstream["identity"] = safe_identity
+    return upstream
 
 
-def _json_safe(value: Any) -> Any:
-    return json.loads(json.dumps(value, default=_json_default))
-
-
-def _json_default(value: Any) -> Any:
-    if isinstance(value, Decimal):
-        return int(value) if value == value.to_integral_value() else float(value)
-    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
-
-
+def _lookup_source(payload: dict[str, Any]) -> str:
+    caller = str(payload.get("caller") or payload.get("source") or "").strip().lower()
+    if caller == "frontend" or payload.get("frontendInvoke"):
+        return "FRONTEND"
+    if caller == "agentverse":
+        return "AGENTVERSE"
+    return "ASI_ONE_ENTRY_AGENT"
 def _text_delta_event(text: str) -> dict[str, Any]:
     return {"event": {"contentBlockDelta": {"delta": {"text": text}}}}
 
 
 def _agentcore_session_id(seed: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"3d-rams-entry-agent:{seed}"))
+
+
+def _entry_agent_mode(intake_result: dict[str, Any]) -> str:
+    intake_mode = intake_result.get("intakeMode")
+    if intake_mode == "llm":
+        return "llm-first-intake"
+    if intake_mode == "fallback":
+        return "deterministic-fallback-intake"
+    if intake_mode == "provided":
+        return "provided-confirmed-intake"
+    return "deterministic-intake"
+
+
+def _delivery_assistant_message(delivery: dict[str, Any]) -> str:
+    summary = delivery.get("customerSummary") if isinstance(delivery.get("customerSummary"), dict) else {}
+    headline = str(summary.get("headline") or "Supervisor workflow completed.")
+    priority_checks = summary.get("priorityChecks") if isinstance(summary.get("priorityChecks"), list) else []
+    safety_message = str(summary.get("safetyMessage") or delivery.get("safetyReminder") or "Human review is required before use.")
+    case_url = delivery.get("caseUrl")
+
+    lines = [headline]
+    if priority_checks:
+        checks = "; ".join(str(item) for item in priority_checks[:4] if item)
+        if checks:
+            lines.append(f"Priority checks: {checks}.")
+    lines.append(safety_message)
+    if case_url:
+        lines.append(f"Report reference: {case_url}")
+    return "\n\n".join(lines)
 
 
 if __name__ == "__main__":

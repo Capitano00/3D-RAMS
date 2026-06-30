@@ -30,8 +30,13 @@ Runtime-required fixture data is packaged under `fixtures/` so local mock and ca
 | `RAMS_SUBAGENT_EXECUTION_MODE` | No | Defaults to `direct`, which runs the shared Python tool functions locally. Set to `agentcore_harness` only after Harness ARNs and IAM are configured. |
 | `RAMS_HARNESS_ARNS` | For `agentcore_harness` mode | JSON object mapping Harness names to deployed Harness ARNs. Individual variables such as `RAMS_GEOSPATIAL_HARNESS_ARN` can be used instead. |
 | `RAMS_HARNESS_QUALIFIER` | No | Harness endpoint qualifier. Defaults to `DEFAULT`. |
+| `RAMS_REPORT_STORE_TABLE` | No | DynamoDB table for case-correlated report/evidence records keyed by `caseId`. Lookup requires `reportAccess` identity/session binding before stored details are returned. |
+| `RAMS_REPORT_STORE_TTL_DAYS` | No | Optional retention intent recorded on report-store items. DynamoDB TTL wiring remains an infrastructure setting. |
+| `RAMS_ENABLE_DEV_REPORT_LOOKUP` | No | Set to `true` only for explicit local/debug runs that need `dev_local` report lookup against a configured store. Do not use it as hosted production authorization. |
 
 The supervisor always dispatches through `supervisor_core.subagent_invoker`. In local demo mode this adapter uses deterministic direct execution. In `agentcore_harness` mode it calls `bedrock-agentcore.invoke_harness`, handles inline function tool-use events, executes the shared Python tool functions, and returns JSON results to the supervisor.
+
+When report persistence is enabled, stored records include bounded evidence summaries, material-reference summaries, citation metadata, trace summaries, and non-secret authorization binding metadata. They do not store raw private files, signed material URLs, ASI identity tokens, AWS credentials, or approval-to-work claims. `caseId` is a correlation key, not an authorization token.
 
 # Developing locally
 
@@ -50,6 +55,8 @@ In a new terminal, you can invoke that server with:
 The demo UI targets AgentCore by default through the Vite proxy at `/agentcore/invocations`. Start the frontend with `npm run dev` from `frontend/` after AgentCore is listening on port 8080.
 
 For the AgentVerse/ASI:ONE entry-agent payload shape, see `docs/agentverse-agentcore-adapter-contract.md`.
+
+Stored report lookup uses `operation: "getReport"` plus `reportAccess`. The supervisor treats `caseId` as a correlation id only, validates the ASI/ASI:ONE identity or authorized session context, then checks the stored hashed binding before returning `run` or `structuredReport`.
 
 # Deployment
 

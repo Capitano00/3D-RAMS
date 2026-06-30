@@ -14,6 +14,7 @@ for path in (TOOLS_ROOT, APP_ROOT):
         sys.path.insert(0, str(path))
 
 from rams_agent_tools.config import RuntimeConfig  # noqa: E402
+from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION  # noqa: E402
 from supervisor_core.subagent_invoker import AgentCoreHarnessInvoker  # noqa: E402
 
 
@@ -82,7 +83,22 @@ class FakeHarnessClient:
                         "contentBlockDelta": {
                             "contentBlockIndex": 0,
                             "delta": {
-                                "text": '{"planningText":"Reviewed cached planning context.","trace":[]}'
+                                "text": (
+                                    "{"
+                                    f'"schemaVersion":"{HARNESS_OUTPUT_SCHEMA_VERSION}",'
+                                    '"subagent":{"name":"planning_subagent","harness":"rams_planning_harness","phase":"initial_parallel_research"},'
+                                    '"status":"ok",'
+                                    '"summary":"Reviewed cached planning context.",'
+                                    '"data":{"planningText":"Reviewed cached planning context."},'
+                                    '"evidence":[],'
+                                    '"findings":[],'
+                                    '"trace":[],'
+                                    '"references":[],'
+                                    '"warnings":[],'
+                                    '"errors":[],'
+                                    '"metadata":{"caseId":null,"fixturePack":"public-lambeth-thames","mode":"fixture","generatedAt":"2026-06-30T00:00:00+00:00"}'
+                                    "}"
+                                )
                             },
                         }
                     },
@@ -101,7 +117,8 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
             invoker = AgentCoreHarnessInvoker(config=config, client=client)
             result = invoker.invoke_planning({}, fixture_pack={"name": "public-lambeth-thames"})
 
-        self.assertEqual(result["planningText"], "Reviewed cached planning context.")
+        self.assertEqual(result["schemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
+        self.assertEqual(result["data"]["planningText"], "Reviewed cached planning context.")
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(
             client.calls[0]["harnessArn"],

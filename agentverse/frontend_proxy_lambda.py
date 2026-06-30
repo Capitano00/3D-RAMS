@@ -8,6 +8,12 @@ from typing import Any
 from agentcore_client import invoke_runtime_json
 
 
+TRANSPORT_BOUNDARY = (
+    "Transport-only browser bridge. Product orchestration belongs in "
+    "asi_one_entry_agent and rams_supervisor_runtime, not in this proxy."
+)
+
+
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     method = _method(event)
     path = _path(event)

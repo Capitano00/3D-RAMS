@@ -49,6 +49,9 @@ SUPERVISOR_TOOL_GROUPS = {
     "hazard_subagent": [
         "extract_hazard_notes",
     ],
+    "material_ingestion": [
+        "ingest_material_references",
+    ],
     "annotation_subagent": [
         "create_annotations",
     ],

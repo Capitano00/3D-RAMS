@@ -3,13 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 from ..config import RuntimeConfig
+from .materials import sanitize_material_references
 
 
 def normalize_request(request: dict[str, Any]) -> dict[str, Any]:
     fixture_pack = request.get("fixturePack") or request.get("fixture_pack")
     agent_mode = str(request.get("agentMode") or request.get("agent_mode") or "llm-planner").strip().lower()
-    return {
-        "caseId": request.get("caseId") or None,
+    case_id = request.get("caseId") or None
+    materials = sanitize_material_references(request.get("materials"))
+    if case_id:
+        for material in materials:
+            material.setdefault("caseId", case_id)
+    normalized = {
+        "caseId": case_id,
         "siteName": request.get("siteName") or "Demo rural field fixture",
         "latitude": float(request.get("latitude", 52.2053)),
         "longitude": float(request.get("longitude", -1.6022)),
@@ -20,7 +26,12 @@ def normalize_request(request: dict[str, Any]) -> dict[str, Any]:
         "agentMode": agent_mode or "llm-planner",
         "fixturePack": str(fixture_pack).strip().lower() if fixture_pack else None,
         "additionalRequest": request.get("additionalRequest") or "",
+        "materials": materials,
     }
+    access_context = request.get("accessContext")
+    if isinstance(access_context, dict):
+        normalized["accessContext"] = access_context
+    return normalized
 
 
 def source_register(

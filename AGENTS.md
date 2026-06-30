@@ -50,7 +50,7 @@ Small docs-only changes can use a lightweight review, but the public/private bou
 
 Before pushing changes, run the standard local verification stack when practical:
 
-The stack covers backend compile/tests, deterministic evaluation, frontend production build, and a no-AWS backend/frontend HTTP runtime smoke test.
+The stack covers AgentCore package/tests, deterministic evaluation, frontend production build, and a no-AWS AgentCore/frontend HTTP runtime smoke test.
 
 ```bash
 bash scripts/check-demo.sh

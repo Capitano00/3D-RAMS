@@ -54,6 +54,7 @@ def build_structured_report(
         reviewGate=_build_review_gate(safety, reasoning),
         dataQuality=_build_data_quality(run, runtime, trace, briefing, reasoning),
         externalSignals=_dict(run.get("externalSignals")),
+        materialIngestion=_dict(run.get("materialIngestion")),
         trace=trace,
         reasoning=reasoning,
         llmPlan=_dict(run.get("llmPlan")),
@@ -71,6 +72,7 @@ def _build_intake(run: dict[str, Any], request: dict[str, Any]) -> ReportIntake:
         siteName=request.get("siteName"),
         goal=request.get("goal"),
         fixturePack=request.get("fixturePack"),
+        materials=_list(request.get("materials")),
         includePlanningFixture=bool(request.get("includePlanningFixture")),
         simulateMapFailure=bool(request.get("simulateMapFailure")),
         useBedrock=bool(request.get("useBedrock")),
@@ -109,6 +111,11 @@ def _build_runtime(runtime: dict[str, Any]) -> ReportRuntime:
         modelCallCount=int(runtime.get("modelCallCount") or 0),
         subagentExecutionMode=runtime.get("subagentExecutionMode"),
         caseId=runtime.get("caseId"),
+        materialIngestionStatus=runtime.get("materialIngestionStatus"),
+        materialEvidenceCount=int(runtime.get("materialEvidenceCount") or 0),
+        materialSkippedCount=int(runtime.get("materialSkippedCount") or 0),
+        harnessOutputSchemaVersion=runtime.get("harnessOutputSchemaVersion"),
+        harnessContract=_dict(runtime.get("harnessContract")),
     )
 
 
@@ -140,6 +147,9 @@ def _build_sections(
     hazards = _list(run.get("hazards"))
     annotations = _list(run.get("annotations"))
     safety = _dict(run.get("safety"))
+    material_ingestion = _dict(run.get("materialIngestion"))
+    material_source_ids = _string_list(material_ingestion.get("sourceIds"))
+    material_evidence_ids = _string_list(material_ingestion.get("evidenceIds"))
 
     return [
         ReportSection(
@@ -178,6 +188,21 @@ def _build_sections(
             references=ReportReference(
                 evidenceIds=[item["id"] for item in evidence],
                 traceIds=_present([trace_refs.get("extract_hazard_notes"), trace_refs.get("create_annotations")]),
+            ),
+        ),
+        ReportSection(
+            id="user-materials",
+            title="User Materials",
+            status=_section_status(
+                reasoning,
+                "user-materials",
+                "ready" if material_ingestion.get("accepted") else "warning",
+            ),
+            body=[_material_body(material_ingestion)],
+            references=ReportReference(
+                sourceIds=material_source_ids,
+                evidenceIds=material_evidence_ids,
+                traceIds=_present([trace_refs.get("ingest_material_references")]),
             ),
         ),
         ReportSection(
@@ -262,8 +287,17 @@ def _build_data_quality(
     gaps.extend(str(gap.get("message")) for gap in _list(reasoning.get("gaps")) if gap.get("message"))
     fallback_reasons = [str(step["fallbackReason"]) for step in trace if step.get("fallbackReason")]
     gaps.extend(fallback_reasons)
+    harness_contract = _dict(runtime.get("harnessContract"))
+    harness_issues = _list(harness_contract.get("issues"))
+    if harness_issues:
+        gaps.append("One or more Harness outputs required fallback normalization before supervisor consumption.")
+    for issue in harness_issues:
+        subagent = str(issue.get("subagent") or "unknown_subagent")
+        for message in _string_list(issue.get("issues")):
+            gaps.append(f"Harness output contract fallback for {subagent}: {message}")
     external_signals = _dict(run.get("externalSignals"))
     open_web = _dict(external_signals.get("openWeb"))
+    material_ingestion = _dict(run.get("materialIngestion"))
 
     return DataQuality(
         dataMode=str(runtime.get("fixturePackMode") or "unknown"),
@@ -275,6 +309,8 @@ def _build_data_quality(
             "hasEvidence": bool(run.get("evidence")),
             "hasTrace": bool(trace),
             "hasOpenWebSignals": bool(open_web.get("items")),
+            "hasMaterialEvidence": bool(material_ingestion.get("accepted")),
+            "harnessOutputsContractCompliant": bool(harness_contract.get("contractCompliant", True)),
         },
         gaps=_dedupe(gaps),
         warnings=_dedupe(warnings),
@@ -307,6 +343,19 @@ def _open_web_body(run: dict[str, Any]) -> str:
         return f"{len(items)} open-web signals are available as non-authoritative context."
     status = str(open_web.get("status") or "not_configured")
     return f"Open-web signals are {status}; no Tavily results are included in this report."
+
+
+def _material_body(material_ingestion: dict[str, Any]) -> str:
+    accepted = int(material_ingestion.get("accepted") or 0)
+    skipped = int(material_ingestion.get("skippedCount") or 0)
+    if accepted:
+        return (
+            f"{accepted} authorized material reference(s) produced safe summaries and citations; "
+            "raw private material content is not stored in the report."
+        )
+    if skipped:
+        return f"{skipped} material reference(s) were skipped with trace-visible access, expiry, type, or retrieval reasons."
+    return "No ASI/ASI:ONE material references were supplied for this run."
 
 
 def _section_status(reasoning: dict[str, Any], section_id: str, fallback: str) -> str:

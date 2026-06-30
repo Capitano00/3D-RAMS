@@ -12,9 +12,15 @@ The entry agent sends a confirmed intake payload only after the user has approve
 
 ```json
 {
+  "caseId": "case_demo_fixture_001",
   "conversationId": "agentverse-session-id",
   "entryAgentId": "rams-entry-agent",
   "confirmedByUser": true,
+  "reportAccess": {
+    "schemaVersion": "3d-rams.report-access.v1",
+    "mode": "asi_session",
+    "sessionId": "agentverse-session-id"
+  },
   "intake": {
     "locationText": "near 8 Albert Embankment, Lambeth",
     "locationCandidate": {
@@ -31,9 +37,16 @@ The entry agent sends a confirmed intake payload only after the user has approve
     "userNotes": "Focus on flood context, access, and public interface constraints.",
     "materials": [
       {
-        "type": "note",
-        "label": "User note",
-        "summary": "Client is considering an early feasibility walkover."
+        "materialId": "asio_material_site_access_plan",
+        "sourceSystem": "asio",
+        "type": "application/pdf",
+        "label": "Site access plan",
+        "summary": "Uploaded by the ASI user for this case.",
+        "caseId": "case_demo_fixture_001",
+        "access": {
+          "mode": "asio_authorized_reference",
+          "expiresAt": "2026-06-30T18:00:00Z"
+        }
       }
     ]
   },
@@ -62,6 +75,7 @@ The adapter maps the confirmed intake into the AgentCore invocation envelope.
 ```json
 {
   "input": {
+    "caseId": "case_demo_fixture_001",
     "siteName": "Lambeth Thames public fixture",
     "latitude": 51.4908,
     "longitude": -0.1216,
@@ -71,6 +85,20 @@ The adapter maps the confirmed intake into the AgentCore invocation envelope.
     "includePlanningFixture": true,
     "simulateMapFailure": false,
     "additionalRequest": "Focus on flood context, access, and public interface constraints.",
+    "materials": [
+      {
+        "materialId": "asio_material_site_access_plan",
+        "sourceSystem": "asio",
+        "type": "application/pdf",
+        "label": "Site access plan",
+        "summary": "Uploaded by the ASI user for this case.",
+        "caseId": "case_demo_fixture_001",
+        "access": {
+          "mode": "asio_authorized_reference",
+          "expiresAt": "2026-06-30T18:00:00Z"
+        }
+      }
+    ],
     "upstream": {
       "source": "AGENTVERSE",
       "adapterVersion": "agentverse-agentcore-adapter-v0",
@@ -82,13 +110,44 @@ The adapter maps the confirmed intake into the AgentCore invocation envelope.
         "meters": 800
       },
       "locationConfidence": 0.82,
-      "materialCount": 1
+      "materialCount": 1,
+      "reportAccess": {
+        "schemaVersion": "3d-rams.report-access.v1",
+        "mode": "asi_session",
+        "caseId": "case_demo_fixture_001",
+        "sessionId": "agentverse-session-id",
+        "authorizedCaseIds": ["case_demo_fixture_001"]
+      }
     }
   }
 }
 ```
 
+Material references are forwarded as structured `materials`. They are not flattened into `additionalRequest`; the supervisor material-ingestion phase validates case/session binding, expiry, type, and size before producing safe summaries, citations, evidence, and trace reasons.
+
 The local AgentCore runtime currently preserves this metadata as request context and returns the existing visualization run under `output.run`.
+
+## Report Lookup
+
+Detailed report lookup is not authorized by `caseId` alone. The entry agent or frontend proxy must include `reportAccess` when requesting a stored report:
+
+```json
+{
+  "frontendInvoke": true,
+  "operation": "getReport",
+  "caseId": "case_demo_fixture_001",
+  "conversationId": "agentverse-session-id",
+  "reportAccess": {
+    "schemaVersion": "3d-rams.report-access.v1",
+    "mode": "asi_session",
+    "caseId": "case_demo_fixture_001",
+    "sessionId": "agentverse-session-id",
+    "authorizedCaseIds": ["case_demo_fixture_001"]
+  }
+}
+```
+
+The supervisor stores only hashed identity/session binding metadata with the report. If the lookup context is missing, expired, or does not match the stored binding, the response is `access_denied` and omits `run` and `structuredReport`. Local FieldBrief debugging may use `mode: "dev_local"` only as an explicit development bypass.
 
 ## AgentCore To Adapter
 
@@ -142,6 +201,7 @@ For local development:
 - no AWS credentials are required;
 - adapter functions run in-process;
 - AgentCore can be invoked through `agentcore dev`;
+- the frontend FieldBrief surface is a development/debug ASI entry simulation, not the production user entry;
 - runtime output remains fixture-backed unless live integrations are explicitly enabled.
 
 For cloud deployment:

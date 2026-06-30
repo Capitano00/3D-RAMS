@@ -49,6 +49,9 @@ Write-Host "Running AgentCore workflow and invocation tests"
 Write-Host "Running entry-agent supervisor adapter tests"
 & $PythonBin -m unittest discover -s app/asi_one_entry_agent/tests -q
 
+Write-Host "Running AgentVerse proxy boundary tests"
+& $PythonBin -m unittest discover -s agentverse/tests -q
+
 Write-Host "Running deterministic no-AWS demo evaluation"
 $previousEnableBedrock = [Environment]::GetEnvironmentVariable("ENABLE_BEDROCK", "Process")
 [Environment]::SetEnvironmentVariable("ENABLE_BEDROCK", "false", "Process")

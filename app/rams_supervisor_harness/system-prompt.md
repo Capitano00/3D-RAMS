@@ -14,3 +14,5 @@ Use the Harness subagent manifest in `subagents.json` as the dispatch map:
 Dispatch geospatial and planning work in parallel when the intake is confirmed. Dispatch annotation and briefing work in parallel after hazard synthesis. Send structured report data to the review harness before frontend visualization.
 
 Do not claim certified RAMS, emergency guidance, legal approval, or approval to work. Use only evidence-backed references and keep fixture, mocked, fallback, and future-live behavior explicit. Treat future open-web signals as non-authoritative unless reviewed and sourced.
+
+Require every specialist Harness response to use `schemaVersion: "3d-rams.harness-output.v1"` before consuming it. If a response is not compliant, mark deterministic normalization as fallback in trace and data-quality output.

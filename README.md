@@ -6,6 +6,8 @@
 
 The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, or hosted infrastructure. The default UI uses a cached public Lambeth / Thames fixture pack, and the production-shaped path can also make one Amazon Bedrock call per run for briefing generation when AWS credentials are configured, while preserving deterministic fallback.
 
+The hosted product surface is ASI/ASI:ONE-style entry, not a standalone FastAPI product API. In cloud mode, the browser calls a signed proxy through `VITE_CLOUD_ENTRY_PROXY_URL`; that proxy invokes the `asi_one_entry_agent` runtime, which owns intake, confirmation, and supervisor launch. The frontend FieldBrief surface is a development/debug simulation of that entry path.
+
 ## Problem Statement
 
 Site teams preparing for unfamiliar rural, development, or infrastructure visits have to combine maps, terrain, access routes, planning records, document evidence, and risk notes before they can form a useful briefing. 3D-RAMS explores whether an agent can turn that fragmented digital work into an inspectable 3D pre-visit pack with evidence, annotations, trace, confidence labels, and a visible safety boundary.
@@ -18,7 +20,7 @@ Read the full problem statement in [docs/problem-statement.md](docs/problem-stat
 
 This rendered diagram is the README-scale view of the workflow in [docs/architecture.md](docs/architecture.md). The detailed architecture document remains the source of truth for the full Mermaid diagrams, trust boundaries, real-vs-mocked register, safety gate, and future AWS path.
 
-## Demo Workflow
+## Local Demo Workflow
 
 1. User enters a coordinate or selects the cached public Lambeth data pack.
 2. The AgentCore runtime resolves the selected fixture pack or synthetic fallback.
@@ -31,6 +33,20 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 9. A safety gate blocks certified RAMS, work approval, and emergency guidance claims.
 10. The UI shows the 3D scene, briefing, evidence register, trace, and architecture visualizer.
 
+## Hosted Product Surface
+
+The canonical hosted flow is:
+
+```text
+ASI/ASI:ONE or debug FieldBrief UI
+  -> signed AgentCore entry proxy
+  -> asi_one_entry_agent
+  -> rams_supervisor_runtime
+  -> structured report, evidence, trace, and delivery summary
+```
+
+No canonical product flow depends on `/api/chat`, `/api/run`, `/api/session/start`, or `/api/upload-url`. Local development may use the Vite `/agentcore/invocations` proxy to reach the supervisor runtime directly, but that is a developer shortcut rather than the hosted product API.
+
 ## Real vs Mocked
 
 | Component | Demo1 Status | Notes |
@@ -41,7 +57,7 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 | 3D viewer | Real React/Vite + CesiumJS UI | Uses a token-free Cesium canvas plus local scene overlay and annotations. |
 | Geospatial features | Cached-public or mocked fixture | Default pack uses cached public-source metadata; synthetic fallback uses `fixtures/geospatial_features.json`. |
 | Planning/context notes | Cached-public or synthetic fixture | Default pack uses cached public-safe notes and source metadata; synthetic fallback uses `fixtures/planning_report.txt`. |
-| AWS | Partially live when configured | Bedrock briefing can be live; DynamoDB, S3, CloudWatch, Guardrails, and AgentCore remain production-path stages. |
+| AWS | Partially live when configured | Bedrock briefing, AgentCore runtimes, Harnesses, signed proxy, and DynamoDB report store can be configured; default teammate testing remains no-AWS. |
 | Google Maps / Earth / 3D Tiles | Not used | Kept out of Demo1 to avoid key, cost, licensing, and freshness risk. |
 
 ## Quickstart
@@ -112,6 +128,15 @@ powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 
 The check runs AgentCore package tests, deterministic evaluation, frontend production build, and a no-AWS HTTP runtime smoke against AgentCore and the frontend preview.
 
+For hosted AgentCore + ASI/ASI:ONE parity after cloud resources are deployed, run:
+
+```bash
+RAMS_HOSTED_ENTRY_URL=https://<signed-proxy-domain>/invoke \
+python3 scripts/hosted-agentcore-asio-smoke.py
+```
+
+That hosted smoke starts at `asi_one_entry_agent`, verifies supervisor launch, report-store write, identity-bound lookup, authorized/denied material references, and emits only redacted public-safe output.
+
 ## Bedrock Mode
 
 The app defaults to deterministic fallback unless the AgentCore runtime is started with Bedrock enabled.
@@ -137,7 +162,7 @@ python scripts/bedrock-smoke.py
 
 Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client/site data. The UI shows whether a run used Bedrock, deterministic mode, or fallback.
 
-## Local Quickstart
+## Local Developer Quickstart
 
 AgentCore runtime:
 
@@ -182,16 +207,19 @@ curl -X POST http://localhost:8080/invocations ^
 | Low confidence | Normal run | Imagery-derived bridge indicator is labelled low confidence. |
 | Architecture visualizer | Normal run | UI shows tool sequence, boundaries, AWS path, and real-vs-mocked status. |
 
-## AWS Production Path
+## AWS / Hosted Path
 
 Demo1 trace and response objects are shaped to map naturally to an AWS implementation:
 
+- ASI/ASI:ONE or AgentVerse as the product entry surface.
+- A signed proxy as a transport bridge to the `asi_one_entry_agent` runtime.
+- AgentCore `asi_one_entry_agent` for intake, clarification, confirmation, and delivery summary.
+- AgentCore `rams_supervisor_runtime` for orchestration, evidence, trace, report assembly, and report lookup.
 - Amazon Bedrock for the live model-assisted briefing step.
 - DynamoDB for versioned project state, approvals, and rollback records.
 - S3 for evidence packs, exported briefings, screenshots, and source documents.
 - CloudWatch for trace, latency, cost, and failure visibility.
 - Guardrails for unsafe claim and policy filtering.
-- AgentCore Runtime and Observability as a stretch layer after the plain Bedrock-backed loop works.
 
 See [docs/architecture.md](docs/architecture.md) for the workflow and AWS diagrams.
 

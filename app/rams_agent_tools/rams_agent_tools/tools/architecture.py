@@ -13,6 +13,7 @@ def architecture_snapshot(
 ) -> dict[str, Any]:
     return {
         "runOverview": {
+            "caseId": request_summary.get("caseId"),
             "siteName": request_summary["siteName"],
             "goal": request_summary["goal"],
             "coordinate": f"{request_summary['latitude']}, {request_summary['longitude']}",
@@ -21,6 +22,7 @@ def architecture_snapshot(
             "mapMode": "fallback" if request_summary["simulateMapFailure"] else "fixture",
             "briefingMode": runtime["briefingMode"],
             "safetyLevel": safety["level"],
+            "materialReferences": len(request_summary.get("materials") or []),
         },
         "nodes": [
             {"id": "ui", "label": "React/Vite UI", "boundary": "frontend"},
@@ -39,6 +41,7 @@ def architecture_snapshot(
         "currentTrace": [
             {
                 "id": step["id"],
+                "caseId": step.get("caseId") or request_summary.get("caseId"),
                 "name": step["name"],
                 "status": step["status"],
                 "summary": step["summary"],
@@ -87,6 +90,15 @@ def architecture_snapshot(
                 ),
             },
             {"component": "Bedrock briefing", "status": str(runtime["briefingMode"])},
+            {
+                "component": "Material ingestion",
+                "status": (
+                    f"{runtime.get('materialIngestionStatus')} "
+                    f"({runtime.get('materialEvidenceCount', 0)} accepted, {runtime.get('materialSkippedCount', 0)} skipped)"
+                    if runtime.get("materialIngestionStatus")
+                    else "not configured"
+                ),
+            },
             {"component": "3D viewer", "status": "real local Cesium scene"},
             {
                 "component": "Planning documents",
