@@ -47,6 +47,21 @@ $chat = Invoke-JsonPost "/api/chat" @{
     useBedrock = $true
 }
 
+$durableRun = Invoke-JsonPost "/api/runs" @{
+    sessionId = $session.sessionId
+    message = "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack."
+    uploadedFileIds = @($upload.uploadId)
+    useBedrock = $true
+    autoStart = $true
+}
+
+$durableRunId = $durableRun.runId
+for ($i = 0; $i -lt 30; $i++) {
+    if ($durableRun.status -in @("completed", "failed", "cancelled", "waiting_for_clarification", "waiting_for_approval")) { break }
+    Start-Sleep -Seconds 2
+    $durableRun = Invoke-RestMethod -Method Get -Uri "$base/api/runs/$durableRunId"
+}
+
 $unsafe = $null
 if ($IncludeUnsafe) {
     $unsafe = Invoke-JsonPost "/api/chat" @{
@@ -72,5 +87,13 @@ if ($IncludeUnsafe) {
     modelCallCount = @($chat.modelCalls).Count
     evidenceCount = @($chat.evidence).Count
     traceSteps = @($chat.trace).Count
+    durableRunId = $durableRunId
+    durableRunStatus = $durableRun.status
+    durableRunCurrentStep = $durableRun.currentStep
+    durableRunModelCallsUsed = $durableRun.modelCallsUsed
+    durableRunMaxModelCalls = $durableRun.maxModelCalls
+    durableRunSafety = $durableRun.safetyResult.level
+    durableRunAgentMode = $durableRun.runtime.activeAgentMode
+    durableRunTraceSteps = @($durableRun.result.trace).Count
     unsafeSafety = if ($unsafe) { $unsafe.safety.level } else { $null }
 } | ConvertTo-Json -Depth 8

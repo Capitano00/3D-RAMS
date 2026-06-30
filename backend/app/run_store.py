@@ -63,7 +63,7 @@ def create_run_record(
         "result": None,
         "runtime": {
             "durableRunApi": True,
-            "workerMode": "local-background-thread",
+            "workerMode": "inline-lambda-safe" if config.durable_run_process_inline else "local-background-thread",
             "futureAwsWorker": "API Gateway/Lambda -> DynamoDB run store -> SQS -> worker Lambda",
             "bedrockEnabled": config.bedrock_enabled,
             "modelId": config.bedrock_model_id if config.bedrock_enabled else None,
