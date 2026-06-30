@@ -84,6 +84,8 @@ For the AgentVerse entry-agent and AWS AgentCore adapter boundary, see [docs/age
 
 For the imported ASI:ONE / AgentVerse proof of concept runtime and `@3d-rams` hosted adapter shape, see [docs/agentverse-asi-one-runtime.md](docs/agentverse-asi-one-runtime.md).
 
+For source-connected hosted frontend deployment through Amplify, see [docs/amplify-hosting.md](docs/amplify-hosting.md) and [ADR 0006](docs/adr/0006-amplify-app-framework-hosting.md). Amplify hosts the React/Vite frontend only; AgentCore runtimes, Harnesses, and signed proxy secrets stay outside frontend source control.
+
 To run the full local verification stack before sharing changes in Codespaces/Linux/macOS:
 
 ```bash

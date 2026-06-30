@@ -1,0 +1,60 @@
+# Amplify Frontend Hosting
+
+This document implements [ADR 0006](adr/0006-amplify-app-framework-hosting.md) for source-connected Amplify hosting.
+
+Amplify hosts only the React/Vite frontend. AgentCore runtimes, Harnesses, the signed AgentCore proxy, AgentVerse hosted adapter secrets, IAM credentials, and runtime ARNs remain outside Amplify source control.
+
+## Build Contract
+
+The repository root contains `amplify.yml`. Amplify should connect to the Git branch and use the configured app root:
+
+- app root: `frontend`
+- install: `npm ci`
+- build: `npm run build`
+- artifact directory: `frontend/dist`
+
+No AWS credentials, AgentCore runtime ARNs, AgentVerse keys, or private deployment summaries belong in this file or in frontend source.
+
+## Branch Environment Variables
+
+Set these in the Amplify app branch environment:
+
+```bash
+VITE_CLOUD_ENTRY_PROXY_URL=https://<signed-proxy-domain>/invoke
+VITE_USE_LOCAL_ASIONE=false
+VITE_CESIUM_ION_TOKEN=
+```
+
+`VITE_CLOUD_ENTRY_PROXY_URL` is public client configuration. The proxy behind that URL owns AWS signing and calls the cloud `asi_one_entry_agent` runtime.
+
+Do not set these local-only variables for hosted Amplify unless you are intentionally debugging a local tunnel:
+
+```bash
+VITE_AGENTCORE_URL=/agentcore/invocations
+VITE_AGENTCORE_PROXY_TARGET=http://127.0.0.1:8080
+```
+
+## One-Time Amplify Setup
+
+1. Create or open the Amplify app.
+2. Connect the intended GitHub branch.
+3. Confirm Amplify picks up `amplify.yml`.
+4. Add the branch environment variables above.
+5. Deploy the branch from source.
+
+The signed proxy must already be reachable from the browser before the hosted UI can complete the cloud workflow.
+
+## Verification
+
+After deployment:
+
+- Open the hosted Amplify URL.
+- Confirm the page loads static assets and the Cesium scene shell.
+- Submit the default FieldBrief prompt.
+- Confirm the browser request goes to `VITE_CLOUD_ENTRY_PROXY_URL`, not `/agentcore/invocations`.
+- Confirm the response renders map annotations, briefing, evidence, trace, and safety data.
+- Confirm no cloud-mode run contains `localAsiOneSubstitute: true`.
+
+## Legacy Manual ZIP Deploy
+
+If a manual Amplify ZIP deployment script exists in another worktree or historical branch, keep it as a fallback/debug path only. Source-connected Amplify builds from `amplify.yml` are the preferred hosted frontend deployment path.
