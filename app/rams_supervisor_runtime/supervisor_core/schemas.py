@@ -133,6 +133,8 @@ class ReportFinding(BaseModel):
     note: str
     references: ReportReference = Field(default_factory=ReportReference)
     annotationId: str | None = None
+    rationale: str | None = None
+    humanReviewRequired: bool = True
 
 
 class ReportSection(BaseModel):
@@ -198,6 +200,7 @@ class StructuredReport(BaseModel):
     reviewGate: ReviewGate
     dataQuality: DataQuality
     externalSignals: ExternalSignals = Field(default_factory=ExternalSignals)
+    reasoning: dict[str, Any] = Field(default_factory=dict)
     llmPlan: dict[str, Any] = Field(default_factory=dict)
     modelCalls: list[dict[str, Any]] = Field(default_factory=list)
     tokenUsage: dict[str, Any] | None = None

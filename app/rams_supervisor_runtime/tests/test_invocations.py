@@ -44,7 +44,14 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertTrue(report["visualization"]["annotations"])
         self.assertTrue(report["evidenceRegister"]["evidence"])
         self.assertEqual(report["reviewGate"]["status"], "pending_independent_review")
+        self.assertIn("reasoning", report)
+        self.assertEqual(report["reasoning"]["mode"], "deterministic")
+        self.assertTrue(report["reviewGate"]["reviewerNotes"])
+        section_statuses = {section["id"]: section["status"] for section in report["sections"]}
+        self.assertEqual(section_statuses["open-web-signals"], "warning")
+        self.assertTrue(report["findings"][0]["rationale"])
         self.assertFalse(report["dataQuality"]["completeness"]["hasOpenWebSignals"])
+        self.assertTrue(any("Open-web signals" in gap for gap in report["dataQuality"]["gaps"]))
         self.assertEqual(report["runtime"]["plannerMode"], "deterministic")
         self.assertEqual(report["runtime"]["activeAgentMode"], "deterministic-planner")
         self.assertEqual(report["llmPlan"]["initialParallelGroups"], ["geospatial_subagent", "planning_subagent"])
@@ -70,6 +77,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(report["status"], "blocked")
         self.assertEqual(report["reviewGate"]["status"], "blocked")
         self.assertFalse(report["reviewGate"]["safetyAllowed"])
+        self.assertEqual(report["reasoning"]["conflicts"][0]["id"], "safety-boundary")
         self.assertEqual(report["findings"], [])
         self.assertEqual(report["visualization"]["annotations"], [])
 

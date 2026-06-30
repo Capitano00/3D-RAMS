@@ -15,6 +15,7 @@ from rams_agent_tools.tools import (
 
 from .subagent_invoker import build_subagent_invoker
 from .planner import plan_subagent_workflow
+from .reasoning import reason_over_evidence
 
 
 def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -136,6 +137,21 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         fixture_pack=fixture_pack,
         planner_status=planner_result["plannerStatus"],
     )
+    external_signals = {"openWeb": {"status": "not_configured", "items": []}}
+    reasoning_result = reason_over_evidence(
+        request=request_summary,
+        location=location,
+        hazards=hazards if safety["allowed"] else [],
+        annotations=annotations if safety["allowed"] else [],
+        briefing=briefing,
+        evidence=evidence,
+        sources=sources,
+        safety=safety,
+        external_signals=external_signals,
+    )
+    reasoning = reasoning_result["reasoning"]
+    trace.append(reasoning_result["trace"])
+
     runtime = config.public_runtime(status=bedrock_status, fallback_reason=bedrock_fallback_reason)
     runtime["fixturePack"] = fixture_pack["name"] if fixture_pack else None
     runtime["fixturePackMode"] = "cached-public-fixture" if fixture_pack else "synthetic-default"
@@ -162,6 +178,8 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "briefing": briefing,
         "evidence": evidence,
         "sources": sources,
+        "reasoning": reasoning,
+        "externalSignals": external_signals,
         "safety": safety,
         "trace": trace,
         "architecture": architecture_snapshot(trace, request_summary, sources, evidence, safety, runtime),

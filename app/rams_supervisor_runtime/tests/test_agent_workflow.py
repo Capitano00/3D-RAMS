@@ -54,14 +54,36 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["modelCallCount"], 0)
         self.assertEqual(result["llmPlan"]["initialParallelGroups"], ["geospatial_subagent", "planning_subagent"])
         self.assertEqual(result["llmPlan"]["reportParallelGroups"], ["annotation_subagent", "briefing_subagent"])
+        self.assertEqual(result["reasoning"]["mode"], "deterministic")
+        self.assertIn("reportFit", result["reasoning"])
+        self.assertTrue(result["reasoning"]["reviewQuestions"])
         self.assertEqual(result["modelCalls"], [])
         self.assertEqual(result["fallback"]["status"], "used")
         self.assertIsNone(result["request"]["fixturePack"])
         self.assertEqual(result["runtime"]["fixturePackMode"], "synthetic-default")
         self.assertIn("sources", result)
         self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in result["trace"]))
+        self.assertTrue(any(step["name"] == "reason_over_evidence" for step in result["trace"]))
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
+
+    def test_reasoning_pass_is_mandatory_and_after_subagent_evidence(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        trace_names = [step["name"] for step in result["trace"]]
+        self.assertIn("reason_over_evidence", trace_names)
+        self.assertLess(trace_names.index("safety_gate"), trace_names.index("reason_over_evidence"))
+
+        reasoning = result["reasoning"]
+        self.assertEqual(reasoning["mode"], "deterministic")
+        self.assertIn(reasoning["status"], {"ok", "warning"})
+        self.assertTrue(any(item["sectionId"] == "candidate-findings" for item in reasoning["reportFit"]))
+        self.assertTrue(all("rationale" in item for item in reasoning["findingAssessments"]))
+
+        reason_step = next(step for step in result["trace"] if step["name"] == "reason_over_evidence")
+        self.assertEqual(reason_step["output"]["mode"], "deterministic")
+        self.assertGreaterEqual(reason_step["output"]["reportFitCount"], 5)
+        self.assertGreaterEqual(reason_step["output"]["findingAssessmentCount"], 1)
 
     def test_missing_planning_fixture_keeps_geospatial_warning(self):
         result = run_site_briefing({"includePlanningFixture": False})
@@ -252,6 +274,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         planner_step = next(step for step in result["trace"] if step["name"] == "plan_subagent_workflow")
         self.assertEqual(planner_step["status"], "ok")
         self.assertEqual(planner_step["output"]["plannerStatus"], "mocked")
+        self.assertEqual(result["reasoning"]["mode"], "deterministic")
         bedrock_step = next(step for step in result["trace"] if step["name"] == "generate_bedrock_briefing")
         self.assertEqual(bedrock_step["status"], "ok")
         self.assertEqual(bedrock_step["output"]["modelId"], "anthropic.claude-3-7-sonnet-20250219-v1:0")

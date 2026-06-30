@@ -84,6 +84,7 @@ Important `output.structuredReport` fields:
 | `findings` | Candidate hazards/findings with confidence, notes, evidence ids, source ids, and annotation linkage. |
 | `visualization` | Frontend-ready scene config and map/3D annotations. |
 | `evidenceRegister` | Source register and evidence register used by findings and sections. |
+| `reasoning` | Inspectable supervisor evidence-use decisions, report-fit status, gaps, conflicts, and review questions. |
 | `reviewGate` | Current safety/review state. It is `pending_independent_review` until the independent review agent exists. |
 | `dataQuality` | Completeness flags, warnings, and gaps surfaced by fixture fallback, disabled data, or limitations. |
 | `externalSignals` | Placeholder for future Tavily/open-web signals. Current prototype marks this as `not_configured`. |
@@ -102,6 +103,7 @@ Important `output.run` fields:
 | `annotations` | 3D annotation data with confidence labels. |
 | `briefing` | Human-review RAMS-style briefing summary, checks, and limitations. |
 | `evidence` | Evidence register with source/status/context. |
+| `reasoning` | Mandatory supervisor reasoning artifact created before structured report assembly. |
 | `trace` | Ordered tool timeline with statuses, source ids, evidence ids, and fallback reasons. |
 | `safety` | Safety gate result and triggered rules. |
 | `architecture` | Data for the in-app Architecture + Workflow visualizer. |

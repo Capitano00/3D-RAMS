@@ -30,6 +30,7 @@ def build_structured_report(
     runtime = _dict(run.get("runtime"))
     safety = _dict(run.get("safety"))
     trace = _list(run.get("trace"))
+    reasoning = _dict(run.get("reasoning"))
 
     report = StructuredReport(
         reportId=str(run.get("runId") or "unknown-run"),
@@ -39,7 +40,7 @@ def build_structured_report(
         site=_build_site(location),
         runtime=_build_runtime(runtime),
         executiveSummary=_build_summary(briefing, location, safety),
-        sections=_build_sections(run, briefing, trace),
+        sections=_build_sections(run, briefing, trace, reasoning),
         findings=_build_findings(run),
         visualization=VisualizationPayload(
             scene=_dict(run.get("scene")),
@@ -49,9 +50,11 @@ def build_structured_report(
             sources=_list(run.get("sources")),
             evidence=_list(run.get("evidence")),
         ),
-        reviewGate=_build_review_gate(safety),
-        dataQuality=_build_data_quality(run, runtime, trace, briefing),
+        reviewGate=_build_review_gate(safety, reasoning),
+        dataQuality=_build_data_quality(run, runtime, trace, briefing, reasoning),
+        externalSignals=_dict(run.get("externalSignals")),
         trace=trace,
+        reasoning=reasoning,
         llmPlan=_dict(run.get("llmPlan")),
         modelCalls=_list(run.get("modelCalls")),
         tokenUsage=_dict(run.get("tokenUsage")) or None,
@@ -126,6 +129,7 @@ def _build_sections(
     run: dict[str, Any],
     briefing: dict[str, Any],
     trace: list[dict[str, Any]],
+    reasoning: dict[str, Any],
 ) -> list[ReportSection]:
     trace_refs = {step.get("name"): str(step.get("id")) for step in trace if step.get("name") and step.get("id")}
     sources = _list(run.get("sources"))
@@ -138,21 +142,25 @@ def _build_sections(
         ReportSection(
             id="location-context",
             title="Location Context",
-            status="ready",
+            status=_section_status(reasoning, "location-context", "ready"),
             body=[_site_sentence(run)],
             references=ReportReference(traceIds=_present([trace_refs.get("resolve_location")])),
         ),
         ReportSection(
             id="spatial-context",
             title="Spatial And 3D Context",
-            status="ready" if annotations else "warning",
+            status=_section_status(reasoning, "spatial-context", "ready" if annotations else "warning"),
             body=[f"{len(annotations)} map annotations are available for frontend visualization."],
             references=ReportReference(traceIds=_present([trace_refs.get("load_geospatial_features"), trace_refs.get("build_scene_config")])),
         ),
         ReportSection(
             id="planning-context",
             title="Planning And Public Context",
-            status="ready" if _has_available_source(sources, "planning") else "warning",
+            status=_section_status(
+                reasoning,
+                "planning-context",
+                "ready" if _has_available_source(sources, "planning") else "warning",
+            ),
             body=_planning_body(briefing),
             references=ReportReference(
                 sourceIds=[item["id"] for item in sources if "planning" in str(item.get("id", ""))],
@@ -162,7 +170,7 @@ def _build_sections(
         ReportSection(
             id="candidate-findings",
             title="Candidate Findings",
-            status="ready" if hazards else "warning",
+            status=_section_status(reasoning, "candidate-findings", "ready" if hazards else "warning"),
             body=[f"{len(hazards)} candidate findings were extracted for human review."],
             references=ReportReference(
                 evidenceIds=[item["id"] for item in evidence],
@@ -170,9 +178,16 @@ def _build_sections(
             ),
         ),
         ReportSection(
+            id="open-web-signals",
+            title="Open-Web Signals",
+            status=_section_status(reasoning, "open-web-signals", "warning"),
+            body=[_open_web_body(run)],
+            references=ReportReference(),
+        ),
+        ReportSection(
             id="review-boundary",
             title="Review Boundary",
-            status="ready" if safety.get("allowed") else "blocked",
+            status=_section_status(reasoning, "review-boundary", "ready" if safety.get("allowed") else "blocked"),
             body=[str(safety.get("message") or "Safety gate result unavailable.")],
             references=ReportReference(traceIds=_present([trace_refs.get("safety_gate")])),
         ),
@@ -181,10 +196,15 @@ def _build_sections(
 
 def _build_findings(run: dict[str, Any]) -> list[ReportFinding]:
     annotations_by_id = {item.get("id"): item for item in _list(run.get("annotations"))}
+    assessments_by_id = {
+        item.get("findingId"): item
+        for item in _list(_dict(run.get("reasoning")).get("findingAssessments"))
+    }
     findings = []
     for hazard in _list(run.get("hazards")):
         hazard_id = str(hazard.get("id") or "unknown-finding")
         annotation = annotations_by_id.get(hazard_id)
+        assessment = _dict(assessments_by_id.get(hazard_id))
         findings.append(
             ReportFinding(
                 id=hazard_id,
@@ -197,13 +217,21 @@ def _build_findings(run: dict[str, Any]) -> list[ReportFinding]:
                     evidenceIds=_string_list(hazard.get("evidenceIds")),
                 ),
                 annotationId=str(annotation.get("id")) if annotation else None,
+                rationale=assessment.get("rationale"),
+                humanReviewRequired=bool(assessment.get("humanReviewRequired", True)),
             )
         )
     return findings
 
 
-def _build_review_gate(safety: dict[str, Any]) -> ReviewGate:
+def _build_review_gate(safety: dict[str, Any], reasoning: dict[str, Any]) -> ReviewGate:
     allowed = bool(safety.get("allowed"))
+    reviewer_notes = (
+        ["Independent review agent has not been implemented in this prototype."]
+        if allowed
+        else ["Safety gate blocked this output before independent review."]
+    )
+    reviewer_notes.extend(_string_list(reasoning.get("reviewQuestions")))
     return ReviewGate(
         status="pending_independent_review" if allowed else "blocked",
         safetyAllowed=allowed,
@@ -211,11 +239,7 @@ def _build_review_gate(safety: dict[str, Any]) -> ReviewGate:
         requiresHumanReview=bool(safety.get("requiresHumanReview", True)),
         message=str(safety.get("message") or "Safety gate result unavailable."),
         triggeredRules=_string_list(safety.get("triggeredRules")),
-        reviewerNotes=(
-            ["Independent review agent has not been implemented in this prototype."]
-            if allowed
-            else ["Safety gate blocked this output before independent review."]
-        ),
+        reviewerNotes=reviewer_notes,
     )
 
 
@@ -224,6 +248,7 @@ def _build_data_quality(
     runtime: dict[str, Any],
     trace: list[dict[str, Any]],
     briefing: dict[str, Any],
+    reasoning: dict[str, Any],
 ) -> DataQuality:
     warnings = [
         step["summary"]
@@ -231,8 +256,11 @@ def _build_data_quality(
         if step.get("status") in {"warning", "fallback", "disabled"} and step.get("summary")
     ]
     gaps = _string_list(briefing.get("limitations"))
+    gaps.extend(str(gap.get("message")) for gap in _list(reasoning.get("gaps")) if gap.get("message"))
     fallback_reasons = [str(step["fallbackReason"]) for step in trace if step.get("fallbackReason")]
     gaps.extend(fallback_reasons)
+    external_signals = _dict(run.get("externalSignals"))
+    open_web = _dict(external_signals.get("openWeb"))
 
     return DataQuality(
         dataMode=str(runtime.get("fixturePackMode") or "unknown"),
@@ -243,7 +271,7 @@ def _build_data_quality(
             "hasAnnotations": bool(run.get("annotations")),
             "hasEvidence": bool(run.get("evidence")),
             "hasTrace": bool(trace),
-            "hasOpenWebSignals": False,
+            "hasOpenWebSignals": bool(open_web.get("items")),
         },
         gaps=_dedupe(gaps),
         warnings=_dedupe(warnings),
@@ -267,6 +295,34 @@ def _planning_body(briefing: dict[str, Any]) -> list[str]:
     if planning_limits:
         return planning_limits
     return ["Planning and public-context evidence was considered where available."]
+
+
+def _open_web_body(run: dict[str, Any]) -> str:
+    open_web = _dict(_dict(run.get("externalSignals")).get("openWeb"))
+    items = _list(open_web.get("items"))
+    if items:
+        return f"{len(items)} open-web signals are available as non-authoritative context."
+    status = str(open_web.get("status") or "not_configured")
+    return f"Open-web signals are {status}; no Tavily results are included in this report."
+
+
+def _section_status(reasoning: dict[str, Any], section_id: str, fallback: str) -> str:
+    fit = _reasoning_fit(reasoning, section_id)
+    status = str(fit.get("status") or "")
+    if status == "supported":
+        return "ready"
+    if status in {"partial", "missing"}:
+        return "warning"
+    if status == "conflict":
+        return "blocked"
+    return fallback
+
+
+def _reasoning_fit(reasoning: dict[str, Any], section_id: str) -> dict[str, Any]:
+    for item in _list(reasoning.get("reportFit")):
+        if item.get("sectionId") == section_id:
+            return item
+    return {}
 
 
 def _has_available_source(sources: list[dict[str, Any]], token: str) -> bool:

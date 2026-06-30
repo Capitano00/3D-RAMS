@@ -93,7 +93,9 @@
         ],
         "traceIds": []
       },
-      "annotationId": "planning-river-edge"
+      "annotationId": "planning-river-edge",
+      "rationale": "Finding has source or evidence references and remains subject to human review.",
+      "humanReviewRequired": true
     }
   ],
   "visualization": {
@@ -164,6 +166,54 @@
       "status": "not_configured",
       "items": []
     }
+  },
+  "reasoning": {
+    "mode": "deterministic",
+    "status": "warning",
+    "summary": "Supervisor reasoning assessed candidate findings, data gaps, and open-web status.",
+    "reportFit": [
+      {
+        "sectionId": "candidate-findings",
+        "status": "supported",
+        "rationale": "Candidate findings have linked evidence and remain inside the safety boundary.",
+        "sourceIds": [
+          "public-ea-flood-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-flood-context"
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "findingAssessments": [
+      {
+        "findingId": "planning-river-edge",
+        "decision": "include_with_caveat",
+        "rationale": "Finding has source or evidence references and remains subject to human review.",
+        "sourceIds": [
+          "public-ea-flood-context"
+        ],
+        "evidenceIds": [
+          "ev-lambeth-flood-context"
+        ],
+        "confidence": "medium",
+        "humanReviewRequired": true
+      }
+    ],
+    "gaps": [
+      {
+        "id": "open-web-signals",
+        "severity": "low",
+        "message": "Open-web signals were not available for this run.",
+        "affectsSections": [
+          "open-web-signals"
+        ]
+      }
+    ],
+    "conflicts": [],
+    "reviewQuestions": [
+      "Do source references adequately support each candidate finding?"
+    ]
   },
   "trace": [],
   "architecture": null
