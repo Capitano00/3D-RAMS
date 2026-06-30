@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -216,6 +217,25 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(lookup_output["persistence"]["status"], "loaded")
         self.assertEqual(lookup_output["structuredReport"]["caseId"], "case_lookup_test_001")
         self.assertEqual(lookup_output["run"]["caseId"], "case_lookup_test_001")
+
+    def test_report_lookup_returns_json_safe_dynamodb_numbers(self):
+        class FakeTable:
+            def get_item(self, *, Key):
+                assert Key == {"caseId": "case_decimal_lookup_test_001"}
+                return {
+                    "Item": {
+                        "caseId": "case_decimal_lookup_test_001",
+                        "reportStatus": "review_required",
+                        "workflowMode": "cached_public_fixture",
+                        "structuredReport": {"caseId": "case_decimal_lookup_test_001", "riskScore": Decimal("4.5")},
+                        "run": {"caseId": "case_decimal_lookup_test_001", "traceCount": Decimal("11")},
+                    }
+                }
+
+        lookup = load_report("case_decimal_lookup_test_001", table=FakeTable())
+
+        self.assertEqual(lookup["output"]["structuredReport"]["riskScore"], 4.5)
+        self.assertEqual(lookup["output"]["run"]["traceCount"], 11)
 
     def test_report_lookup_without_table_returns_not_found_contract(self):
         response = invoke_local({"input": {"operation": "getReport", "caseId": "case_missing_local"}})

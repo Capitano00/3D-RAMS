@@ -90,22 +90,24 @@ def load_report(
                     },
                 }
             }
-        return {
-            "output": {
-                "caseId": case_id,
-                "reportStatus": item.get("reportStatus") or "unknown",
-                "workflowMode": item.get("workflowMode") or "report_lookup",
-                "structuredReport": item.get("structuredReport"),
-                "run": item.get("run"),
-                "persistence": {
-                    "mode": "dynamodb",
-                    "status": "loaded",
-                    "tableName": resolved_table_name,
+        return _json_safe(
+            {
+                "output": {
                     "caseId": case_id,
-                    "updatedAt": item.get("updatedAt"),
-                },
+                    "reportStatus": item.get("reportStatus") or "unknown",
+                    "workflowMode": item.get("workflowMode") or "report_lookup",
+                    "structuredReport": item.get("structuredReport"),
+                    "run": item.get("run"),
+                    "persistence": {
+                        "mode": "dynamodb",
+                        "status": "loaded",
+                        "tableName": resolved_table_name,
+                        "caseId": case_id,
+                        "updatedAt": item.get("updatedAt"),
+                    },
+                }
             }
-        }
+        )
     except Exception as exc:  # noqa: BLE001 - lookup errors should be visible to the caller.
         return {
             "output": {
@@ -174,6 +176,16 @@ def _dynamodb_table(table_name: str) -> DynamoTable:
 
 def _dynamo_safe(value: Any) -> Any:
     return json.loads(json.dumps(value), parse_float=Decimal)
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=_json_default))
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _text(value: Any) -> str | None:

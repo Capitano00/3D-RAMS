@@ -69,6 +69,14 @@ class AgentCoreClientTests(unittest.TestCase):
 
         self.assertEqual(extract_json_body(streamed), {"output": {"ok": True}})
 
+    def test_extract_json_body_from_json_string_python_repr(self):
+        raw = json.dumps("{'output': {'caseId': 'case_lookup_001', 'workflowMode': 'report_lookup'}}")
+
+        self.assertEqual(
+            extract_json_body(raw),
+            {"output": {"caseId": "case_lookup_001", "workflowMode": "report_lookup"}},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

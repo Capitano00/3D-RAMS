@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import hmac
 import json
@@ -186,6 +187,16 @@ def _json_object(value: str) -> dict[str, Any] | None:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError:
+        return _python_dict_repr(value)
+    if isinstance(parsed, str):
+        return _json_object(parsed) or _python_dict_repr(parsed)
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _python_dict_repr(value: str) -> dict[str, Any] | None:
+    try:
+        parsed = ast.literal_eval(value)
+    except (SyntaxError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
 
