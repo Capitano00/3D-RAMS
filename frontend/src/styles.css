@@ -289,6 +289,22 @@ textarea {
   font-size: 0.86rem;
 }
 
+.toggle-control {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  color: #2f443d;
+  font-weight: 900;
+}
+
+.toggle-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: #0b6f65;
+}
+
 .composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;

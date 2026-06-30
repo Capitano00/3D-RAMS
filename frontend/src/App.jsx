@@ -31,7 +31,7 @@ const DEFAULT_REQUEST = {
   fixturePack: "public-lambeth-thames",
   includePlanningFixture: true,
   simulateMapFailure: false,
-  useBedrock: true,
+  useBedrock: false,
   additionalRequest: "",
 };
 
@@ -502,6 +502,10 @@ function App() {
             <Cloud size={16} />
             {runtime.subagentExecutionMode || runtime.supervisorRuntime || (USE_LOCAL_ASIONE ? "local" : "cloud")}
           </div>
+          <div className={`safety-pill ${request.useBedrock ? "warning" : "allowed"}`}>
+            <GitBranch size={16} />
+            Bedrock {request.useBedrock ? "on" : "off"}
+          </div>
           {caseId && (
             <div className="safety-pill pending" title={persistence?.status || "case id"}>
               {caseId}
@@ -540,6 +544,14 @@ function App() {
                 <FileUp size={16} />
                 Register test PDF/image
               </button>
+              <label className="toggle-control">
+                <input
+                  type="checkbox"
+                  checked={request.useBedrock}
+                  onChange={(event) => setRequest((current) => ({ ...current, useBedrock: event.target.checked }))}
+                />
+                <span>Use Bedrock</span>
+              </label>
               <span>{uploads.length ? `${uploads.length} evidence file(s) registered` : "Uploads use S3 when hosted; local testing registers metadata only."}</span>
             </div>
             <form className="composer" onSubmit={sendMessage}>
