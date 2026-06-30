@@ -330,6 +330,34 @@ textarea {
   background: #dfe8e4;
 }
 
+.map-status {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  border: 1px solid #ccd8d2;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #455a54;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.map-status.rendered {
+  border-color: #9cc9bc;
+  color: #0d665c;
+}
+
+.map-status.unavailable {
+  position: static;
+  display: inline-flex;
+  border-color: #e0b76f;
+  color: #8a5600;
+}
+
 .scene-viewer {
   width: 100%;
   height: 676px;
@@ -362,6 +390,60 @@ textarea {
   font-weight: 800;
 }
 
+.empty-map span {
+  max-width: 380px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.scene-fallback {
+  min-height: 676px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  background:
+    linear-gradient(90deg, rgba(11, 111, 101, 0.09) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(11, 111, 101, 0.09) 1px, transparent 1px),
+    #e2ebe7;
+  background-size: 32px 32px;
+  color: #33463f;
+  text-align: center;
+}
+
+.scene-fallback h3,
+.scene-fallback p {
+  margin: 0;
+}
+
+.scene-fallback dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 10px;
+  width: min(440px, 100%);
+  margin: 8px 0 0;
+}
+
+.scene-fallback dl div {
+  border: 1px solid #ccd9d3;
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.scene-fallback dt {
+  color: #65766f;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.scene-fallback dd {
+  margin: 3px 0 0;
+  font-weight: 900;
+}
+
 .risk-grid {
   display: grid;
   gap: 10px;
@@ -388,6 +470,45 @@ textarea {
   grid-column: 1 / -1;
   margin: 0;
   color: #4e625c;
+}
+
+.risk-factor-panel {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #edf2ef;
+  padding: 14px;
+}
+
+.risk-factor-panel h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.risk-factor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.risk-factor-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 3px 10px;
+  border: 1px solid #dce4e0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fbfcfb;
+}
+
+.risk-factor-list article span {
+  color: #0b6f65;
+  font-weight: 900;
+}
+
+.risk-factor-list article p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #5d6e68;
+  font-size: 0.82rem;
 }
 
 .briefing-block {

@@ -25,82 +25,95 @@ function toList(value) {
 
 function SceneViewer({ scene, annotations, location }) {
   const containerRef = useRef(null);
+  const [renderError, setRenderError] = useState("");
+  const [renderStatus, setRenderStatus] = useState("waiting for resolved location");
 
   useEffect(() => {
+    setRenderError("");
+    setRenderStatus(scene?.center ? "rendering 3D scene" : "waiting for resolved location");
     if (!containerRef.current || !scene?.center) return undefined;
 
     Cesium.Ion.defaultAccessToken = "";
-    const viewer = new Cesium.Viewer(containerRef.current, {
-      animation: false,
-      timeline: false,
-      baseLayer: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      baseLayerPicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false,
-      infoBox: false,
-      selectionIndicator: false,
-    });
+    let viewer;
+    try {
+      viewer = new Cesium.Viewer(containerRef.current, {
+        animation: false,
+        timeline: false,
+        baseLayer: false,
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: false,
+        baseLayerPicker: false,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        infoBox: false,
+        selectionIndicator: false,
+      });
 
-    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#e6ece9");
-    viewer.scene.skyAtmosphere.show = false;
-    viewer.scene.fog.enabled = false;
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#e6ece9");
+      viewer.scene.skyAtmosphere.show = false;
+      viewer.scene.fog.enabled = false;
 
-    const center = scene.center;
-    viewer.entities.add({
-      name: "Review area",
-      polygon: {
-        hierarchy: Cesium.Cartesian3.fromDegreesArray([
-          center.longitude - 0.006,
-          center.latitude - 0.004,
-          center.longitude + 0.006,
-          center.latitude - 0.004,
-          center.longitude + 0.006,
-          center.latitude + 0.004,
-          center.longitude - 0.006,
-          center.latitude + 0.004,
-        ]),
-        height: 0,
-        material: Cesium.Color.fromCssColorString("#7fb9a7").withAlpha(0.36),
-        outline: true,
-        outlineColor: Cesium.Color.fromCssColorString("#0b6f65"),
-      },
-    });
-
-    toList(annotations).forEach((annotation) => {
+      const center = scene.center;
       viewer.entities.add({
-        name: annotation.title,
-        position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
-        point: {
-          pixelSize: annotation.confidence === "low" ? 12 : 10,
-          color: Cesium.Color.fromCssColorString(annotation.confidence === "low" ? "#d97706" : "#1d4ed8"),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2,
-        },
-        label: {
-          text: annotation.title,
-          font: "12px sans-serif",
-          fillColor: Cesium.Color.fromCssColorString("#111827"),
-          showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.84),
-          pixelOffset: new Cesium.Cartesian2(0, -22),
+        name: "Review area",
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray([
+            center.longitude - 0.006,
+            center.latitude - 0.004,
+            center.longitude + 0.006,
+            center.latitude - 0.004,
+            center.longitude + 0.006,
+            center.latitude + 0.004,
+            center.longitude - 0.006,
+            center.latitude + 0.004,
+          ]),
+          height: 0,
+          material: Cesium.Color.fromCssColorString("#7fb9a7").withAlpha(0.36),
+          outline: true,
+          outlineColor: Cesium.Color.fromCssColorString("#0b6f65"),
         },
       });
-    });
 
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 1500),
-      orientation: {
-        heading: Cesium.Math.toRadians(scene.camera?.headingDegrees || 0),
-        pitch: Cesium.Math.toRadians(scene.camera?.pitchDegrees || -48),
-      },
-      duration: 0,
-    });
+      toList(annotations).forEach((annotation) => {
+        viewer.entities.add({
+          name: annotation.title,
+          position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
+          point: {
+            pixelSize: annotation.confidence === "low" ? 12 : 10,
+            color: Cesium.Color.fromCssColorString(annotation.confidence === "low" ? "#d97706" : "#1d4ed8"),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+          },
+          label: {
+            text: annotation.title,
+            font: "12px sans-serif",
+            fillColor: Cesium.Color.fromCssColorString("#111827"),
+            showBackground: true,
+            backgroundColor: Cesium.Color.WHITE.withAlpha(0.84),
+            pixelOffset: new Cesium.Cartesian2(0, -22),
+          },
+        });
+      });
+
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 1500),
+        orientation: {
+          heading: Cesium.Math.toRadians(scene.camera?.headingDegrees || 0),
+          pitch: Cesium.Math.toRadians(scene.camera?.pitchDegrees || -48),
+        },
+        duration: 0,
+      });
+      setRenderStatus("3D scene rendered");
+    } catch (err) {
+      setRenderError(err?.message || "3D scene renderer failed.");
+      setRenderStatus("3D scene unavailable");
+      if (viewer && !viewer.isDestroyed()) viewer.destroy();
+      viewer = null;
+    }
 
     return () => {
-      if (!viewer.isDestroyed()) viewer.destroy();
+      if (viewer && !viewer.isDestroyed()) viewer.destroy();
     };
   }, [scene, annotations]);
 
@@ -108,13 +121,38 @@ function SceneViewer({ scene, annotations, location }) {
     return (
       <div className="empty-map">
         <MapPinned size={24} />
-        <span>Map updates after the agent resolves a site.</span>
+        <strong>waiting for resolved location</strong>
+        <span>Provide a coordinate, postcode, nearest town, or supported fixture before the map tools run.</span>
+      </div>
+    );
+  }
+
+  if (renderError) {
+    return (
+      <div className="scene-fallback">
+        <div className="map-status unavailable">3D scene unavailable</div>
+        <MapPinned size={28} />
+        <h3>{location?.label || "Selected site"}</h3>
+        <p>{renderError}</p>
+        {scene.center && (
+          <dl>
+            <div>
+              <dt>Coordinate</dt>
+              <dd>{scene.center.latitude}, {scene.center.longitude}</dd>
+            </div>
+            <div>
+              <dt>Risk markers</dt>
+              <dd>{toList(annotations).length}</dd>
+            </div>
+          </dl>
+        )}
       </div>
     );
   }
 
   return (
     <div className="scene-shell">
+      <div className={`map-status ${renderStatus === "3D scene rendered" ? "rendered" : "pending"}`}>{renderStatus}</div>
       <div ref={containerRef} className="scene-viewer" />
       <div className="map-caption">
         <strong>{location?.label || "Selected site"}</strong>
@@ -219,6 +257,7 @@ function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMo
 
 function RiskCards({ hazards, briefing }) {
   const items = toList(hazards).slice(0, 6);
+  const confidenceLabel = (confidence) => `${confidence || "review"} confidence`;
   return (
     <section className="panel">
       <div className="panel-heading">
@@ -236,6 +275,22 @@ function RiskCards({ hazards, briefing }) {
           ))
         ) : (
           <p className="empty-copy">Risk cards appear after the agent runs tools.</p>
+        )}
+      </div>
+      <div className="risk-factor-panel">
+        <h3>Risk Factors</h3>
+        {items.length ? (
+          <div className="risk-factor-list">
+            {items.map((hazard) => (
+              <article key={`factor-${hazard.id || hazard.title}`}>
+                <strong>{hazard.title}</strong>
+                <span>{confidenceLabel(hazard.confidence)}</span>
+                <p>{(hazard.sourceIds || hazard.evidenceIds || []).join(", ") || hazard.source || "source pending"} - human review required</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">Risk factors appear once hazards have evidence links.</p>
         )}
       </div>
       {briefing && (

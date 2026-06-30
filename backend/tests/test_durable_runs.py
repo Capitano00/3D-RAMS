@@ -85,6 +85,24 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["result"]["clarifyingQuestions"]), 1)
         self.assertEqual(result["modelCallsUsed"], 0)
 
+    def test_durable_run_clarifies_unknown_named_site_without_coordinate(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            response = self._run(
+                session["sessionId"],
+                "I want to visit Bilsbrae Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.",
+            )
+
+        self.assertEqual(response.status_code, 202)
+        result = response.json()
+        self.assertEqual(result["status"], "waiting_for_clarification")
+        self.assertTrue(result["result"]["needsClarification"])
+        self.assertIn("Bilsbrae Solar Farm", result["result"]["assistantMessage"])
+        self.assertIsNone(result["result"]["scene"])
+        parse_step = next(step for step in result["result"]["trace"] if step["name"] == "chat_parse_user_request")
+        self.assertEqual(parse_step["output"]["siteResolution"], "unresolved")
+        self.assertIsNone(parse_step["output"]["fixturePackSelected"])
+
     def test_durable_run_safety_blocks_certified_rams_request(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
             session = self._session()

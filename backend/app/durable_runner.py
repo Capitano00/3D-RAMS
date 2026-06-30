@@ -469,6 +469,16 @@ def _finish_clarification(
     config: RuntimeConfig,
 ) -> None:
     run = get_run_record(run_id)
+    trace = [
+        *run.get("steps", []),
+        *list(run.get("partialUiState", {}).get("trace") or []),
+    ]
+    site_name = None
+    for step in trace:
+        if step.get("name") == "chat_parse_user_request":
+            site_name = step.get("output", {}).get("siteName")
+            break
+    site_context = f" for {site_name}" if site_name else ""
     ui_state = {
         "location": None,
         "scene": None,
@@ -478,7 +488,7 @@ def _finish_clarification(
         "sources": [],
         "briefing": None,
         "safety": {"allowed": True, "level": "needs_input", "message": "No briefing generated until a site is supplied."},
-        "trace": run["steps"],
+        "trace": trace,
         "architecture": None,
     }
     runtime = {
@@ -492,13 +502,13 @@ def _finish_clarification(
     result = {
         "sessionId": run["sessionId"],
         "runId": run_id,
-        "assistantMessage": "I can prepare a pre-visit review pack, but I need the site first.",
+        "assistantMessage": f"I can prepare a pre-visit review pack{site_context}, but I need a trusted location first.",
         "needsClarification": True,
         "clarifyingQuestions": clarification,
         "agent": _agent_runtime_state(),
         "uiState": ui_state,
         "runtime": runtime,
-        "trace": run["steps"],
+        "trace": trace,
         "evidence": [],
         "scene": None,
         "annotations": [],

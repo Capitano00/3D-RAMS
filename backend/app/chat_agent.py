@@ -91,17 +91,41 @@ def _parse_message_to_request(
     lower = message.lower()
     coordinate = _extract_coordinate(message)
     known_lambeth = any(term in lower for term in ["lambeth", "albert embankment", "thames", "8 albert"])
-    farm_like = "farm" in lower
-    has_site_signal = coordinate is not None or known_lambeth or farm_like
+    named_site_hint = any(
+        term in lower
+        for term in [
+            "farm",
+            "solar",
+            "substation",
+            "bess",
+            "battery",
+            "quarry",
+            "data centre",
+            "data center",
+            "wind farm",
+        ]
+    )
+    site_label = _extract_site_label(message)
+    unresolved_named_site = bool(site_label and not coordinate and not known_lambeth and named_site_hint)
+    has_site_signal = coordinate is not None or known_lambeth or named_site_hint
+    trace_status = "warning" if unresolved_named_site or not has_site_signal else "ok"
     trace = [
         trace_step(
             "chat_parse_user_request",
-            "ok" if has_site_signal else "warning",
-            "Parsed the natural-language site visit request into an agent run envelope.",
+            trace_status,
+            (
+                "Found a named site but no coordinate or approved fixture; asking for location evidence before running tools."
+                if unresolved_named_site
+                else "Parsed the natural-language site visit request into an agent run envelope."
+            ),
             {
                 "hasCoordinate": coordinate is not None,
                 "knownPublicFixture": known_lambeth,
-                "farmLikeName": farm_like,
+                "namedSiteHint": named_site_hint,
+                "siteName": site_label,
+                "siteResolution": "unresolved" if unresolved_named_site else ("coordinate" if coordinate else "fixture" if known_lambeth else "missing"),
+                "fixturePackSelected": "public-lambeth-thames" if known_lambeth else None,
+                "clarificationRequired": unresolved_named_site or not has_site_signal,
                 "uploadedFileIds": uploaded_file_ids,
                 "messageSummary": _summarise_message(message),
             },
@@ -112,11 +136,17 @@ def _parse_message_to_request(
             "Which site should I assess? Please provide a site name, address, or coordinate.",
             "What is the planned visit activity, for example survey, inspection, delivery, or maintenance?",
         ]
+    if unresolved_named_site:
+        return {}, trace, [
+            f"I found the site name '{site_label}', but I do not have a trusted location for it yet.",
+            "Please provide a postcode, OS grid reference, latitude/longitude, or nearest town/council.",
+            "If you have public site evidence, register a synthetic/public PDF or image and rerun the request.",
+        ]
 
     request: dict[str, Any] = {
-        "siteName": _extract_site_label(message),
+        "siteName": site_label,
         "goal": "Hosted pre-visit RAMS-style review pack",
-        "fixturePack": "public-lambeth-thames" if known_lambeth or not coordinate else None,
+        "fixturePack": "public-lambeth-thames" if known_lambeth else None,
         "includePlanningFixture": True,
         "simulateMapFailure": False,
         "useBedrock": use_bedrock,
@@ -140,11 +170,15 @@ def _clarification_response(
     started: float,
     agent_state: dict[str, Any],
 ) -> dict[str, Any]:
+    site_name = None
+    if parse_trace:
+        site_name = parse_trace[0].get("output", {}).get("siteName")
+    site_context = f" for {site_name}" if site_name else ""
     return {
         "sessionId": session["sessionId"],
         "runId": run_id,
         "assistantMessage": (
-            "I can prepare a pre-visit RAMS-style review pack, but I need the site first. "
+            f"I can prepare a pre-visit RAMS-style review pack{site_context}, but I need a trusted location first. "
             "Please answer the questions below so I can run the location, evidence, map, and safety tools."
         ),
         "needsClarification": True,
@@ -279,6 +313,17 @@ def _extract_coordinate(message: str) -> tuple[float, float] | None:
 
 def _extract_site_label(message: str) -> str:
     cleaned = re.sub(r"\s+", " ", message).strip()
+    extraction_patterns = [
+        r"\bsite visit at\s+(.+?)(?:\s+tomorrow\b|\s+today\b|\s+for\b|\s+please\b|[.,]|$)",
+        r"\bvisit\s+(.+?)(?:\s+tomorrow\b|\s+today\b|\s+for\b|\s+please\b|[.,]|$)",
+        r"\bat\s+(.+?)(?:\s+tomorrow\b|\s+today\b|\s+for\b|\s+please\b|[.,]|$)",
+    ]
+    for pattern in extraction_patterns:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            label = match.group(1).strip(" ,.;:")
+            if label:
+                return label[:90] if len(label) <= 90 else label[:87].rstrip() + "..."
     if len(cleaned) <= 90:
         return cleaned
     return cleaned[:87].rstrip() + "..."

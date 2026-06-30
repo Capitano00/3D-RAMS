@@ -62,6 +62,26 @@ for ($i = 0; $i -lt 30; $i++) {
     $durableRun = Invoke-RestMethod -Method Get -Uri "$base/api/runs/$durableRunId"
 }
 
+$bilsbraeRun = Invoke-JsonPost "/api/runs" @{
+    sessionId = $session.sessionId
+    message = "I want to visit Bilsbrae Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack."
+    uploadedFileIds = @()
+    useBedrock = $true
+    autoStart = $true
+}
+$bilsbraeRunId = $bilsbraeRun.runId
+for ($i = 0; $i -lt 20; $i++) {
+    if ($bilsbraeRun.status -in @("completed", "failed", "cancelled", "waiting_for_clarification", "waiting_for_approval")) { break }
+    Start-Sleep -Seconds 2
+    $bilsbraeRun = Invoke-RestMethod -Method Get -Uri "$base/api/runs/$bilsbraeRunId"
+}
+if (-not $bilsbraeRun.result.needsClarification) {
+    throw "Bilsbrae smoke expected clarification because no coordinate/geocoder evidence was supplied."
+}
+if ($bilsbraeRun.result.assistantMessage -match "Albert Embankment") {
+    throw "Bilsbrae smoke regressed to the Lambeth fixture."
+}
+
 $unsafe = $null
 if ($IncludeUnsafe) {
     $unsafe = Invoke-JsonPost "/api/chat" @{
@@ -95,5 +115,10 @@ if ($IncludeUnsafe) {
     durableRunSafety = $durableRun.safetyResult.level
     durableRunAgentMode = $durableRun.runtime.activeAgentMode
     durableRunTraceSteps = @($durableRun.result.trace).Count
+    bilsbraeRunId = $bilsbraeRunId
+    bilsbraeStatus = $bilsbraeRun.status
+    bilsbraeNeedsClarification = $bilsbraeRun.result.needsClarification
+    bilsbraeModelCallsUsed = $bilsbraeRun.modelCallsUsed
+    bilsbraeMessage = $bilsbraeRun.result.assistantMessage
     unsafeSafety = if ($unsafe) { $unsafe.safety.level } else { $null }
 } | ConvertTo-Json -Depth 8

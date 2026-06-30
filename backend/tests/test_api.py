@@ -224,6 +224,51 @@ class ApiContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["clarifyingQuestions"]), 1)
         self.assertEqual(result["modelCalls"], [])
 
+    def test_chat_endpoint_clarifies_unknown_named_site_without_coordinate(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Bilsbrae Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result["needsClarification"])
+        self.assertIn("Bilsbrae Solar Farm", result["assistantMessage"])
+        self.assertEqual(result["scene"], None)
+        self.assertEqual(result["evidence"], [])
+        parse_step = next(step for step in result["trace"] if step["name"] == "chat_parse_user_request")
+        self.assertEqual(parse_step["status"], "warning")
+        self.assertEqual(parse_step["output"]["siteResolution"], "unresolved")
+        self.assertIsNone(parse_step["output"]["fixturePackSelected"])
+
+    def test_chat_endpoint_coordinate_named_site_uses_synthetic_coordinate_not_lambeth(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Bilsbrae Solar Farm tomorrow at 56.1234, -3.4567 for a survey.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertFalse(result["needsClarification"])
+        self.assertNotIn("8 Albert Embankment", result["assistantMessage"])
+        self.assertIn("Bilsbrae", result["assistantMessage"])
+        self.assertAlmostEqual(result["uiState"]["location"]["latitude"], 56.1234)
+        self.assertAlmostEqual(result["uiState"]["location"]["longitude"], -3.4567)
+        self.assertIsNone(result["runtime"]["fixturePack"])
+        self.assertEqual(result["runtime"]["fixturePackMode"], "synthetic-default")
+
     def test_chat_endpoint_runs_hosted_agent_contract_with_public_fixture(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
             session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
