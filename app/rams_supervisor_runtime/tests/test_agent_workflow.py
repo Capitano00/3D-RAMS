@@ -78,6 +78,9 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["reasoning"]["mode"], "deterministic")
         self.assertIn("reportFit", result["reasoning"])
         self.assertTrue(result["reasoning"]["reviewQuestions"])
+        self.assertEqual(result["draftReport"]["status"], "draft")
+        self.assertEqual(result["reviewGate"]["status"], "passed_with_caveats")
+        self.assertEqual(result["finalReportStatus"], "review_passed")
         self.assertEqual(result["modelCalls"], [])
         self.assertEqual(result["fallback"]["status"], "used")
         self.assertIsNone(result["request"]["fixturePack"])
@@ -85,6 +88,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("sources", result)
         self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in result["trace"]))
         self.assertTrue(any(step["name"] == "reason_over_evidence" for step in result["trace"]))
+        self.assertTrue(any(step["name"] == "independent_review_gate" for step in result["trace"]))
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
 
@@ -472,6 +476,49 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertFalse(result["safety"]["allowed"])
         self.assertEqual(result["safety"]["level"], "blocked")
         self.assertEqual(result["annotations"], [])
+        self.assertEqual(result["reviewGate"]["status"], "blocked")
+
+    def test_independent_review_pass_path_is_visible(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "pass"})
+
+        self.assertEqual(result["draftReport"]["status"], "draft")
+        self.assertEqual(result["reviewGate"]["status"], "passed")
+        self.assertEqual(result["reviewGate"]["decision"], "pass")
+        self.assertEqual(result["finalReportStatus"], "review_passed")
+        review_step = next(step for step in result["trace"] if step["name"] == "independent_review_gate")
+        self.assertEqual(review_step["output"]["decision"], "pass")
+
+    def test_independent_review_revise_triggers_bounded_revision(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "revise"})
+
+        self.assertEqual(result["reviewGate"]["status"], "passed_with_caveats")
+        self.assertEqual(result["reviewGate"]["revisionCount"], 1)
+        trace_names = [step["name"] for step in result["trace"]]
+        self.assertIn("supervisor_review_revision", trace_names)
+        self.assertEqual(result["finalReportStatus"], "review_passed")
+
+    def test_independent_review_block_withholds_deep_report_delivery(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "block"})
+
+        self.assertEqual(result["reviewGate"]["status"], "blocked")
+        self.assertEqual(result["finalReportStatus"], "blocked")
+        self.assertEqual(result["hazards"], [])
+        self.assertEqual(result["annotations"], [])
+
+    def test_independent_review_max_revision_returns_review_required(self):
+        result = run_site_briefing(
+            {
+                "fixturePack": "public-lambeth-thames",
+                "useBedrock": False,
+                "_reviewDecision": "revise_forever",
+                "_reviewMaxRevisionAttempts": 1,
+            }
+        )
+
+        self.assertEqual(result["reviewGate"]["status"], "review_required")
+        self.assertEqual(result["reviewGate"]["revisionCount"], 1)
+        self.assertEqual(result["finalReportStatus"], "review_required")
+        self.assertGreaterEqual(result["reviewGate"]["attemptCount"], 2)
 
 
 if __name__ == "__main__":

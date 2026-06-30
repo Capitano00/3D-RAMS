@@ -47,7 +47,7 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
 
     run = run_site_briefing(request)
     case_id = run.get("caseId") or request.get("caseId")
-    report_status = "review_required" if run["safety"]["allowed"] else "blocked"
+    report_status = _report_status(run)
     workflow_mode = _workflow_mode(run)
     structured_report = build_structured_report(run, report_status, workflow_mode)
     output = {
@@ -123,3 +123,16 @@ def _workflow_mode(run: dict[str, Any]) -> str:
     if fixture_mode == "synthetic-default":
         return "synthetic_fixture"
     return str(fixture_mode or "unknown")
+
+
+def _report_status(run: dict[str, Any]) -> str:
+    status = str(run.get("finalReportStatus") or "")
+    if status in {"blocked", "review_required", "review_passed"}:
+        return status
+    review_gate = run.get("reviewGate") if isinstance(run.get("reviewGate"), dict) else {}
+    gate_status = str(review_gate.get("status") or "")
+    if gate_status == "blocked":
+        return "blocked"
+    if gate_status in {"passed", "passed_with_caveats"}:
+        return "review_passed"
+    return "review_required" if run["safety"]["allowed"] else "blocked"

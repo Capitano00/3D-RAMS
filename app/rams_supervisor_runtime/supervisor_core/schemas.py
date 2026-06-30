@@ -173,13 +173,20 @@ class VisualizationPayload(BaseModel):
 
 
 class ReviewGate(BaseModel):
-    status: Literal["blocked", "pending_independent_review", "passed"]
+    status: Literal["blocked", "pending_independent_review", "passed", "passed_with_caveats", "review_required"]
+    decision: str | None = None
+    reviewer: dict[str, Any] | None = None
     safetyAllowed: bool
     safetyLevel: str
     requiresHumanReview: bool
     message: str
     triggeredRules: list[str] = Field(default_factory=list)
     reviewerNotes: list[str] = Field(default_factory=list)
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    requiredRevisions: list[dict[str, Any]] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+    revisionCount: int = 0
+    attemptCount: int = 0
 
 
 class DataQuality(BaseModel):
