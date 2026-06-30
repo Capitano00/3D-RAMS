@@ -207,6 +207,9 @@ $envJson = ConvertTo-CompactJson @{
         DYNAMODB_SESSION_TABLE = $tableName
         UPLOAD_RETENTION_DAYS = "7"
         SESSION_RETENTION_DAYS = "7"
+        ENABLE_GEOAPIFY_GEOCODING = "false"
+        GEOAPIFY_GEOCODING_LIMIT = "3"
+        GEOAPIFY_GEOCODING_TIMEOUT_SECONDS = "4"
     }
 }
 $envJsonFile = Join-Path $buildConfigDir "lambda-env.json"
