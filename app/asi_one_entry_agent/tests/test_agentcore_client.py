@@ -69,6 +69,22 @@ class AgentCoreClientTests(unittest.TestCase):
 
         self.assertEqual(extract_json_body(streamed), {"output": {"ok": True}})
 
+    def test_extract_text_body_from_entry_agent_message(self):
+        payload = {
+            "output": {
+                "entryAgent": {
+                    "assistantMessage": "I need a little more information before I can launch.",
+                    "clarifyingQuestions": ["Which site should I assess?", "What area should I cover?"],
+                }
+            }
+        }
+
+        text = extract_text_body(json.dumps(payload))
+
+        self.assertIn("I need a little more information", text)
+        self.assertIn("- Which site should I assess?", text)
+        self.assertNotIn('"output"', text)
+
     def test_extract_json_body_from_json_string_python_repr(self):
         raw = json.dumps("{'output': {'caseId': 'case_lookup_001', 'workflowMode': 'report_lookup'}}")
 

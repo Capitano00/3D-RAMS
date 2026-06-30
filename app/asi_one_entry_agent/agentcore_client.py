@@ -260,15 +260,29 @@ def _python_dict_repr(value: str) -> dict[str, Any] | None:
 
 def _text_from_json(payload: dict[str, Any]) -> str:
     output = payload.get("output") if isinstance(payload.get("output"), dict) else {}
+    entry_agent = output.get("entryAgent") if isinstance(output.get("entryAgent"), dict) else {}
     delivery = output.get("delivery") if isinstance(output.get("delivery"), dict) else {}
     summary = delivery.get("customerSummary") if isinstance(delivery.get("customerSummary"), dict) else {}
     if output.get("assistantMessage"):
         return str(output["assistantMessage"])
     if summary.get("headline"):
         return str(summary["headline"])
+    if entry_agent.get("assistantMessage"):
+        return _entry_agent_message(entry_agent)
     if output:
         return json.dumps(output, ensure_ascii=False)
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _entry_agent_message(entry_agent: dict[str, Any]) -> str:
+    message = str(entry_agent["assistantMessage"])
+    questions = entry_agent.get("clarifyingQuestions")
+    if not isinstance(questions, list) or not questions:
+        return message
+    question_lines = [f"- {question}" for question in questions if question]
+    if not question_lines:
+        return message
+    return f"{message}\n\n" + "\n".join(question_lines)
 
 
 def _sign(key: bytes, message: str) -> bytes:
