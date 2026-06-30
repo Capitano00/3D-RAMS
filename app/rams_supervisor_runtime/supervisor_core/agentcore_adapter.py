@@ -6,7 +6,6 @@ from typing import Any
 
 from .agent import run_site_briefing
 from .report_store import load_report, persist_report
-from .review_gate import run_independent_review_loop
 from .structured_report import build_structured_report
 
 
@@ -26,11 +25,16 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
         delivery = local_response.get("delivery") if isinstance(local_response, dict) else None
         agentcore_output = local_response.get("agentcoreOutput") if isinstance(local_response, dict) else None
         persistence = agentcore_output.get("persistence") if isinstance(agentcore_output, dict) else None
+        structured_report = agentcore_output.get("structuredReport") if isinstance(agentcore_output, dict) else None
+        review_metadata = _review_metadata(agentcore_output) if isinstance(agentcore_output, dict) else None
         return {
             "output": {
                 "caseId": local_response.get("caseId") if isinstance(local_response, dict) else None,
                 "localAsiOne": local_response,
                 "delivery": delivery,
+                "structuredReport": structured_report,
+                "reviewGate": review_metadata,
+                "reviewMetadata": review_metadata,
                 "run": run,
                 "persistence": persistence,
                 "reportStatus": delivery.get("status") if isinstance(delivery, dict) else "entry_pending",
@@ -48,18 +52,17 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
 
     run = run_site_briefing(request)
     case_id = run.get("caseId") or request.get("caseId")
+    report_status = _report_status(run)
     workflow_mode = _workflow_mode(run)
-    draft_status = "review_required" if run["safety"]["allowed"] else "blocked"
-    draft_report = build_structured_report(run, draft_status, workflow_mode)
-    reviewed = run_independent_review_loop(run=run, draft_report=draft_report)
-    run = reviewed["run"]
-    structured_report = reviewed["structuredReport"]
-    report_status = reviewed["reportStatus"]
+    structured_report = build_structured_report(run, report_status, workflow_mode)
+    review_metadata = _review_metadata({"structuredReport": structured_report})
     output = {
         "caseId": case_id,
         "reportStatus": report_status,
         "workflowMode": workflow_mode,
         "structuredReport": structured_report,
+        "reviewGate": review_metadata,
+        "reviewMetadata": review_metadata,
         "run": run,
     }
     output["persistence"] = persist_report(output)
@@ -70,6 +73,12 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
 
 def _is_local_asione_payload(payload: dict[str, Any]) -> bool:
     return bool(payload.get("localAsiOne") or payload.get("localAsiOneChat") or payload.get("entryMessage"))
+
+
+def _review_metadata(output: dict[str, Any]) -> dict[str, Any] | None:
+    report = output.get("structuredReport") if isinstance(output.get("structuredReport"), dict) else {}
+    review_gate = report.get("reviewGate") if isinstance(report.get("reviewGate"), dict) else None
+    return output.get("reviewMetadata") or output.get("reviewGate") or review_gate
 
 
 def _load_local_entry_flow():
@@ -128,3 +137,16 @@ def _workflow_mode(run: dict[str, Any]) -> str:
     if fixture_mode == "synthetic-default":
         return "synthetic_fixture"
     return str(fixture_mode or "unknown")
+
+
+def _report_status(run: dict[str, Any]) -> str:
+    status = str(run.get("finalReportStatus") or "")
+    if status in {"blocked", "review_required", "review_passed"}:
+        return status
+    review_gate = run.get("reviewGate") if isinstance(run.get("reviewGate"), dict) else {}
+    gate_status = str(review_gate.get("status") or "")
+    if gate_status == "blocked":
+        return "blocked"
+    if gate_status in {"passed", "passed_with_caveats"}:
+        return "review_passed"
+    return "review_required" if run["safety"]["allowed"] else "blocked"

@@ -83,16 +83,18 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertTrue(all(step["output"]["caseId"] == "case_supervisor_test_001" for step in run["trace"] if isinstance(step.get("output"), dict)))
         self.assertEqual(output["persistence"]["mode"], "disabled")
         self.assertEqual(output["persistence"]["status"], "skipped")
-        self.assertEqual(output["reportStatus"], "passed_with_caveats")
+        self.assertEqual(output["reportStatus"], "review_passed")
         self.assertEqual(output["workflowMode"], "cached_public_fixture")
         self.assertEqual(report["schemaVersion"], "0.1.0")
         self.assertEqual(report["reportType"], "3d-rams-site-review")
-        self.assertEqual(report["status"], "passed_with_caveats")
+        self.assertEqual(report["status"], "review_passed")
         self.assertEqual(report["workflowMode"], "cached_public_fixture")
         self.assertEqual(report["site"]["label"], "8 Albert Embankment and land to the rear")
         self.assertTrue(report["findings"])
         self.assertTrue(report["visualization"]["annotations"])
         self.assertTrue(report["evidenceRegister"]["evidence"])
+        self.assertEqual(output["reviewMetadata"]["status"], "passed_with_caveats")
+        self.assertEqual(output["reviewGate"]["status"], "passed_with_caveats")
         self.assertEqual(report["reviewGate"]["status"], "passed_with_caveats")
         self.assertEqual(report["reviewGate"]["decision"], "pass_with_caveats")
         self.assertEqual(report["reviewGate"]["revisionCount"], 0)
@@ -109,6 +111,9 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(report["runtime"]["activeAgentMode"], "deterministic-planner")
         self.assertEqual(report["runtime"]["harnessOutputSchemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
         self.assertTrue(report["runtime"]["harnessContract"]["contractCompliant"])
+        self.assertFalse(report["runtime"]["bedrockRequested"])
+        self.assertFalse(report["runtime"]["bedrockEnabled"])
+        self.assertFalse(report["runtime"]["bedrockUsed"])
         self.assertEqual(report["llmPlan"]["initialParallelGroups"], ["geospatial_subagent", "planning_subagent"])
         self.assertEqual(report["fallback"]["status"], "used")
         self.assertEqual(run["runtime"]["fixturePack"], "public-lambeth-thames")
@@ -215,7 +220,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         run = output["run"]
         self.assertFalse(entry["needsClarification"])
         self.assertFalse(entry["needsConfirmation"])
-        self.assertEqual(output["reportStatus"], "passed_with_caveats")
+        self.assertEqual(output["reportStatus"], "review_passed")
         self.assertEqual(output["persistence"]["mode"], "disabled")
         self.assertEqual(entry["delivery"]["workflowMode"], "cached_public_fixture")
         self.assertEqual(run["runtime"]["localAsiOneSubstitute"], True)
@@ -275,7 +280,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(len(writes), 1)
         item = writes[0]
         self.assertEqual(item["caseId"], "case_store_test_001")
-        self.assertEqual(item["reportStatus"], "passed_with_caveats")
+        self.assertEqual(item["reportStatus"], "review_passed")
         self.assertEqual(item["workflowMode"], "cached_public_fixture")
         self.assertEqual(item["schemaVersion"], "3d-rams.report-store.v1")
         self.assertEqual(item["recordType"], "case-correlated-report-evidence")
@@ -332,7 +337,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         lookup_output = lookup["output"]
 
         self.assertEqual(lookup_output["caseId"], "case_lookup_test_001")
-        self.assertEqual(lookup_output["reportStatus"], "passed_with_caveats")
+        self.assertEqual(lookup_output["reportStatus"], "review_passed")
         self.assertEqual(lookup_output["persistence"]["status"], "loaded")
         self.assertEqual(lookup_output["reportAccess"]["status"], "authorized")
         self.assertEqual(lookup_output["reportAccess"]["reason"], "case_binding_authorized")
@@ -341,6 +346,114 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(lookup_output["run"]["upstream"]["reportAccess"]["status"], "redacted")
         self.assertTrue(lookup_output["evidenceSummary"])
         self.assertTrue(lookup_output["citationMetadata"]["sources"])
+
+    def test_report_store_persists_review_metadata_variants(self):
+        variants = [
+            (
+                "pass",
+                {
+                    "status": "passed",
+                    "decision": "pass",
+                    "reviewerMode": "deterministic",
+                    "revisionCount": 0,
+                    "issues": [],
+                    "caveats": [],
+                    "safetyAllowed": True,
+                    "safetyLevel": "allowed",
+                    "requiresHumanReview": True,
+                    "message": "Review passed with no blocking issues.",
+                },
+                "review_passed",
+            ),
+            (
+                "pass_with_caveats",
+                {
+                    "status": "passed_with_caveats",
+                    "decision": "pass_with_caveats",
+                    "reviewer": {"name": "review_guardrail", "mode": "harness"},
+                    "revisionCount": 0,
+                    "issues": [{"id": "planning-freshness", "severity": "low", "message": "Planning source freshness needs human confirmation."}],
+                    "caveats": ["Confirm planning source freshness before site work."],
+                    "safetyAllowed": True,
+                    "safetyLevel": "allowed",
+                    "requiresHumanReview": True,
+                    "message": "Review passed with caveats.",
+                },
+                "review_passed",
+            ),
+            (
+                "revise_to_final",
+                {
+                    "status": "passed",
+                    "decision": "pass",
+                    "reviewerMode": "deterministic",
+                    "revisionCount": 1,
+                    "issues": [{"id": "unsupported-finding", "severity": "medium", "message": "Unsupported finding was removed."}],
+                    "caveats": ["One supervisor revision was applied before final delivery."],
+                    "safetyAllowed": True,
+                    "safetyLevel": "allowed",
+                    "requiresHumanReview": True,
+                    "message": "Review passed after bounded revision.",
+                },
+                "review_passed",
+            ),
+            (
+                "blocked",
+                {
+                    "status": "blocked",
+                    "decision": "block",
+                    "reviewerMode": "deterministic",
+                    "revisionCount": 0,
+                    "issues": [{"id": "approval-to-work", "severity": "blocking", "message": "Approval-to-work claim is not allowed."}],
+                    "caveats": [],
+                    "safetyAllowed": False,
+                    "safetyLevel": "blocked",
+                    "requiresHumanReview": True,
+                    "message": "Review blocked normal report delivery.",
+                },
+                "blocked",
+            ),
+        ]
+
+        for slug, review_gate, report_status in variants:
+            with self.subTest(slug=slug):
+                case_id = f"case_review_{slug}"
+                access = report_access(case_id)
+                item = build_report_store_item(
+                    {
+                        "caseId": case_id,
+                        "reportStatus": report_status,
+                        "workflowMode": "cached_public_fixture",
+                        "structuredReport": {
+                            "caseId": case_id,
+                            "status": report_status,
+                            "reviewGate": review_gate,
+                        },
+                        "run": {"caseId": case_id, "upstream": {"reportAccess": access}},
+                    }
+                )
+
+                class FakeTable:
+                    def get_item(self, *, Key):
+                        assert Key == {"caseId": case_id}
+                        return {"Item": item}
+
+                lookup = load_report(case_id, access_context=access, table=FakeTable())
+                stored_review = item["reviewMetadata"]
+                loaded_review = lookup["output"]["reviewMetadata"]
+
+                self.assertEqual(item["reviewGate"], stored_review)
+                self.assertEqual(lookup["output"]["reviewGate"], loaded_review)
+                self.assertEqual(stored_review["status"], review_gate["status"])
+                self.assertEqual(stored_review["decision"], review_gate["decision"])
+                self.assertEqual(stored_review["issues"], review_gate["issues"])
+                self.assertEqual(stored_review["caveats"], review_gate["caveats"])
+                self.assertEqual(stored_review["revisionCount"], review_gate["revisionCount"])
+                self.assertEqual(stored_review["reviewerMode"], review_gate.get("reviewerMode") or review_gate["reviewer"]["mode"])
+                self.assertEqual(loaded_review["status"], review_gate["status"])
+                self.assertEqual(loaded_review["decision"], review_gate["decision"])
+                self.assertEqual(loaded_review["revisionCount"], review_gate["revisionCount"])
+                self.assertEqual(lookup["output"]["structuredReport"]["reviewGate"]["status"], review_gate["status"])
 
     def test_report_lookup_denies_without_access_context(self):
         outer = self
@@ -488,7 +601,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
             table=FakeTable(),
             access_context=access,
         )
-        self.assertEqual(authorized["output"]["reportStatus"], "passed_with_caveats")
+        self.assertEqual(authorized["output"]["reportStatus"], "review_passed")
         self.assertEqual(authorized["output"]["reportAccess"]["status"], "authorized")
         self.assertEqual(authorized["output"]["materialEvidenceSummary"]["items"][0]["materialId"], "asio_material_001")
 

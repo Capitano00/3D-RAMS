@@ -70,6 +70,9 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("request", result)
         self.assertIn("runtime", result)
         self.assertEqual(result["runtime"]["briefingMode"], "disabled")
+        self.assertTrue(result["runtime"]["bedrockRequested"])
+        self.assertFalse(result["runtime"]["bedrockEnabled"])
+        self.assertFalse(result["runtime"]["bedrockUsed"])
         self.assertEqual(result["runtime"]["plannerMode"], "deterministic")
         self.assertEqual(result["runtime"]["activeAgentMode"], "deterministic-planner")
         self.assertEqual(result["runtime"]["modelCallCount"], 0)
@@ -78,6 +81,9 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["reasoning"]["mode"], "deterministic")
         self.assertIn("reportFit", result["reasoning"])
         self.assertTrue(result["reasoning"]["reviewQuestions"])
+        self.assertEqual(result["draftReport"]["status"], "draft")
+        self.assertEqual(result["reviewGate"]["status"], "passed_with_caveats")
+        self.assertEqual(result["finalReportStatus"], "review_passed")
         self.assertEqual(result["modelCalls"], [])
         self.assertEqual(result["fallback"]["status"], "used")
         self.assertIsNone(result["request"]["fixturePack"])
@@ -85,6 +91,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("sources", result)
         self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in result["trace"]))
         self.assertTrue(any(step["name"] == "reason_over_evidence" for step in result["trace"]))
+        self.assertTrue(any(step["name"] == "independent_review_gate" for step in result["trace"]))
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
 
@@ -442,6 +449,9 @@ class SiteBriefingAgentTests(unittest.TestCase):
             result = run_site_briefing({"useBedrock": True})
 
         self.assertEqual(result["runtime"]["briefingMode"], "mocked")
+        self.assertTrue(result["runtime"]["bedrockRequested"])
+        self.assertTrue(result["runtime"]["bedrockEnabled"])
+        self.assertTrue(result["runtime"]["bedrockUsed"])
         self.assertEqual(result["runtime"]["plannerMode"], "mocked")
         self.assertEqual(result["runtime"]["activeAgentMode"], "llm-planner-mock")
         self.assertEqual(result["runtime"]["modelCallCount"], 1)
@@ -471,6 +481,85 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertFalse(result["safety"]["allowed"])
         self.assertEqual(result["safety"]["level"], "blocked")
         self.assertEqual(result["annotations"], [])
+        self.assertEqual(result["reviewGate"]["status"], "blocked")
+
+    def test_independent_review_pass_path_is_visible(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "pass"})
+
+        self.assertEqual(result["draftReport"]["status"], "draft")
+        self.assertEqual(result["reviewGate"]["status"], "passed")
+        self.assertEqual(result["reviewGate"]["decision"], "pass")
+        self.assertEqual(result["finalReportStatus"], "review_passed")
+        review_step = next(step for step in result["trace"] if step["name"] == "independent_review_gate")
+        self.assertEqual(review_step["output"]["decision"], "pass")
+
+    def test_independent_review_revise_triggers_bounded_revision(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "revise"})
+
+        self.assertEqual(result["reviewGate"]["status"], "passed_with_caveats")
+        self.assertEqual(result["reviewGate"]["revisionCount"], 1)
+        trace_names = [step["name"] for step in result["trace"]]
+        self.assertIn("supervisor_review_revision", trace_names)
+        self.assertEqual(result["finalReportStatus"], "review_passed")
+
+    def test_independent_review_block_withholds_deep_report_delivery(self):
+        result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "block"})
+
+        self.assertEqual(result["reviewGate"]["status"], "blocked")
+        self.assertEqual(result["finalReportStatus"], "blocked")
+        self.assertEqual(result["hazards"], [])
+        self.assertEqual(result["annotations"], [])
+
+    def test_independent_review_max_revision_returns_review_required(self):
+        result = run_site_briefing(
+            {
+                "fixturePack": "public-lambeth-thames",
+                "useBedrock": False,
+                "_reviewDecision": "revise_forever",
+                "_reviewMaxRevisionAttempts": 1,
+            }
+        )
+
+        self.assertEqual(result["reviewGate"]["status"], "review_required")
+        self.assertEqual(result["reviewGate"]["revisionCount"], 1)
+        self.assertEqual(result["finalReportStatus"], "review_required")
+        self.assertGreaterEqual(result["reviewGate"]["attemptCount"], 2)
+
+    def test_bedrock_requested_failure_falls_back_without_blocking_report(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_MOCK_RESPONSE=None,
+            BEDROCK_SIMULATE_FAILURE="true",
+            BEDROCK_MOCK_UNSAFE_RESPONSE=None,
+        ):
+            result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": True})
+
+        self.assertTrue(result["runtime"]["bedrockRequested"])
+        self.assertTrue(result["runtime"]["bedrockEnabled"])
+        self.assertFalse(result["runtime"]["bedrockUsed"])
+        self.assertEqual(result["runtime"]["briefingMode"], "fallback")
+        self.assertEqual(result["runtime"]["plannerMode"], "fallback")
+        self.assertEqual(result["runtime"]["activeAgentMode"], "deterministic-planner-fallback")
+        self.assertTrue(result["safety"]["allowed"])
+        self.assertTrue(result["annotations"])
+        self.assertIn("Bedrock planner failed", result["runtime"]["fallbackReason"])
+        self.assertIn("Bedrock briefing failed", result["runtime"]["fallbackReason"])
+        fallback_steps = [step for step in result["trace"] if step["status"] == "fallback"]
+        self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in fallback_steps))
+        self.assertTrue(any(step["name"] == "generate_bedrock_briefing" for step in fallback_steps))
+
+    def test_bedrock_not_requested_never_uses_bedrock_even_when_env_enabled(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_SIMULATE_FAILURE="true",
+        ):
+            result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        self.assertFalse(result["runtime"]["bedrockRequested"])
+        self.assertFalse(result["runtime"]["bedrockEnabled"])
+        self.assertFalse(result["runtime"]["bedrockUsed"])
+        self.assertEqual(result["runtime"]["plannerMode"], "deterministic")
+        self.assertEqual(result["runtime"]["briefingMode"], "disabled")
 
 
 if __name__ == "__main__":

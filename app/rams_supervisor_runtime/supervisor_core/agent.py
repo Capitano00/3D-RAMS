@@ -21,6 +21,7 @@ from .subagent_invoker import build_subagent_invoker
 from .harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, harness_contract_summary, harness_data
 from .planner import plan_subagent_workflow
 from .reasoning import reason_over_evidence
+from .review_loop import run_independent_review_loop
 
 
 def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -29,6 +30,9 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     request_summary = normalize_request(request)
     case_id = _case_id_for_request(request_summary, upstream_context)
     request_summary["caseId"] = case_id
+    for key in ("_reviewDecision", "_reviewMaxRevisionAttempts"):
+        if key in request:
+            request_summary[key] = request[key]
     fixture_pack, fixture_pack_warning = load_fixture_pack(request_summary["fixturePack"])
     if fixture_pack:
         pack_location = fixture_pack["location"]
@@ -183,7 +187,8 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     reasoning = reasoning_result["reasoning"]
     trace.append(reasoning_result["trace"])
 
-    runtime = config.public_runtime(status=bedrock_status, fallback_reason=bedrock_fallback_reason)
+    runtime_fallback_reason = _runtime_fallback_reason(planner_result, bedrock_fallback_reason)
+    runtime = config.public_runtime(status=bedrock_status, fallback_reason=runtime_fallback_reason)
     runtime["fixturePack"] = fixture_pack["name"] if fixture_pack else None
     runtime["fixturePackMode"] = "cached-public-fixture" if fixture_pack else "synthetic-default"
     runtime["liveApiCalls"] = False
@@ -191,6 +196,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["plannerMode"] = planner_result["plannerStatus"]
     runtime["activeAgentMode"] = planner_result["activeAgentMode"]
     runtime["modelCallCount"] = len(planner_result["modelCalls"])
+    runtime["bedrockUsed"] = bedrock_status in {"real", "mocked"} or planner_result["plannerStatus"] in {"real", "mocked"}
     runtime["caseId"] = case_id
     runtime["materialIngestionStatus"] = material_result["status"]
     runtime["materialEvidenceCount"] = len(material_evidence)
@@ -199,7 +205,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["harnessContract"] = harness_contract_summary(subagent_outputs)
     trace = _correlate_trace(trace, case_id)
 
-    return {
+    run = {
         "runId": "demo1-local-run",
         "caseId": case_id,
         "upstream": upstream_context,
@@ -223,8 +229,11 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "externalSignals": external_signals,
         "safety": safety,
         "trace": trace,
-        "architecture": architecture_snapshot(trace, request_summary, sources, evidence, safety, runtime),
     }
+    run_independent_review_loop(run, reviewer_mode=_reviewer_mode(subagents.execution_mode))
+    run["trace"] = _correlate_trace(run["trace"], case_id)
+    run["architecture"] = architecture_snapshot(run["trace"], request_summary, sources, evidence, safety, runtime)
+    return run
 
 
 def _case_id_for_request(request_summary: dict[str, Any], upstream_context: Any) -> str:
@@ -260,6 +269,15 @@ def _correlate_trace(trace: list[dict[str, Any]], case_id: str) -> list[dict[str
             enriched["output"] = output
         correlated.append(enriched)
     return correlated
+
+
+def _runtime_fallback_reason(planner_result: dict[str, Any], briefing_reason: str | None) -> str | None:
+    reasons = []
+    planner_reason = (planner_result.get("fallback") or {}).get("reason")
+    for reason in (planner_reason, briefing_reason):
+        if reason and reason not in reasons:
+            reasons.append(str(reason))
+    return " ".join(reasons) if reasons else None
 
 
 def _trace_steps(value: Any, source: str) -> list[dict[str, Any]]:
@@ -373,3 +391,7 @@ def _evidence_items(value: Any) -> list[dict[str, Any]]:
             "summary": text,
         }
     ]
+
+
+def _reviewer_mode(execution_mode: str) -> str:
+    return "harness" if execution_mode == "agentcore-harness" else "deterministic"

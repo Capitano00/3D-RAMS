@@ -51,7 +51,7 @@ def build_structured_report(
             sources=_list(run.get("sources")),
             evidence=_list(run.get("evidence")),
         ),
-        reviewGate=_build_review_gate(safety, reasoning),
+        reviewGate=_build_review_gate(run, safety, reasoning),
         dataQuality=_build_data_quality(run, runtime, trace, briefing, reasoning),
         externalSignals=_dict(run.get("externalSignals")),
         materialIngestion=_dict(run.get("materialIngestion")),
@@ -100,6 +100,9 @@ def _build_site(location: dict[str, Any]) -> ReportSite:
 def _build_runtime(runtime: dict[str, Any]) -> ReportRuntime:
     return ReportRuntime(
         briefingMode=str(runtime.get("briefingMode") or "unknown"),
+        bedrockRequested=bool(runtime.get("bedrockRequested")),
+        bedrockEnabled=bool(runtime.get("bedrockEnabled")),
+        bedrockUsed=bool(runtime.get("bedrockUsed")),
         fixturePack=runtime.get("fixturePack"),
         fixturePackMode=str(runtime.get("fixturePackMode") or "unknown"),
         liveApiCalls=bool(runtime.get("liveApiCalls")),
@@ -252,7 +255,28 @@ def _build_findings(run: dict[str, Any]) -> list[ReportFinding]:
     return findings
 
 
-def _build_review_gate(safety: dict[str, Any], reasoning: dict[str, Any]) -> ReviewGate:
+def _build_review_gate(run: dict[str, Any], safety: dict[str, Any], reasoning: dict[str, Any]) -> ReviewGate:
+    review_gate = _dict(run.get("reviewGate"))
+    if review_gate:
+        reviewer_notes = _string_list(review_gate.get("reviewerNotes"))
+        reviewer_notes.extend(_string_list(reasoning.get("reviewQuestions")))
+        return ReviewGate(
+            status=_review_gate_status(review_gate.get("status")),
+            decision=str(review_gate.get("decision") or "") or None,
+            reviewer=_dict(review_gate.get("reviewer")) or None,
+            safetyAllowed=bool(review_gate.get("safetyAllowed", safety.get("allowed"))),
+            safetyLevel=str(review_gate.get("safetyLevel") or safety.get("level") or "unknown"),
+            requiresHumanReview=bool(review_gate.get("requiresHumanReview", True)),
+            message=str(review_gate.get("message") or safety.get("message") or "Review gate result unavailable."),
+            triggeredRules=_string_list(review_gate.get("triggeredRules")) or _string_list(safety.get("triggeredRules")),
+            reviewerNotes=_dedupe(reviewer_notes),
+            issues=_list(review_gate.get("issues")),
+            requiredRevisions=_list(review_gate.get("requiredRevisions")),
+            caveats=_string_list(review_gate.get("caveats")),
+            revisionCount=int(review_gate.get("revisionCount") or 0),
+            attemptCount=int(review_gate.get("attemptCount") or 0),
+        )
+
     allowed = bool(safety.get("allowed"))
     reviewer_notes = (
         ["Draft report is awaiting independent review."]
@@ -267,6 +291,10 @@ def _build_review_gate(safety: dict[str, Any], reasoning: dict[str, Any]) -> Rev
         safetyLevel=str(safety.get("level") or "unknown"),
         requiresHumanReview=bool(safety.get("requiresHumanReview", True)),
         message=str(safety.get("message") or "Safety gate result unavailable."),
+        reviewerMode=str(safety.get("reviewerMode") or "deterministic"),
+        revisionCount=int(safety.get("revisionCount") or 0),
+        issues=_list(safety.get("issues")),
+        caveats=_string_list(safety.get("caveats")),
         triggeredRules=_string_list(safety.get("triggeredRules")),
         reviewerNotes=reviewer_notes,
     )
@@ -388,8 +416,15 @@ def _has_available_source(sources: list[dict[str, Any]], token: str) -> bool:
 
 
 def _report_status(value: str) -> str:
-    if value in {"blocked", "review_required", "passed", "passed_with_caveats"}:
+    if value in {"blocked", "review_required", "review_passed", "passed", "passed_with_caveats"}:
         return value
+    return "review_required"
+
+
+def _review_gate_status(value: Any) -> str:
+    status = str(value or "")
+    if status in {"blocked", "pending_independent_review", "passed", "passed_with_caveats", "review_required"}:
+        return status
     return "review_required"
 
 
