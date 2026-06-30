@@ -103,6 +103,66 @@ def generate_bedrock_subagent_plan(
     return plan, _metadata(config, started, "bedrock", phase="planner-plan", model_call_count=1)
 
 
+def generate_bedrock_agentic_evaluation(
+    *,
+    config: RuntimeConfig,
+    evaluation_input: dict[str, Any],
+    deterministic_rubric: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if config.bedrock_simulate_failure:
+        raise BedrockAdapterError("Simulated Bedrock failure requested by BEDROCK_SIMULATE_FAILURE.")
+    if config.bedrock_max_model_calls < 1:
+        raise BedrockAdapterError("Bedrock model call budget is zero.")
+
+    started = time.perf_counter()
+    if config.bedrock_mock_response:
+        review = _mock_agentic_evaluation(deterministic_rubric)
+        return review, _metadata(config, started, "bedrock-mock", phase="agentic-eval", model_call_count=1)
+
+    response_text = _invoke_bedrock_converse_json(
+        config,
+        {
+            "task": "Review a 3D-RAMS external evaluation artifact as an independent quality evaluator.",
+            "safety_boundary": (
+                "Do not certify RAMS, approve work, provide emergency instructions, or expose chain-of-thought. "
+                "Return concise public-safe findings only."
+            ),
+            "scoring_policy": (
+                "Return pass when expected limitations, cached-source boundaries, and human-review requirements are clearly disclosed. "
+                "Return warn only for artifact quality issues that need developer action. "
+                "Return fail only for unsafe claims, missing evidence, missing visualization payload, or broken contracts."
+            ),
+            "output_policy": "Return one compact JSON object only. Do not use markdown, prose, XML, or code fences.",
+            "required_json_schema": {
+                "status": "pass | warn | fail",
+                "score": 0.0,
+                "summary": "one short public-safe sentence",
+                "findings": [
+                    {
+                        "severity": "low | medium | high",
+                        "message": "short actionable finding",
+                    }
+                ],
+                "recommendedFixes": ["short actionable fixes"],
+            },
+            "evaluation_input": evaluation_input,
+            "deterministic_rubric": deterministic_rubric,
+            "rubric_focus": [
+                "evidence support",
+                "unsafe professional claims",
+                "fixture/fallback disclosure",
+                "data gaps",
+                "visualization readiness",
+                "trace completeness",
+                "contract consistency",
+                "open-web signal labeling",
+            ],
+        },
+    )
+    review = _normalise_agentic_evaluation(_extract_json_object(response_text))
+    return review, _metadata(config, started, "bedrock", phase="agentic-eval", model_call_count=1)
+
+
 def _anthropic_payload(
     config: RuntimeConfig,
     location: dict[str, Any],
@@ -200,6 +260,42 @@ def _invoke_bedrock_json(config: RuntimeConfig, prompt: dict[str, Any]) -> str:
     )
 
 
+def _invoke_bedrock_converse_json(config: RuntimeConfig, prompt: dict[str, Any]) -> str:
+    try:
+        import boto3
+    except ImportError as exc:
+        raise BedrockAdapterError("boto3 is not installed in the AgentCore runtime environment.") from exc
+
+    session_kwargs = {}
+    if config.aws_profile:
+        session_kwargs["profile_name"] = config.aws_profile
+    session = boto3.Session(**session_kwargs)
+    client = session.client("bedrock-runtime", region_name=config.aws_region)
+
+    response = client.converse(
+        modelId=config.bedrock_model_id,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "text": "Return only valid JSON.\n\n" + json.dumps(prompt, ensure_ascii=True),
+                    }
+                ],
+            }
+        ],
+        inferenceConfig={
+            "maxTokens": config.bedrock_max_tokens,
+            "temperature": config.bedrock_temperature,
+        },
+    )
+    return "".join(
+        item.get("text", "")
+        for item in response.get("output", {}).get("message", {}).get("content", [])
+        if isinstance(item, dict)
+    )
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -257,6 +353,69 @@ def _normalise_briefing(parsed: dict[str, Any], fallback: dict[str, Any]) -> dic
     briefing["limitations"] = limitations[:5]
     briefing["generation_mode"] = "bedrock"
     return briefing
+
+
+def _normalise_agentic_evaluation(parsed: dict[str, Any]) -> dict[str, Any]:
+    status = str(parsed.get("status") or "warn").strip().lower()
+    if status not in {"pass", "warn", "fail"}:
+        status = "warn"
+    try:
+        score = float(parsed.get("score", 0.65))
+    except (TypeError, ValueError):
+        score = 0.65
+    score = max(0.0, min(1.0, score))
+    if status == "warn":
+        score = min(score, 0.85)
+    if status == "fail":
+        score = min(score, 0.4)
+
+    findings = []
+    raw_findings = parsed.get("findings")
+    if isinstance(raw_findings, list):
+        for item in raw_findings[:8]:
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity") or "low").strip().lower()
+            if severity not in {"low", "medium", "high"}:
+                severity = "low"
+            message = str(item.get("message") or "").strip()
+            if message:
+                findings.append({"severity": severity, "message": message[:500]})
+
+    return {
+        "status": status,
+        "score": round(score, 2),
+        "summary": _text(
+            parsed.get("summary"),
+            "Model evaluator returned a bounded review without additional findings.",
+        )[:500],
+        "findings": findings,
+        "recommendedFixes": _list(parsed.get("recommendedFixes"), [], 8),
+    }
+
+
+def _mock_agentic_evaluation(deterministic_rubric: list[dict[str, Any]]) -> dict[str, Any]:
+    non_pass = [item["id"] for item in deterministic_rubric if item.get("status") != "pass"]
+    if non_pass:
+        return {
+            "status": "warn",
+            "score": 0.75,
+            "summary": "Mock model evaluator agreed that deterministic warnings need review.",
+            "findings": [
+                {
+                    "severity": "medium",
+                    "message": f"Mock model evaluator saw deterministic warnings in: {', '.join(non_pass)}.",
+                }
+            ],
+            "recommendedFixes": ["Review deterministic evaluator findings before demo use."],
+        }
+    return {
+        "status": "pass",
+        "score": 0.95,
+        "summary": "Mock model evaluator found the report quality gate ready for human review.",
+        "findings": [],
+        "recommendedFixes": [],
+    }
 
 
 def _mock_bedrock_subagent_plan(scenario: str) -> dict[str, Any]:
