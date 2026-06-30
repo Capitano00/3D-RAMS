@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -15,7 +16,42 @@ for path in (TOOLS_ROOT, APP_ROOT):
 
 from main import invoke_local, ping_local  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
-from supervisor_core.report_store import load_report, persist_report  # noqa: E402
+from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION  # noqa: E402
+from supervisor_core.report_store import build_report_store_item, load_report, persist_report  # noqa: E402
+
+
+def report_access(
+    case_id: str,
+    *,
+    subject_id: str = "asi-user-1",
+    session_id: str = "asi-session-1",
+    mode: str = "asi_identity",
+    expires_at: str | None = None,
+) -> dict:
+    access = {
+        "schemaVersion": "3d-rams.report-access.v1",
+        "mode": mode,
+        "caseId": case_id,
+        "authorizedCaseIds": [case_id],
+        "source": "ASI_ONE",
+    }
+    if subject_id:
+        access["subjectId"] = subject_id
+    if session_id:
+        access["sessionId"] = session_id
+    if expires_at:
+        access["expiresAt"] = expires_at
+    return access
+
+
+def dev_report_access(case_id: str) -> dict:
+    return {
+        "schemaVersion": "3d-rams.report-access.v1",
+        "mode": "dev_local",
+        "caseId": case_id,
+        "authorizedCaseIds": [case_id],
+        "sessionId": "local-dev-session",
+    }
 
 
 class AgentCoreInvocationTests(unittest.TestCase):
@@ -43,6 +79,8 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(run["runtime"]["caseId"], "case_supervisor_test_001")
         self.assertEqual(report["caseId"], "case_supervisor_test_001")
         self.assertEqual(report["intake"]["caseId"], "case_supervisor_test_001")
+        self.assertTrue(all(step["caseId"] == "case_supervisor_test_001" for step in run["trace"]))
+        self.assertTrue(all(step["output"]["caseId"] == "case_supervisor_test_001" for step in run["trace"] if isinstance(step.get("output"), dict)))
         self.assertEqual(output["persistence"]["mode"], "disabled")
         self.assertEqual(output["persistence"]["status"], "skipped")
         self.assertEqual(output["reportStatus"], "review_required")
@@ -63,15 +101,61 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(section_statuses["open-web-signals"], "warning")
         self.assertTrue(report["findings"][0]["rationale"])
         self.assertFalse(report["dataQuality"]["completeness"]["hasOpenWebSignals"])
+        self.assertTrue(report["dataQuality"]["completeness"]["harnessOutputsContractCompliant"])
         self.assertTrue(any("Open-web signals" in gap for gap in report["dataQuality"]["gaps"]))
         self.assertEqual(report["runtime"]["plannerMode"], "deterministic")
         self.assertEqual(report["runtime"]["activeAgentMode"], "deterministic-planner")
+        self.assertEqual(report["runtime"]["harnessOutputSchemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
+        self.assertTrue(report["runtime"]["harnessContract"]["contractCompliant"])
         self.assertEqual(report["llmPlan"]["initialParallelGroups"], ["geospatial_subagent", "planning_subagent"])
         self.assertEqual(report["fallback"]["status"], "used")
         self.assertEqual(run["runtime"]["fixturePack"], "public-lambeth-thames")
         self.assertFalse(run["runtime"]["liveApiCalls"])
         self.assertTrue(run["safety"]["allowed"])
         self.assertGreaterEqual(len(run["trace"]), 9)
+
+    def test_invocation_structured_report_includes_material_citations(self):
+        response = invoke_local(
+            {
+                "input": {
+                    "caseId": "case_material_report_001",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": False,
+                    "materials": [
+                        {
+                            "materialId": "asio_material_site_access_plan",
+                            "sourceSystem": "asio",
+                            "type": "application/pdf",
+                            "label": "Site access plan",
+                            "summary": "Uploaded by the ASI user for this case.",
+                            "caseId": "case_material_report_001",
+                            "access": {
+                                "mode": "asio_authorized_reference",
+                                "expiresAt": "2099-01-01T00:00:00Z",
+                            },
+                        }
+                    ],
+                }
+            }
+        )
+
+        output = response["output"]
+        run = output["run"]
+        report = output["structuredReport"]
+        self.assertEqual(run["materialIngestion"]["accepted"], 1)
+        self.assertEqual(report["materialIngestion"]["accepted"], 1)
+        self.assertTrue(report["dataQuality"]["completeness"]["hasMaterialEvidence"])
+        section_statuses = {section["id"]: section["status"] for section in report["sections"]}
+        self.assertEqual(section_statuses["user-materials"], "ready")
+
+        material_evidence = [
+            item for item in report["evidenceRegister"]["evidence"]
+            if item["id"] == "ev-material-asio-material-site-access-plan"
+        ]
+        self.assertEqual(len(material_evidence), 1)
+        self.assertTrue(material_evidence[0]["citations"])
+        self.assertFalse(material_evidence[0]["citations"][0]["rawContentStored"])
+        self.assertTrue(any(finding["id"].startswith("material-asio-material-site-access-plan") for finding in report["findings"]))
 
     def test_blocked_invocation_sets_structured_report_review_gate(self):
         response = invoke_local(
@@ -96,6 +180,10 @@ class AgentCoreInvocationTests(unittest.TestCase):
     def test_packaged_workflow_matches_existing_fixture_mode(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
 
+        self.assertRegex(result["caseId"], r"^case_[0-9a-f]{12}$")
+        self.assertEqual(result["request"]["caseId"], result["caseId"])
+        self.assertEqual(result["runtime"]["caseId"], result["caseId"])
+        self.assertTrue(all(step["caseId"] == result["caseId"] for step in result["trace"]))
         self.assertEqual(result["runtime"]["fixturePackMode"], "cached-public-fixture")
         self.assertEqual(result["scene"]["provider"], "cesium-local-cached-fixture")
         self.assertTrue(result["evidence"])
@@ -159,6 +247,12 @@ class AgentCoreInvocationTests(unittest.TestCase):
                     "caseId": "case_store_test_001",
                     "fixturePack": "public-lambeth-thames",
                     "useBedrock": False,
+                    "upstream": {
+                        "source": "ASI_ONE",
+                        "caseId": "case_store_test_001",
+                        "confirmedByUser": True,
+                        "reportAccess": report_access("case_store_test_001"),
+                    },
                 }
             }
         )
@@ -181,17 +275,40 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(item["caseId"], "case_store_test_001")
         self.assertEqual(item["reportStatus"], "review_required")
         self.assertEqual(item["workflowMode"], "cached_public_fixture")
+        self.assertEqual(item["schemaVersion"], "3d-rams.report-store.v1")
+        self.assertEqual(item["recordType"], "case-correlated-report-evidence")
+        self.assertEqual(item["authorizationBinding"]["mode"], "local_dev_unbound")
+        self.assertFalse(item["authorizationBinding"]["requiredForLookup"])
         self.assertEqual(item["structuredReport"]["caseId"], "case_store_test_001")
         self.assertEqual(item["run"]["caseId"], "case_store_test_001")
+        self.assertEqual(item["run"]["upstream"]["reportAccess"]["status"], "redacted")
         self.assertEqual(item["runSummary"]["runtime"]["fixturePack"], "public-lambeth-thames")
+        self.assertEqual(item["reportAccessBinding"]["caseId"], "case_store_test_001")
+        self.assertEqual(item["reportAccessBinding"]["mode"], "asi_identity")
+        self.assertIn("subjectIdHash", item["reportAccessBinding"])
+        self.assertIn("sessionIdHash", item["reportAccessBinding"])
+        self.assertNotIn("subjectId", item["reportAccessBinding"])
+        self.assertNotIn("sessionId", item["reportAccessBinding"])
+        self.assertTrue(item["evidenceSummary"])
+        self.assertTrue(item["citationMetadata"]["sources"])
+        self.assertTrue(item["traceSummary"])
+        self.assertEqual(item["traceSummary"][0]["caseId"], "case_store_test_001")
+        self.assertFalse(item["redaction"]["rawPrivateMaterialPersisted"])
 
     def test_report_lookup_returns_stored_report_payload(self):
+        access = report_access("case_lookup_test_001")
         response = invoke_local(
             {
                 "input": {
                     "caseId": "case_lookup_test_001",
                     "fixturePack": "public-lambeth-thames",
                     "useBedrock": False,
+                    "upstream": {
+                        "source": "ASI_ONE",
+                        "caseId": "case_lookup_test_001",
+                        "confirmedByUser": True,
+                        "reportAccess": access,
+                    },
                 }
             }
         )
@@ -209,42 +326,212 @@ class AgentCoreInvocationTests(unittest.TestCase):
 
         persist_report(output, table=WriteTable())
 
-        lookup = load_report("case_lookup_test_001", table=FakeTable())
+        lookup = load_report("case_lookup_test_001", access_context=access, table=FakeTable())
         lookup_output = lookup["output"]
 
         self.assertEqual(lookup_output["caseId"], "case_lookup_test_001")
         self.assertEqual(lookup_output["reportStatus"], "review_required")
         self.assertEqual(lookup_output["persistence"]["status"], "loaded")
+        self.assertEqual(lookup_output["reportAccess"]["status"], "authorized")
+        self.assertEqual(lookup_output["reportAccess"]["reason"], "case_binding_authorized")
         self.assertEqual(lookup_output["structuredReport"]["caseId"], "case_lookup_test_001")
         self.assertEqual(lookup_output["run"]["caseId"], "case_lookup_test_001")
+        self.assertEqual(lookup_output["run"]["upstream"]["reportAccess"]["status"], "redacted")
+        self.assertTrue(lookup_output["evidenceSummary"])
+        self.assertTrue(lookup_output["citationMetadata"]["sources"])
 
-    def test_report_lookup_returns_json_safe_dynamodb_numbers(self):
+    def test_report_lookup_denies_without_access_context(self):
+        outer = self
+
         class FakeTable:
             def get_item(self, *, Key):
-                assert Key == {"caseId": "case_decimal_lookup_test_001"}
-                return {
-                    "Item": {
-                        "caseId": "case_decimal_lookup_test_001",
-                        "reportStatus": "review_required",
-                        "workflowMode": "cached_public_fixture",
-                        "structuredReport": {"caseId": "case_decimal_lookup_test_001", "riskScore": Decimal("4.5")},
-                        "run": {"caseId": "case_decimal_lookup_test_001", "traceCount": Decimal("11")},
-                    }
-                }
+                outer.fail("lookup should be denied before reading report storage")
 
-        lookup = load_report("case_decimal_lookup_test_001", table=FakeTable())
+        lookup = load_report("case_lookup_test_001", table=FakeTable())
+
+        output = lookup["output"]
+        self.assertEqual(output["reportStatus"], "access_denied")
+        self.assertEqual(output["reportAccess"]["reason"], "missing_report_access_context")
+        self.assertNotIn("run", output)
+        self.assertNotIn("structuredReport", output)
+
+    def test_report_lookup_denies_wrong_user_binding(self):
+        case_id = "case_wrong_user_lookup_test_001"
+        stored_access = report_access(case_id, subject_id="asi-user-owner", session_id="asi-session-owner")
+        wrong_access = report_access(case_id, subject_id="asi-user-other", session_id="asi-session-owner")
+        item = build_report_store_item(
+            {
+                "caseId": case_id,
+                "reportStatus": "review_required",
+                "workflowMode": "cached_public_fixture",
+                "structuredReport": {"caseId": case_id},
+                "run": {"caseId": case_id, "upstream": {"reportAccess": stored_access}},
+            }
+        )
+
+        class FakeTable:
+            def get_item(self, *, Key):
+                assert Key == {"caseId": case_id}
+                return {"Item": item}
+
+        lookup = load_report(case_id, access_context=wrong_access, table=FakeTable())
+
+        output = lookup["output"]
+        self.assertEqual(output["reportStatus"], "access_denied")
+        self.assertEqual(output["reportAccess"]["reason"], "report_subject_mismatch")
+        self.assertNotIn("run", output)
+
+    def test_report_lookup_denies_expired_binding(self):
+        case_id = "case_expired_lookup_test_001"
+        expired_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        stored_access = report_access(case_id, expires_at=expired_at)
+        fresh_access = report_access(case_id)
+        item = build_report_store_item(
+            {
+                "caseId": case_id,
+                "reportStatus": "review_required",
+                "workflowMode": "cached_public_fixture",
+                "structuredReport": {"caseId": case_id},
+                "run": {"caseId": case_id, "upstream": {"reportAccess": stored_access}},
+            }
+        )
+
+        class FakeTable:
+            def get_item(self, *, Key):
+                assert Key == {"caseId": case_id}
+                return {"Item": item}
+
+        lookup = load_report(case_id, access_context=fresh_access, table=FakeTable())
+
+        output = lookup["output"]
+        self.assertEqual(output["reportStatus"], "access_denied")
+        self.assertEqual(output["reportAccess"]["reason"], "report_access_binding_expired")
+        self.assertNotIn("structuredReport", output)
+
+    def test_bound_report_lookup_requires_matching_authorized_context(self):
+        access = report_access("case_bound_lookup_001", mode="asi_session", subject_id="", session_id="agentverse-session-id")
+        response = invoke_local(
+            {
+                "input": {
+                    "caseId": "case_bound_lookup_001",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": False,
+                    "materials": [
+                        {
+                            "materialId": "asio_material_001",
+                            "sourceSystem": "asio",
+                            "type": "application/pdf",
+                            "label": "Site access plan",
+                            "summary": "Authorized ASI material reference for this case.",
+                            "access": {
+                                "mode": "asio_authorized_reference",
+                                "expiresAt": "2026-06-30T18:00:00Z",
+                                "status": "not_retrieved",
+                            },
+                            "signedUrl": "https://example.invalid/private-download",
+                        }
+                    ],
+                    "upstream": {
+                        "source": "AGENTVERSE",
+                        "caseId": "case_bound_lookup_001",
+                        "conversationId": "agentverse-session-id",
+                        "entryAgentId": "@3d-rams",
+                        "confirmedByUser": True,
+                        "materialCount": 1,
+                        "reportAccess": access,
+                    },
+                }
+            }
+        )
+        output = response["output"]
+        item = {}
+
+        class WriteTable:
+            def put_item(self, *, Item):
+                item.update(Item)
+
+        class FakeTable:
+            def get_item(self, *, Key):
+                assert Key == {"caseId": "case_bound_lookup_001"}
+                return {"Item": item}
+
+        persist_report(output, table=WriteTable())
+
+        self.assertEqual(item["authorizationBinding"]["mode"], "asi_identity_bound")
+        self.assertTrue(item["authorizationBinding"]["requiredForLookup"])
+        self.assertEqual(item["authorizationBinding"]["conversationId"], "agentverse-session-id")
+        self.assertEqual(item["reportAccessBinding"]["mode"], "asi_session")
+        self.assertIn("sessionIdHash", item["reportAccessBinding"])
+        self.assertEqual(item["materialEvidenceSummary"]["status"], "references_recorded")
+        self.assertEqual(item["materialEvidenceSummary"]["items"][0]["materialId"], "asio_material_001")
+        self.assertNotIn("signedUrl", item["materialEvidenceSummary"]["items"][0])
+        self.assertNotIn("signedUrl", item["run"]["request"]["materials"][0])
+
+        denied = load_report("case_bound_lookup_001", table=FakeTable())
+        self.assertEqual(denied["output"]["reportStatus"], "access_denied")
+        self.assertEqual(denied["output"]["reportAccess"]["reason"], "missing_report_access_context")
+        self.assertNotIn("run", denied["output"])
+
+        wrong_access = report_access("case_bound_lookup_001", mode="asi_session", subject_id="", session_id="different-session")
+        wrong_context = load_report(
+            "case_bound_lookup_001",
+            table=FakeTable(),
+            access_context=wrong_access,
+        )
+        self.assertEqual(wrong_context["output"]["reportStatus"], "access_denied")
+        self.assertEqual(wrong_context["output"]["reportAccess"]["reason"], "report_session_mismatch")
+
+        authorized = load_report(
+            "case_bound_lookup_001",
+            table=FakeTable(),
+            access_context=access,
+        )
+        self.assertEqual(authorized["output"]["reportStatus"], "review_required")
+        self.assertEqual(authorized["output"]["reportAccess"]["status"], "authorized")
+        self.assertEqual(authorized["output"]["materialEvidenceSummary"]["items"][0]["materialId"], "asio_material_001")
+
+    def test_report_lookup_returns_json_safe_dynamodb_numbers(self):
+        case_id = "case_decimal_lookup_test_001"
+        access = report_access(case_id, mode="asi_session", subject_id="", session_id="asi-session-decimal")
+        item = build_report_store_item(
+            {
+                "caseId": case_id,
+                "reportStatus": "review_required",
+                "workflowMode": "cached_public_fixture",
+                "structuredReport": {"caseId": case_id},
+                "run": {"caseId": case_id, "upstream": {"reportAccess": access}},
+            }
+        )
+        item["structuredReport"]["riskScore"] = Decimal("4.5")
+        item["run"]["traceCount"] = Decimal("11")
+
+        class FakeTable:
+            def get_item(self, *, Key):
+                assert Key == {"caseId": case_id}
+                return {"Item": item}
+
+        lookup = load_report(case_id, access_context=access, table=FakeTable())
 
         self.assertEqual(lookup["output"]["structuredReport"]["riskScore"], 4.5)
         self.assertEqual(lookup["output"]["run"]["traceCount"], 11)
 
     def test_report_lookup_without_table_returns_not_found_contract(self):
-        response = invoke_local({"input": {"operation": "getReport", "caseId": "case_missing_local"}})
+        response = invoke_local(
+            {
+                "input": {
+                    "operation": "getReport",
+                    "caseId": "case_missing_local",
+                    "reportAccess": dev_report_access("case_missing_local"),
+                }
+            }
+        )
 
         output = response["output"]
 
         self.assertEqual(output["caseId"], "case_missing_local")
         self.assertEqual(output["reportStatus"], "not_found")
         self.assertEqual(output["workflowMode"], "report_lookup")
+        self.assertEqual(output["reportAccess"]["status"], "authorized")
         self.assertEqual(output["persistence"]["mode"], "disabled")
 
 

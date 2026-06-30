@@ -43,7 +43,7 @@ The current cloud demo is suitable for proving workflow shape, not final report 
 
 Known current behavior:
 
-- The frontend FieldBrief Agent is a development/debug substitute for ASI/ASI:ONE entry, not the production user entry.
+- The frontend FieldBrief ASI simulation is a development/debug substitute for ASI/ASI:ONE entry, not the production user entry.
 - The default hosted demo path should keep `Use Bedrock` off unless explicitly testing Bedrock behavior.
 - The supervisor can run in `agentcore-harness` mode and return a visualization-ready payload.
 - Fixture-backed and fallback-normalized data is still acceptable for smoke tests.
@@ -54,9 +54,9 @@ Known current behavior:
 
 - Full LLM-first entry-agent conversation quality is not complete.
 - AgentVerse normal chat should become more polished and should not expose raw JSON in ordinary user-facing replies.
-- ASI/ASI:ONE identity-bound report access is designed but not fully implemented.
+- ASI/ASI:ONE identity-bound report access now has an initial `reportAccess` contract, hashed store binding, and denied/expired/wrong-user lookup coverage. Real ASI-issued identity artifacts still need integration.
 - Material ingestion is still mostly metadata/reference oriented. Real authorized material retrieval and extraction still need implementation.
-- Report persistence works for report lookup, but evidence summaries, material citations, ASI binding metadata, and authorization records need to be expanded.
+- Report persistence works for report lookup and stores report-access binding metadata. Evidence summaries, material citations, and longer-term authorization records still need to be expanded.
 - Harness subagent outputs need stricter schemas so the supervisor does not need fallback normalization for common fields.
 - Risk Review UI needs a robust mapping from `run.hazards`, `structuredReport.findings`, annotations, and evidence-backed candidate findings.
 - Bedrock-enabled paths still need hardening. The stable demo path should remain no-Bedrock until Bedrock smoke is reliable.
@@ -68,7 +68,7 @@ Known current behavior:
 The canonical product architecture is:
 
 - ASI/AgentVerse is the real user-facing entry.
-- The frontend FieldBrief Agent is a development/debug ASI entry simulation.
+- The frontend FieldBrief ASI simulation is a development/debug ASI entry surface.
 - `asi_one_entry_agent` owns intake, clarification, user confirmation, supervisor launch, delivery summary, and report lookup coordination.
 - `rams_supervisor_runtime` owns planning, orchestration, Harness/subagent dispatch, evidence/trace assembly, structured report generation, review/safety boundaries, and persistence.
 - Harness subagents own role-specific analysis steps and should expose schema-stable outputs to the supervisor.
@@ -80,7 +80,7 @@ The canonical product architecture is:
 - Do not restore the old `backend/` FastAPI service as the product runtime.
 - Do not make `/api/chat`, `/api/run`, `/api/session/start`, or `/api/upload-url` canonical contracts.
 - Do not bypass `asi_one_entry_agent` for intake or `rams_supervisor_runtime` for report generation.
-- Do not turn the frontend FieldBrief Agent into a second production entry path.
+- Do not turn the frontend FieldBrief ASI simulation into a second production entry path.
 - Do not treat `caseId` as a secret access token. It is a correlation id; report access must eventually be identity/case-bound.
 - Do not let 3D-RAMS own raw product upload storage as the long-term material model. ASI/ASI:ONE should own materials; 3D-RAMS should receive authorized material references and retrieve/extract only within that authorization boundary.
 - Do not commit AWS credentials, runtime ARNs, access keys, AgentVerse secrets, private client material, or private planning notes.

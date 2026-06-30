@@ -10,6 +10,13 @@ from agentcore_client import invoke_runtime_json
 
 
 class FrontendProxyHandler(BaseHTTPRequestHandler):
+    """Transport-only browser bridge to the AgentCore entry runtime.
+
+    Keep product orchestration in `asi_one_entry_agent` and
+    `rams_supervisor_runtime`; this proxy should not grow `/api/*` product
+    routes or interpret FieldBrief workflow semantics.
+    """
+
     server_version = "3DRAMSAgentCoreProxy/0.1"
 
     def do_OPTIONS(self) -> None:  # noqa: N802 - stdlib handler API

@@ -20,8 +20,11 @@ const CLOUD_ENTRY_PROXY_URL = import.meta.env.VITE_CLOUD_ENTRY_PROXY_URL || "";
 const USE_LOCAL_ASIONE = import.meta.env.VITE_USE_LOCAL_ASIONE === "true";
 const ENTRY_AGENT_URL = USE_LOCAL_ASIONE ? import.meta.env.VITE_LOCAL_ASIONE_URL || AGENTCORE_URL : CLOUD_ENTRY_PROXY_URL;
 const REPORT_LOOKUP_URL = USE_LOCAL_ASIONE ? AGENTCORE_URL : ENTRY_AGENT_URL;
+const FIELD_BRIEF_LABEL = "FieldBrief ASI Simulation";
 const STARTER_PROMPT =
-  "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.";
+  "I want to visit 8 Albert Embankment tomorrow for a survey within a 2km radius. Please prepare a pre-visit RAMS-style review pack.";
+const REPORT_ACCESS_SCHEMA_VERSION = "3d-rams.report-access.v1";
+const REPORT_SESSION_STORAGE_KEY = "3d-rams-report-session-id";
 
 const DEFAULT_REQUEST = {
   siteName: "8 Albert Embankment and land to the rear",
@@ -74,19 +77,33 @@ function runToUiState(run) {
   };
 }
 
+function isConfirmationText(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return (
+    ["yes", "yes please", "confirm", "confirmed", "launch", "go", "go ahead", "confirm and launch"].includes(normalized) ||
+    normalized.includes("please launch")
+  );
+}
+
 function buildCloudEntryPayload({ submittedText, request, uploads, pendingEntry }) {
   const isConfirmationTurn = pendingEntry?.status === "confirmation_required" && pendingEntry?.intake;
+  const shouldConfirm = isConfirmationTurn && isConfirmationText(submittedText);
+  const reportSessionId = frontendReportSessionId();
   const payload = {
     entryTurn: true,
     caller: "frontend",
-    conversationId: "frontend-demo-session",
+    conversationId: reportSessionId,
     entryAgentId: "fieldbrief-demo-ui",
-    confirmedByUser: Boolean(isConfirmationTurn),
+    confirmedByUser: Boolean(shouldConfirm),
     message: submittedText,
     materials: uploads.map((upload) => ({
+      materialId: upload.materialId || upload.id,
+      sourceSystem: upload.sourceSystem || "fieldbrief-dev",
       type: upload.type,
       label: upload.label,
       summary: upload.summary,
+      sizeBytes: upload.sizeBytes,
+      access: upload.access || { mode: "fieldbrief_mock_reference" },
     })),
     runtimeOptions: {
       fixturePack: request.fixturePack,
@@ -94,26 +111,36 @@ function buildCloudEntryPayload({ submittedText, request, uploads, pendingEntry 
       includePlanningFixture: request.includePlanningFixture,
       simulateMapFailure: request.simulateMapFailure,
     },
+    reportAccess: {
+      schemaVersion: REPORT_ACCESS_SCHEMA_VERSION,
+      mode: "asi_session",
+      sessionId: reportSessionId,
+    },
   };
-  if (isConfirmationTurn) {
+  if (shouldConfirm) {
     payload.intake = pendingEntry.intake;
   }
   return payload;
 }
 
 function buildLocalAsiOnePayload({ submittedText, request, uploads }) {
+  const reportSessionId = frontendReportSessionId();
   return {
     localAsiOne: true,
-    sessionId: "local-demo-session",
-    conversationId: "local-demo-session",
+    sessionId: reportSessionId,
+    conversationId: reportSessionId,
     message: submittedText,
     confirmedByUser: true,
     runtimeOptions: {
       ...request,
       materials: uploads.map((upload) => ({
+        materialId: upload.materialId || upload.id,
+        sourceSystem: upload.sourceSystem || "fieldbrief-dev",
         type: upload.type,
         label: upload.label,
         summary: upload.summary,
+        sizeBytes: upload.sizeBytes,
+        access: upload.access || { mode: "fieldbrief_mock_reference" },
       })),
     },
   };
@@ -125,11 +152,19 @@ function caseIdFromPath() {
 }
 
 function buildReportLookupPayload(caseId) {
+  const reportSessionId = frontendReportSessionId();
   if (USE_LOCAL_ASIONE) {
     return {
       input: {
         operation: "getReport",
         caseId,
+        reportAccess: {
+          schemaVersion: REPORT_ACCESS_SCHEMA_VERSION,
+          mode: "dev_local",
+          caseId,
+          sessionId: reportSessionId,
+          authorizedCaseIds: [caseId],
+        },
       },
     };
   }
@@ -137,9 +172,27 @@ function buildReportLookupPayload(caseId) {
     frontendInvoke: true,
     operation: "getReport",
     caseId,
-    conversationId: "frontend-demo-session",
+    conversationId: reportSessionId,
     entryAgentId: "fieldbrief-demo-ui",
+    reportAccess: {
+      schemaVersion: REPORT_ACCESS_SCHEMA_VERSION,
+      mode: "asi_session",
+      caseId,
+      sessionId: reportSessionId,
+      authorizedCaseIds: [caseId],
+    },
   };
+}
+
+function frontendReportSessionId() {
+  if (typeof window === "undefined") return "frontend-demo-session";
+  const existing = window.sessionStorage.getItem(REPORT_SESSION_STORAGE_KEY);
+  if (existing) return existing;
+  const generated =
+    window.crypto?.randomUUID?.() ||
+    `frontend-demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  window.sessionStorage.setItem(REPORT_SESSION_STORAGE_KEY, generated);
+  return generated;
 }
 
 function SceneViewer({ scene, annotations, location }) {
@@ -369,10 +422,12 @@ function App() {
   const [persistence, setPersistence] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const composerRef = useRef(null);
 
   const ui = entryResponse?.uiState || runToUiState(run);
   const runtime = entryResponse?.runtime || run?.runtime || {};
   const safetyTone = ui.safety?.allowed === false ? "blocked" : ui.safety?.level === "needs_input" ? "warning" : "allowed";
+  const pendingConfirmation = entryResponse?.status === "confirmation_required" && entryResponse?.intake;
 
   async function sendToFieldBrief(nextPrompt = prompt, appendMessage = true) {
     const submittedText = nextPrompt.trim();
@@ -416,6 +471,7 @@ function App() {
             role: "assistant",
             text: nextEntryResponse.assistantMessage || payload.output?.delivery?.customerSummary?.headline || "Supervisor workflow completed.",
             questions: nextEntryResponse.clarifyingQuestions || [],
+            confirmationSummary: nextEntryResponse.confirmation?.summary || "",
           },
         ]);
       }
@@ -481,14 +537,24 @@ function App() {
     sendToFieldBrief(prompt, true);
   }
 
+  function revisePendingIntake() {
+    setEntryResponse(null);
+    setPrompt("");
+    composerRef.current?.focus();
+  }
+
   function registerMockUpload() {
     setUploads((current) => [
       ...current,
       {
         id: `local-upload-${current.length + 1}`,
+        materialId: `fieldbrief_mock_material_${current.length + 1}`,
+        sourceSystem: "fieldbrief-dev",
         type: "application/pdf",
         label: `Test evidence ${current.length + 1}`,
-        summary: "Local demo evidence metadata registered by the FieldBrief Agent.",
+        summary: "Local demo evidence metadata registered by the FieldBrief ASI simulation.",
+        sizeBytes: 1024,
+        access: { mode: "fieldbrief_mock_reference" },
       },
     ]);
   }
@@ -528,15 +594,15 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">3D-RAMS AgentCore Workflow</p>
-          <h1>Pre-Visit FieldBrief Agent</h1>
+          <h1>Pre-Visit FieldBrief ASI Simulation</h1>
           <p className="topbar-summary">
-            Ask for a site visit review pack in normal language. The agent runs supervisor tools and returns map, evidence, trace, and safety output.
+            Development view for the ASI/ASI:ONE entry path. The entry agent confirms intake before the supervisor returns map, evidence, trace, and safety output.
           </p>
         </div>
         <div className="status-stack">
           <button className="secondary" onClick={() => setAgentOpen(true)}>
             <MessageSquare size={16} />
-            FieldBrief Agent
+            {FIELD_BRIEF_LABEL}
           </button>
           <button className="icon-button" aria-label="Reset request" onClick={resetDemo}>
             <RotateCcw size={16} />
@@ -566,8 +632,8 @@ function App() {
           <section className="agent-modal agent-chat panel" role="dialog" aria-modal="true" aria-labelledby="fieldbrief-title">
             <div className="panel-heading agent-chat-heading">
               <Bot size={18} />
-              <h2 id="fieldbrief-title">FieldBrief Agent</h2>
-              <button className="icon-button" aria-label="Collapse FieldBrief Agent" onClick={() => setAgentOpen(false)}>
+              <h2 id="fieldbrief-title">{FIELD_BRIEF_LABEL}</h2>
+              <button className="icon-button" aria-label={`Collapse ${FIELD_BRIEF_LABEL}`} onClick={() => setAgentOpen(false)}>
                 <X size={16} />
               </button>
             </div>
@@ -583,9 +649,22 @@ function App() {
                       ))}
                     </ul>
                   )}
+                  {message.confirmationSummary && <p className="confirmation-summary">{message.confirmationSummary}</p>}
                 </article>
               ))}
             </div>
+            {pendingConfirmation && (
+              <div className="confirmation-actions" aria-label="Pending confirmation">
+                <button type="button" onClick={() => sendToFieldBrief("Confirm and launch", true)} disabled={loading}>
+                  <ShieldCheck size={16} />
+                  Confirm launch
+                </button>
+                <button className="secondary" type="button" onClick={revisePendingIntake} disabled={loading}>
+                  <RotateCcw size={16} />
+                  Revise details
+                </button>
+              </div>
+            )}
             <div className="upload-strip">
               <button className="secondary" type="button" onClick={registerMockUpload}>
                 <FileUp size={16} />
@@ -602,7 +681,7 @@ function App() {
               <span>{uploads.length ? `${uploads.length} evidence file(s) registered` : "Uploads use S3 when hosted; local testing registers metadata only."}</span>
             </div>
             <form className="composer" onSubmit={sendMessage}>
-              <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+              <textarea ref={composerRef} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
               <button disabled={loading || !prompt.trim()}>
                 <Send size={16} />
                 {loading ? "Running" : "Send"}

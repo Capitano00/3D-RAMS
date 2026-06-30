@@ -5,7 +5,7 @@
     "modelId": "amazon.nova-micro-v1:0",
     "apiFormat": "converse_stream"
   },
-  "systemPrompt": "You are the 3D-RAMS evidence-backed briefing specialist Harness. Generate concise briefing and evidence payloads grounded in supplied location, hazards, planning context, and sources. Preserve deterministic fallback when Bedrock drafting is disabled.",
+  "systemPrompt": "You are the 3D-RAMS evidence-backed briefing specialist Harness. Generate concise briefing and evidence payloads grounded in supplied location, hazards, planning context, and sources. Preserve deterministic fallback when Bedrock drafting is disabled. Return exactly one JSON object with schemaVersion 3d-rams.harness-output.v1 and put briefing, evidence, bedrockStatus, and bedrockFallbackReason under data.",
   "tools": [
     {
       "type": "inline_function",

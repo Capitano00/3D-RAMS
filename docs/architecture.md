@@ -1,16 +1,16 @@
 # 3D-RAMS Architecture
 
-This document is the public, living architecture reference for Demo1. It explains what the agent does today, what is mocked, what is real, and how the same run shape can map to AWS later.
+This document is the public, living architecture reference for Demo1. It explains what the agent does today, what is mocked, what is real, how local development differs from hosted product entry, and how the same run shape can map to AWS later.
 
 3D-RAMS creates a pre-visit briefing pack for human review. It does not create certified RAMS, emergency guidance, approval to work, or a competent-person replacement.
 
-## Query-To-Brief Flow
+## Local Development Query-To-Brief Flow
 
 ```mermaid
 flowchart LR
-    User["User enters coordinate and test options"] --> UI["React/Vite UI"]
-    UI --> API["AgentCore POST /invocations"]
-    API --> Agent["Deterministic Demo1 agent loop"]
+    User["Developer or tester enters coordinate and test options"] --> UI["React/Vite FieldBrief ASI simulation"]
+    UI --> API["Local AgentCore POST /invocations"]
+    API --> Agent["Supervisor runtime agent loop"]
     Agent --> Locate["Resolve location or cached fixture pack"]
     Agent --> Geo["Load synthetic, cached-public, or fallback features"]
     Agent --> Scene["Build 3D scene config"]
@@ -23,6 +23,8 @@ flowchart LR
     Safety --> Output["Scene, briefing, evidence, trace, visualizer"]
     Output --> UI
 ```
+
+This direct browser-to-local-runtime path is for no-AWS local development, deterministic checks, and demo debugging. It is not the hosted product API surface.
 
 ## AgentVerse Entry And AgentCore Supervisor Boundary
 
@@ -42,6 +44,25 @@ flowchart LR
 ```
 
 The adapter exists only at the AgentVerse-to-AgentCore boundary. It handles launch-readiness validation, request mapping, and future IAM/signing. Supervisor planning, specialist subagents, tool calls, reasoning, report assembly, and review loops belong inside AgentCore.
+
+## Hosted Product Entry Flow
+
+```mermaid
+flowchart LR
+    ASI["ASI / ASI:ONE user"] --> AgentVerse["AgentVerse @3d-rams entry"]
+    DebugUI["Development/debug FieldBrief UI"] --> Proxy["Signed entry proxy"]
+    AgentVerse --> Proxy
+    Proxy --> EntryRuntime["asi_one_entry_agent"]
+    EntryRuntime --> Intake["Clarification, confirmation, caseId"]
+    Intake --> Supervisor["rams_supervisor_runtime"]
+    Supervisor --> Harnesses["Harness subagents and tools"]
+    Supervisor --> Report["Structured report + evidence + trace"]
+    Report --> EntryRuntime
+    EntryRuntime --> Delivery["Chat summary + case link"]
+    Report --> Viewer["Frontend report viewer"]
+```
+
+The signed proxy only bridges browser/AgentVerse transport to AgentCore. It must not add product-specific `/api/*` routes or take ownership of intake, uploads, sessions, report generation, or safety decisions.
 
 ## Data Flow And Trust Boundaries
 
@@ -86,7 +107,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant UI as Frontend
+    participant UI as Frontend debug simulation
     participant API as AgentCore Runtime
     participant A as Agent Loop
     participant F as Fixtures
@@ -173,7 +194,7 @@ The safety gate is deliberately visible. Judges and teammates should be able to 
 | --- | --- | --- | --- | --- | --- |
 | Agent loop | AgentCore Python runtime | Real deterministic code plus optional Bedrock briefing | Tool timeline and trace | Bedrock model/tool planning | Model variability and evaluation |
 | Public fixture pack | `fixtures/public-lambeth-thames` | Cached public-source metadata and attribution files | Source register, evidence, trace, briefing | S3 source pack plus source registry | Source freshness, licence handling, and overclaiming |
-| Request state | Browser form payload plus optional `caseId` report-store item | Real; DynamoDB write only when configured | Run overview | DynamoDB report metadata keyed by `caseId` | Data privacy and retention |
+| Request state | Browser form payload plus optional `caseId` report-store item | Real; DynamoDB write only when configured; lookup requires ASI/ASI:ONE identity or authorized session context | Run overview | DynamoDB report metadata keyed by `caseId` plus hashed report-access binding | Data privacy, retention, and access control |
 | 3D viewer | React/Vite + CesiumJS | Real token-free local scene plus overlay | 3D scene | Static frontend plus API runtime | Performance on low-power devices |
 | Geospatial features | Synthetic fixture or cached public pack | Mocked, cached-public, or fallback | Sources and annotations | S3 source object plus live geospatial APIs | Licensing, freshness, key management |
 | Planning context | Synthetic fixture or cached public pack | Synthetic, cached-public, or unavailable | Sources, evidence, briefing limits | S3 documents plus Bedrock extraction | Scraping reliability and citations |
@@ -194,15 +215,19 @@ These sources are not live in Demo1. They are future review-pack inputs that sho
 
 Future reasoning should produce inspectable review flags, not unsupported instructions. Example shape: source combination, confidence, evidence ids, risk flag, and human review requirement.
 
-## AWS Production Path
+## AWS / Hosted Path
 
 ```mermaid
 flowchart TB
-    UI["React UI"] --> Edge["CloudFront or static hosting"]
-    UI --> Runtime["AgentCore Runtime endpoint"]
+    ASI["ASI / ASI:ONE"] --> AgentVerse["AgentVerse entry agent"]
+    UI["React report viewer / debug FieldBrief UI"] --> Edge["Amplify or static hosting"]
+    AgentVerse --> Proxy["Signed AgentCore entry proxy"]
+    Edge --> Proxy
+    Proxy --> Entry["asi_one_entry_agent"]
+    Entry --> Runtime["rams_supervisor_runtime"]
     Runtime --> Bedrock["Amazon Bedrock briefing generation"]
     Runtime --> Guardrails["Bedrock Guardrails"]
-    Runtime --> DDB["DynamoDB report store by caseId"]
+    Runtime --> DDB["DynamoDB report store by caseId + access binding"]
     Runtime --> S3["S3 evidence packs and source documents"]
     Runtime --> CloudWatch["CloudWatch logs, metrics, traces"]
     Runtime --> Sources["Planning and geospatial APIs"]

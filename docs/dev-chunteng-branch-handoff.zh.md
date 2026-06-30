@@ -43,7 +43,7 @@ Evan 可以继续独立推进产品原型。这个分支应该持续吸收稳定
 
 已知当前行为：
 
-- 前端 FieldBrief Agent 是 ASI/ASI:ONE entry 的 development/debug substitute，不是生产用户入口。
+- 前端 FieldBrief ASI simulation 是 ASI/ASI:ONE entry 的 development/debug substitute，不是生产用户入口。
 - Hosted demo 默认应保持 `Use Bedrock` 关闭，除非专门测试 Bedrock path。
 - Supervisor 可以在 `agentcore-harness` 模式下运行，并返回 visualization-ready payload。
 - Fixture-backed 和 fallback-normalized 数据仍然可以用于第一阶段 smoke。
@@ -54,9 +54,9 @@ Evan 可以继续独立推进产品原型。这个分支应该持续吸收稳定
 
 - LLM-first entry-agent 对话体验还没有完整完成。
 - AgentVerse 普通 chat 体验需要更干净，不能在正常用户回复里暴露 raw JSON。
-- ASI/ASI:ONE identity-bound report access 已有设计，但还没有完整实现。
+- ASI/ASI:ONE identity-bound report access 现在已有初始 `reportAccess` contract、hashed store binding，以及 denied/expired/wrong-user lookup 覆盖；真实 ASI-issued identity artifact 仍需集成。
 - Material ingestion 目前仍主要是 metadata/reference 方向；真实 authorized material retrieval 和 extraction 还要补。
-- Report persistence 已支持 report lookup，但 evidence summaries、material citations、ASI binding metadata、authorization records 还要扩展。
+- Report persistence 已支持 report lookup，并存储 report-access binding metadata；evidence summaries、material citations 和长期 authorization records 还要扩展。
 - Harness subagent 输出需要更严格的 schema，避免 supervisor 对常见字段做 fallback normalization。
 - Risk Review UI 需要从 `run.hazards`、`structuredReport.findings`、annotations、evidence-backed candidate findings 做稳健映射。
 - Bedrock-enabled path 还需要 hardening；在 Bedrock smoke 稳定前，稳定 demo path 应保持 no-Bedrock。
@@ -68,7 +68,7 @@ Evan 可以继续独立推进产品原型。这个分支应该持续吸收稳定
 Canonical product architecture 是：
 
 - ASI/AgentVerse 是真实用户入口。
-- 前端 FieldBrief Agent 是 development/debug ASI entry simulation。
+- 前端 FieldBrief ASI simulation 是 development/debug ASI entry surface。
 - `asi_one_entry_agent` 负责 intake、clarification、user confirmation、supervisor launch、delivery summary 和 report lookup coordination。
 - `rams_supervisor_runtime` 负责 planning、orchestration、Harness/subagent dispatch、evidence/trace assembly、structured report generation、review/safety boundary 和 persistence。
 - Harness subagents 负责各自专业角色的分析步骤，并应向 supervisor 输出 schema-stable payload。
@@ -80,7 +80,7 @@ Canonical product architecture 是：
 - 不要恢复旧 `backend/` FastAPI service 作为 product runtime。
 - 不要把 `/api/chat`、`/api/run`、`/api/session/start`、`/api/upload-url` 做成 canonical contracts。
 - 不要绕过 `asi_one_entry_agent` 做 intake，也不要绕过 `rams_supervisor_runtime` 做 report generation。
-- 不要把前端 FieldBrief Agent 变成第二套生产入口。
+- 不要把前端 FieldBrief ASI simulation 变成第二套生产入口。
 - 不要把 `caseId` 当 secret access token。它只是 correlation id；report access 后续必须绑定 identity/case authorization。
 - 不要让 3D-RAMS 长期拥有 raw product upload storage。Materials 应由 ASI/ASI:ONE 拥有；3D-RAMS 接收 authorized material references，并只在授权边界内 retrieve/extract。
 - 不要提交 AWS credentials、runtime ARNs、access keys、AgentVerse secrets、private client material 或 private planning notes。

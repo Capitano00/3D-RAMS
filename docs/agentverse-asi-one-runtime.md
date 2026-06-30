@@ -141,6 +141,32 @@ agentcore deploy --yes --json
 agentcore status --runtime asi_one_entry_agent --json
 ```
 
+## Hosted AgentCore + ASI Smoke
+
+Use the ADR 0016 smoke script after the hosted entry runtime, supervisor runtime, signed proxy, Harnesses, and report store are configured:
+
+```bash
+RAMS_HOSTED_ENTRY_URL=https://<signed-proxy-domain>/invoke \
+python3 scripts/hosted-agentcore-asio-smoke.py
+```
+
+The script invokes the signed proxy for `asi_one_entry_agent`; it does not call old FastAPI route names such as `/api/session/start`, `/api/upload-url`, or `/api/chat`.
+
+The smoke verifies:
+
+- entry clarification or confirmation without launching the supervisor;
+- confirmed ASI-style intake launching `rams_supervisor_runtime`;
+- returned `caseId`, trace, evidence, safety, and `structuredReport`;
+- authorized and denied ASI-style material references;
+- report-store write;
+- denied report lookup without ASI access context;
+- authorized report lookup with matching ASI access context;
+- redacted public-safe output.
+
+By default, the smoke requires report persistence status `stored`, so the supervisor runtime should have `RAMS_REPORT_STORE_TABLE` configured. Use `--allow-unstored` only for transport debugging; it is not ADR 0016 acceptance coverage.
+
+The smoke uses public fixture identity/material references only. Do not paste real ASI tokens, signed URLs, AWS credentials, account ids, private documents, or client material into command lines, environment files, issue comments, or logs.
+
 Template IAM policy for the AgentVerse invoker after the new runtime ARN is known:
 
 ```json

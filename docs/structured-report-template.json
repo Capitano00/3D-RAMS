@@ -10,6 +10,21 @@
     "siteName": "8 Albert Embankment and land to the rear",
     "goal": "Pre-visit RAMS scoping pack",
     "fixturePack": "public-lambeth-thames",
+    "materials": [
+      {
+        "schemaVersion": "3d-rams.material-reference.v1",
+        "materialId": "asio_material_site_access_plan",
+        "sourceSystem": "asio",
+        "type": "application/pdf",
+        "label": "Site access plan",
+        "summary": "Uploaded by the ASI user for this case.",
+        "caseId": "case_demo_fixture_001",
+        "access": {
+          "mode": "asio_authorized_reference",
+          "expiresAt": "2026-06-30T18:00:00Z"
+        }
+      }
+    ],
     "includePlanningFixture": true,
     "simulateMapFailure": false,
     "useBedrock": false,
@@ -42,7 +57,34 @@
     "liveApiCalls": false,
     "fallbackReason": "Bedrock was not requested.",
     "awsRegion": "eu-west-2",
-    "modelId": null
+    "modelId": null,
+    "materialIngestionStatus": "ok",
+    "materialEvidenceCount": 1,
+    "materialSkippedCount": 0
+  },
+  "materialIngestion": {
+    "schemaVersion": "3d-rams.material-ingestion.v1",
+    "status": "ok",
+    "mode": "deterministic-local-material-adapter",
+    "caseId": "case_demo_fixture_001",
+    "received": 1,
+    "accepted": 1,
+    "skippedCount": 0,
+    "citations": [
+      {
+        "sourceId": "material-asio-material-site-access-plan",
+        "materialId": "asio_material_site_access_plan",
+        "label": "Site access plan",
+        "locator": "safe fixture extract",
+        "rawContentStored": false
+      }
+    ],
+    "sourceIds": [
+      "material-asio-material-site-access-plan"
+    ],
+    "evidenceIds": [
+      "ev-material-asio-material-site-access-plan"
+    ]
   },
   "executiveSummary": {
     "title": "8 Albert Embankment and land to the rear",
@@ -157,7 +199,8 @@
       "hasAnnotations": true,
       "hasEvidence": true,
       "hasTrace": true,
-      "hasOpenWebSignals": false
+      "hasOpenWebSignals": false,
+      "hasMaterialEvidence": true
     },
     "gaps": [
       "All hazards need competent human review and current source checks before site work."

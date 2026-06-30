@@ -16,11 +16,20 @@ from rams_agent_tools.tools import (
     extract_hazard_notes,
     generate_site_brief,
     harness_for_group,
+    ingest_material_references,
     load_geospatial_features,
     load_planning_context,
     resolve_location,
     safety_gate,
     trace_step,
+)
+
+from .harness_contract import (
+    DOMAIN_DATA_KEYS,
+    HARNESS_OUTPUT_SCHEMA_VERSION,
+    build_harness_output,
+    finding_from_hazard,
+    validate_harness_output,
 )
 
 
@@ -102,7 +111,15 @@ class DirectSubagentInvoker:
         scene, step = build_scene_config(location, features, fixture_pack=fixture_pack)
         trace.append(step)
 
-        return {"location": location, "features": features, "scene": scene, "trace": trace}
+        return build_harness_output(
+            "geospatial_subagent",
+            status=_status_from_trace(trace),
+            summary="Resolved location, loaded geospatial features, and built scene configuration.",
+            data={"location": location, "features": features, "scene": scene},
+            trace=trace,
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata(request, fixture_pack),
+        )
 
     def invoke_planning(
         self,
@@ -114,7 +131,16 @@ class DirectSubagentInvoker:
             include_planning_fixture=bool(request.get("includePlanningFixture", True)),
             fixture_pack=fixture_pack,
         )
-        return {"planningText": planning_text, "trace": [step]}
+        trace = [step]
+        return build_harness_output(
+            "planning_subagent",
+            status=_status_from_trace(trace),
+            summary="Loaded planning and public-context evidence for the confirmed site review.",
+            data={"planningText": planning_text},
+            trace=trace,
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata(request, fixture_pack),
+        )
 
     def invoke_hazard(
         self,
@@ -124,7 +150,17 @@ class DirectSubagentInvoker:
         fixture_pack: dict[str, Any] | None,
     ) -> dict[str, Any]:
         hazards, step = extract_hazard_notes(planning_text, features, fixture_pack=fixture_pack)
-        return {"hazards": hazards, "trace": [step]}
+        trace = [step]
+        return build_harness_output(
+            "hazard_subagent",
+            status=_status_from_trace(trace),
+            summary="Extracted candidate hazards and RAMS-scope review notes from available context.",
+            data={"hazards": hazards},
+            findings=[finding_from_hazard(hazard) for hazard in hazards],
+            trace=trace,
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata({}, fixture_pack),
+        )
 
     def invoke_annotation(
         self,
@@ -132,7 +168,16 @@ class DirectSubagentInvoker:
         hazards: list[dict[str, Any]],
     ) -> dict[str, Any]:
         annotations, step = create_annotations(location, hazards)
-        return {"annotations": annotations, "trace": [step]}
+        trace = [step]
+        return build_harness_output(
+            "annotation_subagent",
+            status=_status_from_trace(trace),
+            summary="Converted candidate hazards into frontend-ready 3D annotations.",
+            data={"annotations": annotations},
+            trace=trace,
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata({}, None),
+        )
 
     def invoke_briefing(
         self,
@@ -158,13 +203,21 @@ class DirectSubagentInvoker:
         )
         trace.append(step)
 
-        return {
-            "briefing": briefing,
-            "evidence": evidence,
-            "trace": trace,
-            "bedrockStatus": bedrock_status,
-            "bedrockFallbackReason": bedrock_fallback_reason,
-        }
+        return build_harness_output(
+            "briefing_subagent",
+            status=_status_from_trace(trace),
+            summary="Generated evidence-backed briefing text and briefing evidence.",
+            data={
+                "briefing": briefing,
+                "evidence": evidence,
+                "bedrockStatus": bedrock_status,
+                "bedrockFallbackReason": bedrock_fallback_reason,
+            },
+            evidence=evidence,
+            trace=trace,
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata({}, fixture_pack),
+        )
 
     def invoke_review(
         self,
@@ -172,7 +225,16 @@ class DirectSubagentInvoker:
         briefing: dict[str, Any],
     ) -> dict[str, Any]:
         safety, step = safety_gate(request, briefing)
-        return {"safety": safety, "trace": [step]}
+        trace = [step]
+        return build_harness_output(
+            "review_guardrail",
+            status=_status_from_trace(trace),
+            summary="Reviewed briefing output against the 3D-RAMS safety boundary.",
+            data={"safety": safety},
+            trace=trace,
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata(request, None),
+        )
 
 
 class AgentCoreHarnessInvoker:
@@ -195,7 +257,7 @@ class AgentCoreHarnessInvoker:
                 "task": "Resolve location, load geospatial features, and build scene config. Return JSON only.",
                 "request": request,
                 "fixturePack": _fixture_pack_name(fixture_pack),
-                "requiredKeys": ["location", "features", "scene", "trace"],
+                "requiredDataKeys": DOMAIN_DATA_KEYS["geospatial_subagent"],
             },
         )
 
@@ -211,7 +273,7 @@ class AgentCoreHarnessInvoker:
                 "task": "Load planning context for the confirmed site review. Return JSON only.",
                 "includePlanningFixture": bool(request.get("includePlanningFixture", True)),
                 "fixturePack": _fixture_pack_name(fixture_pack),
-                "requiredKeys": ["planningText", "trace"],
+                "requiredDataKeys": DOMAIN_DATA_KEYS["planning_subagent"],
             },
         )
 
@@ -229,7 +291,7 @@ class AgentCoreHarnessInvoker:
                 "planningText": planning_text,
                 "features": features,
                 "fixturePack": _fixture_pack_name(fixture_pack),
-                "requiredKeys": ["hazards", "trace"],
+                "requiredDataKeys": DOMAIN_DATA_KEYS["hazard_subagent"],
             },
         )
 
@@ -244,7 +306,7 @@ class AgentCoreHarnessInvoker:
                 "task": "Create frontend-ready 3D annotations from resolved hazards. Return JSON only.",
                 "location": location,
                 "hazards": hazards,
-                "requiredKeys": ["annotations", "trace"],
+                "requiredDataKeys": DOMAIN_DATA_KEYS["annotation_subagent"],
             },
         )
 
@@ -266,7 +328,7 @@ class AgentCoreHarnessInvoker:
                 "planningText": planning_text,
                 "fixturePack": _fixture_pack_name(fixture_pack),
                 "useBedrock": config.bedrock_requested,
-                "requiredKeys": ["briefing", "evidence", "bedrockStatus", "bedrockFallbackReason", "trace"],
+                "requiredDataKeys": DOMAIN_DATA_KEYS["briefing_subagent"],
             },
         )
 
@@ -281,7 +343,7 @@ class AgentCoreHarnessInvoker:
                 "task": "Run independent safety/review gate on the briefing. Return JSON only.",
                 "request": request,
                 "briefing": briefing,
-                "requiredKeys": ["safety", "trace"],
+                "requiredDataKeys": DOMAIN_DATA_KEYS["review_guardrail"],
             },
         )
 
@@ -314,9 +376,13 @@ class AgentCoreHarnessInvoker:
                 messages.append(_tool_result_message(parsed["toolUses"]))
                 continue
             result = _extract_json_object(parsed["text"])
-            missing_keys = _missing_required_keys(result, payload)
-            if missing_keys:
-                return self._fallback_json(group, payload, missing_keys=missing_keys, raw_result=result)
+            validation_issues = validate_harness_output(
+                result,
+                expected_group=group,
+                required_data_keys=_string_list(payload.get("requiredDataKeys")),
+            )
+            if validation_issues:
+                return self._fallback_json(group, payload, validation_issues=validation_issues, raw_result=result)
             return result
 
         raise RuntimeError(f"Harness '{harness_name}' exceeded local tool-loop limit.")
@@ -326,7 +392,7 @@ class AgentCoreHarnessInvoker:
         group: str,
         payload: dict[str, Any],
         *,
-        missing_keys: list[str],
+        validation_issues: list[str],
         raw_result: dict[str, Any],
     ) -> dict[str, Any]:
         fixture_pack = _load_tool_fixture_pack(payload.get("fixturePack"))
@@ -360,18 +426,37 @@ class AgentCoreHarnessInvoker:
         else:
             raise RuntimeError(f"Cannot build fallback result for Harness subagent group '{group}'.")
 
+        result["status"] = "fallback"
+        result.setdefault("warnings", [])
+        result["warnings"].append(
+            {
+                "id": "harness-output-contract-fallback",
+                "message": "Supervisor used deterministic fallback because Harness output did not satisfy the v1 envelope.",
+                "issues": validation_issues,
+            }
+        )
+        result.setdefault("metadata", {})
+        result["metadata"].update(
+            {
+                "mode": "fixture-fallback",
+                "contractFallback": True,
+                "contractValidationIssues": validation_issues,
+                "rawResultKeys": sorted(raw_result.keys()),
+            }
+        )
         result.setdefault("trace", [])
         result["trace"].append(
             trace_step(
                 "agentcore_harness_schema_fallback",
                 "fallback",
-                "Supervisor used deterministic tool fallback because Harness output missed required keys.",
+                "Supervisor used deterministic tool fallback because Harness output failed the v1 envelope contract.",
                 {
                     "group": group,
-                    "missingKeys": missing_keys,
+                    "schemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
+                    "validationIssues": validation_issues,
                     "rawResultKeys": sorted(raw_result.keys()),
                 },
-                fallback_reason="agentcore_harness_missing_required_keys",
+                fallback_reason="agentcore_harness_output_contract_invalid",
             )
         )
         return result
@@ -442,7 +527,10 @@ def _user_json_message(payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "text": (
                     "You are a 3D-RAMS Harness subagent. Use your configured tools as needed, "
-                    "then return one JSON object matching requiredKeys. Payload:\n"
+                    f"then return one JSON object using schemaVersion {HARNESS_OUTPUT_SCHEMA_VERSION}. "
+                    "Put all domain-specific fields under data and include subagent, status, summary, "
+                    "evidence, findings, trace, references, warnings, errors, and metadata. "
+                    "The data object must include requiredDataKeys. Payload:\n"
                     f"{json.dumps(payload, sort_keys=True)}"
                 )
             }
@@ -553,6 +641,13 @@ def _execute_inline_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
             fixture_pack=fixture_pack,
         )
         return {"hazards": hazards, "trace": [step]}
+    if name == "ingest_material_references":
+        result = ingest_material_references(
+            payload.get("materials"),
+            case_id=str(payload.get("caseId")) if payload.get("caseId") else None,
+            upstream_context=_dict(payload.get("upstream")),
+        )
+        return result
     if name == "create_annotations":
         annotations, step = create_annotations(_dict(payload.get("location")), _list(payload.get("hazards")))
         return {"annotations": annotations, "trace": [step]}
@@ -622,16 +717,50 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
-def _missing_required_keys(result: dict[str, Any], payload: dict[str, Any]) -> list[str]:
-    required = payload.get("requiredKeys")
-    if not isinstance(required, list):
-        return []
-    return [str(key) for key in required if str(key) not in result]
-
-
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
 def _list(value: Any) -> list[dict[str, Any]]:
     return value if isinstance(value, list) else []
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None]
+
+
+def _status_from_trace(trace: list[dict[str, Any]]) -> str:
+    statuses = {str(step.get("status") or "") for step in trace}
+    if "blocked" in statuses:
+        return "blocked"
+    if "fallback" in statuses:
+        return "fallback"
+    if "warning" in statuses:
+        return "warning"
+    return "ok"
+
+
+def _warnings_from_trace(trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": str(step.get("name") or "trace-warning"),
+            "message": str(step.get("summary") or ""),
+            "fallbackReason": step.get("fallbackReason"),
+        }
+        for step in trace
+        if step.get("status") in {"warning", "fallback", "disabled"}
+    ]
+
+
+def _harness_metadata(request: dict[str, Any], fixture_pack: dict[str, Any] | None) -> dict[str, Any]:
+    upstream = request.get("agentcoreUpstream") if isinstance(request, dict) else None
+    case_id = request.get("caseId") if isinstance(request, dict) else None
+    if not case_id and isinstance(upstream, dict):
+        case_id = upstream.get("caseId")
+    return {
+        "caseId": case_id,
+        "fixturePack": _fixture_pack_name(fixture_pack),
+        "mode": "fixture" if fixture_pack else "fixture",
+    }

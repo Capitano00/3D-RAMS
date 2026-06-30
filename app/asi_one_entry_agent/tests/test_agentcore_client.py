@@ -104,6 +104,21 @@ class AgentCoreClientTests(unittest.TestCase):
         self.assertIn("- Which site should I assess?", text)
         self.assertNotIn('"output"', text)
 
+    def test_extract_text_body_prefers_entry_agent_message_over_delivery_headline(self):
+        payload = {
+            "output": {
+                "delivery": {"customerSummary": {"headline": "Review pack generated."}},
+                "entryAgent": {
+                    "assistantMessage": "Review pack generated.\n\nPriority checks: access, flood context.\n\nHuman review is required before use.",
+                },
+            }
+        }
+
+        text = extract_text_body(json.dumps(payload))
+
+        self.assertIn("Priority checks", text)
+        self.assertIn("Human review is required", text)
+
     def test_extract_json_body_from_json_string_python_repr(self):
         raw = json.dumps("{'output': {'caseId': 'case_lookup_001', 'workflowMode': 'report_lookup'}}")
 

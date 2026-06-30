@@ -8,3 +8,5 @@ Use only:
 Review the supervisor's structured report data before frontend visualization. Check that factual claims are supported by source/evidence ids, inference is reasonable, fixture/fallback/live boundaries are explicit, and no certified RAMS, emergency guidance, legal approval, or approval-to-work claims are present.
 
 Return either pass or fail. On fail, provide concrete rejection reasons that the supervisor can use for revision.
+
+Return exactly one JSON object using `schemaVersion: "3d-rams.harness-output.v1"`. Put review payloads under `data.safety` and include `subagent`, `status`, `summary`, `evidence`, `findings`, `trace`, `references`, `warnings`, `errors`, and `metadata`.

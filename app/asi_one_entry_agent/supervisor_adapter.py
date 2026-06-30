@@ -5,6 +5,7 @@ from typing import Any
 
 
 ADAPTER_VERSION = "agentverse-agentcore-adapter-v0"
+REPORT_ACCESS_SCHEMA_VERSION = "3d-rams.report-access.v1"
 
 
 class AdapterValidationError(ValueError):
@@ -46,12 +47,16 @@ def build_agentcore_invocation(entry_payload: dict[str, Any]) -> dict[str, Any]:
     materials = intake.get("materials") or []
     if not isinstance(materials, list):
         raise AdapterValidationError("intake.materials must be a list when provided.")
+    safe_materials = _safe_material_references(materials, case_id=case_id)
+    identity_context = _identity_context(payload)
 
+    report_access = build_report_access_context(payload, case_id)
     input_payload: dict[str, Any] = {
         "caseId": case_id,
         "siteName": _site_name(location_text, location_candidate),
         "goal": user_goal,
         "additionalRequest": _additional_request(intake),
+        "materials": safe_materials,
         "upstream": {
             "caseId": case_id,
             "source": _upstream_source(payload),
@@ -61,9 +66,12 @@ def build_agentcore_invocation(entry_payload: dict[str, Any]) -> dict[str, Any]:
             "confirmedByUser": True,
             "areaScope": area_scope,
             "locationConfidence": location_candidate.get("confidence"),
-            "materialCount": len(materials),
+            "materialCount": len(safe_materials),
+            "reportAccess": report_access,
         },
     }
+    if identity_context:
+        input_payload["upstream"]["identity"] = identity_context
 
     if has_coordinate:
         input_payload["latitude"] = float(location_candidate["lat"])
@@ -76,6 +84,40 @@ def build_agentcore_invocation(entry_payload: dict[str, Any]) -> dict[str, Any]:
             input_payload[key] = runtime_options[key]
 
     return {"input": input_payload}
+
+
+def build_report_access_context(
+    payload: dict[str, Any],
+    case_id: str,
+    *,
+    conversation_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    explicit = payload.get("reportAccess") or payload.get("reportAccessContext") or payload.get("accessContext") or {}
+    if explicit and not isinstance(explicit, dict):
+        raise AdapterValidationError("reportAccess must be an object when provided.")
+
+    access = _copy_access_fields(explicit)
+    source = _upstream_source(payload)
+    access["schemaVersion"] = access.get("schemaVersion") or REPORT_ACCESS_SCHEMA_VERSION
+    access["caseId"] = case_id
+    access["source"] = access.get("source") or source
+    access["mode"] = _optional_text(access.get("mode")) or _default_report_access_mode(source)
+
+    authorized_cases = access.get("authorizedCaseIds")
+    if not isinstance(authorized_cases, list):
+        authorized_cases = []
+    authorized_cases = [str(item) for item in authorized_cases if str(item).strip()]
+    if case_id not in authorized_cases:
+        authorized_cases.append(case_id)
+    access["authorizedCaseIds"] = authorized_cases
+
+    if not access.get("sessionId"):
+        access["sessionId"] = _optional_text(conversation_id or payload.get("conversationId") or payload.get("sessionId"))
+    if not access.get("subjectId") and user_id and user_id != "3d-rams-entry-agent":
+        access["subjectId"] = user_id
+
+    return {key: value for key, value in access.items() if value not in (None, "", [])}
 
 
 def build_delivery_payload(
@@ -148,26 +190,80 @@ def _additional_request(intake: dict[str, Any]) -> str:
     if user_notes:
         parts.append(user_notes)
 
-    for material in intake.get("materials") or []:
-        if not isinstance(material, dict):
-            continue
-        label = _optional_text(material.get("label"))
-        summary = _optional_text(material.get("summary"))
-        if label and summary:
-            parts.append(f"{label}: {summary}")
-        elif summary:
-            parts.append(summary)
-
     return "\n".join(parts)
+
+
+def _safe_material_references(materials: list[Any], *, case_id: str) -> list[dict[str, Any]]:
+    allowed = {
+        "materialId",
+        "id",
+        "sourceSystem",
+        "type",
+        "label",
+        "summary",
+        "caseId",
+        "sourceIds",
+        "evidenceIds",
+    }
+    safe = []
+    for item in materials:
+        if not isinstance(item, dict):
+            continue
+        material = {key: item.get(key) for key in allowed if key in item}
+        material.setdefault("caseId", case_id)
+        access = item.get("access") if isinstance(item.get("access"), dict) else {}
+        material["access"] = {
+            "mode": access.get("mode") or "reference_only",
+            "expiresAt": access.get("expiresAt"),
+            "status": access.get("status") or "not_retrieved",
+        }
+        safe.append({key: value for key, value in material.items() if value not in (None, "", [])})
+    return safe
+
+
+def _identity_context(payload: dict[str, Any]) -> dict[str, Any]:
+    source = payload.get("identity") or payload.get("authorizationContext") or {}
+    if not isinstance(source, dict):
+        return {}
+    allowed = {
+        "subjectRef",
+        "organizationRef",
+        "sessionRef",
+        "issuer",
+        "authMode",
+    }
+    return {key: source[key] for key in allowed if source.get(key)}
 
 
 def _upstream_source(payload: dict[str, Any]) -> str:
     caller = str(payload.get("caller") or "").strip().lower()
+    if payload.get("frontendInvoke"):
+        return "FRONTEND"
     if caller == "frontend":
         return "FRONTEND"
     if caller == "agentverse":
         return "AGENTVERSE"
+    if caller in {"local-asione", "local_asione", "local"}:
+        return "LOCAL_ASIONE_DEV"
     return "ASI_ONE_ENTRY_AGENT"
+
+
+def _default_report_access_mode(source: str) -> str:
+    return "dev_local" if source == "LOCAL_ASIONE_DEV" else "asi_session"
+
+
+def _copy_access_fields(value: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "schemaVersion",
+        "mode",
+        "caseId",
+        "subjectId",
+        "sessionId",
+        "authorizedCaseIds",
+        "expiresAt",
+        "source",
+    }
+    return {key: value[key] for key in allowed if key in value}
 
 
 def _case_url(case_id: str | None) -> str | None:

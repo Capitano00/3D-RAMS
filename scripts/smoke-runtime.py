@@ -9,11 +9,13 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
+HARNESS_OUTPUT_SCHEMA_VERSION = "3d-rams.harness-output.v1"
 
 
 def _npm_command() -> str:
@@ -69,6 +71,31 @@ def _start_agentcore(api_port: int) -> subprocess.Popen:
             "--no-traces",
             "--logs",
             "--port",
+            str(api_port),
+        ],
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=os.name != "nt",
+    )
+
+
+def _start_local_runtime(api_port: int) -> subprocess.Popen:
+    env = {
+        **os.environ,
+        "ENABLE_BEDROCK": "false",
+        "BEDROCK_MOCK_RESPONSE": "false",
+        "BEDROCK_SIMULATE_FAILURE": "false",
+        "PYTHONUNBUFFERED": "1",
+    }
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--serve-runtime",
+            "--api-port",
             str(api_port),
         ],
         cwd=ROOT,
@@ -160,6 +187,64 @@ def _validate_agent_response(result: dict) -> None:
         raise AssertionError(f"unexpected briefingMode: {result['runtime'].get('briefingMode')}")
     if result["safety"].get("allowed") is not True:
         raise AssertionError("default no-AWS smoke request should remain inside the safety boundary")
+    contract = result["runtime"].get("harnessContract") or {}
+    if result["runtime"].get("harnessOutputSchemaVersion") != HARNESS_OUTPUT_SCHEMA_VERSION:
+        raise AssertionError("runtime missing Harness output schema version")
+    if contract.get("contractCompliant") is not True:
+        raise AssertionError(f"Harness output contract fallback was used: {contract.get('issues')}")
+    subagent_outputs = result.get("subagentOutputs") or []
+    if len(subagent_outputs) < 6:
+        raise AssertionError(f"expected six Harness subagent outputs; saw {len(subagent_outputs)}")
+    for output in subagent_outputs:
+        if output.get("schemaVersion") != HARNESS_OUTPUT_SCHEMA_VERSION:
+            raise AssertionError(f"non-compliant Harness output from {output.get('subagent')}")
+
+
+def _serve_runtime(api_port: int) -> int:
+    runtime_root = ROOT / "app" / "rams_supervisor_runtime"
+    tools_root = ROOT / "app" / "rams_agent_tools"
+    for path in (tools_root, runtime_root):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+
+    from main import invoke_local, ping_local
+
+    class RuntimeHandler(BaseHTTPRequestHandler):
+        def _send_json(self, status: int, payload: dict) -> None:
+            data = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self) -> None:  # noqa: N802 - http.server API
+            if self.path.split("?", 1)[0] != "/ping":
+                self._send_json(404, {"error": "not_found"})
+                return
+            self._send_json(200, ping_local())
+
+        def do_POST(self) -> None:  # noqa: N802 - http.server API
+            if self.path.split("?", 1)[0] != "/invocations":
+                self._send_json(404, {"error": "not_found"})
+                return
+            length = int(self.headers.get("Content-Length") or "0")
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                payload = json.loads(body)
+                response = invoke_local(payload)
+            except Exception as exc:  # noqa: BLE001 - smoke server should surface runtime errors as JSON.
+                self._send_json(500, {"error": exc.__class__.__name__, "message": str(exc)})
+                return
+            self._send_json(200, response)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A002 - http.server API
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", api_port), RuntimeHandler)
+    print(f"3D-RAMS local runtime smoke server listening on http://127.0.0.1:{api_port}", flush=True)
+    server.serve_forever()
+    return 0
 
 
 def main() -> int:
@@ -167,19 +252,39 @@ def main() -> int:
     parser.add_argument("--api-port", type=int, default=int(os.getenv("RAMS_SMOKE_API_PORT", "8765")))
     parser.add_argument("--frontend-port", type=int, default=int(os.getenv("RAMS_SMOKE_FRONTEND_PORT", "8766")))
     parser.add_argument("--timeout", type=int, default=int(os.getenv("RAMS_SMOKE_TIMEOUT", "45")))
+    parser.add_argument("--serve-runtime", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    if args.serve_runtime:
+        return _serve_runtime(args.api_port)
 
     if not (FRONTEND / "dist" / "index.html").exists():
         raise SystemExit("frontend/dist is missing. Run `npm run build` before smoke-runtime.")
 
     agentcore: subprocess.Popen | None = None
     frontend: subprocess.Popen | None = None
+    runtime_server = "agentcore-cli"
     api_base = f"http://127.0.0.1:{args.api_port}"
     frontend_base = f"http://127.0.0.1:{args.frontend_port}"
 
     try:
-        agentcore = _start_agentcore(args.api_port)
-        _wait_for("AgentCore", lambda: _request_json(f"{api_base}/ping"), args.timeout)
+        runtime_mode = os.getenv("RAMS_SMOKE_RUNTIME_MODE", "auto").strip().lower()
+        if runtime_mode == "local-http":
+            runtime_server = "local-http"
+            agentcore = _start_local_runtime(args.api_port)
+            _wait_for("local runtime", lambda: _request_json(f"{api_base}/ping"), args.timeout)
+        else:
+            agentcore = _start_agentcore(args.api_port)
+            try:
+                _wait_for("AgentCore", lambda: _request_json(f"{api_base}/ping"), args.timeout)
+            except RuntimeError:
+                _stop_process(agentcore)
+                agentcore_output = _tail_output(agentcore)
+                if runtime_mode == "agentcore":
+                    raise RuntimeError(f"AgentCore CLI failed and fallback is disabled. Output: {agentcore_output}")
+                runtime_server = "local-http-fallback"
+                agentcore = _start_local_runtime(args.api_port)
+                _wait_for("local runtime fallback", lambda: _request_json(f"{api_base}/ping"), args.timeout)
 
         frontend = _start_frontend(args.frontend_port)
         _wait_for("frontend", lambda: _request_text(frontend_base), args.timeout)
@@ -210,6 +315,7 @@ def main() -> int:
             json.dumps(
                 {
                     "status": "ok",
+                    "runtimeServer": runtime_server,
                     "agentcore": health,
                     "frontend": {"served": True, "port": args.frontend_port},
                     "agent": {
@@ -217,6 +323,7 @@ def main() -> int:
                         "traceSteps": len(result["trace"]),
                         "evidenceItems": len(result["evidence"]),
                         "safety": result["safety"]["level"],
+                        "harnessContract": result["runtime"]["harnessContract"]["contractCompliant"],
                     },
                 },
                 indent=2,

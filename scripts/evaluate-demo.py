@@ -13,6 +13,7 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[1]
 AGENTCORE_APP = ROOT / "app" / "rams_supervisor_runtime"
 AGENT_TOOLS_APP = ROOT / "app" / "rams_agent_tools"
+HARNESS_OUTPUT_SCHEMA_VERSION = "3d-rams.harness-output.v1"
 sys.path.insert(0, str(AGENT_TOOLS_APP))
 sys.path.insert(0, str(AGENTCORE_APP))
 
@@ -162,6 +163,9 @@ def scenario_definitions() -> list[dict[str, Any]]:
                 has_trace("extract_hazard_notes", "ok"),
                 has_trace("generate_bedrock_briefing", "disabled"),
                 path_equals("architecture.runOverview.fixturePack", "public-lambeth-thames"),
+                path_equals("runtime.harnessOutputSchemaVersion", HARNESS_OUTPUT_SCHEMA_VERSION),
+                path_equals("runtime.harnessContract.contractCompliant", True),
+                list_length_at_least("subagentOutputs", 6),
             ],
         },
         {
