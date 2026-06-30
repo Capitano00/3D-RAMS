@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from agentcore_client import invoke_runtime_json
@@ -295,12 +296,14 @@ def _handle_report_lookup(
     case_id = str(payload["caseId"])
     conversation_id = str(payload.get("conversationId") or payload.get("sessionId") or f"report-lookup-{case_id}")
     user_id = str(payload.get("userId") or "3d-rams-entry-agent")
-    response = invoke_runtime(
-        runtime_arn=runtime_arn,
-        payload={"input": {"operation": "getReport", "caseId": case_id}},
-        session_id=conversation_id,
-        user_id=user_id,
-    )
+    response = _load_report_from_store(case_id)
+    if response is None:
+        response = invoke_runtime(
+            runtime_arn=runtime_arn,
+            payload={"input": {"operation": "getReport", "caseId": case_id}},
+            session_id=conversation_id,
+            user_id=user_id,
+        )
     output = response.get("output") if isinstance(response.get("output"), dict) else {}
     return {
         "output": {
@@ -313,6 +316,65 @@ def _handle_report_lookup(
             },
         }
     }
+
+
+def _load_report_from_store(case_id: str) -> dict[str, Any] | None:
+    table_name = os.getenv("RAMS_REPORT_STORE_TABLE")
+    if not table_name:
+        return None
+    try:
+        import boto3
+    except ImportError:
+        return None
+
+    try:
+        table = boto3.resource("dynamodb").Table(table_name)
+        response = table.get_item(Key={"caseId": case_id})
+        item = response.get("Item") if isinstance(response, dict) else None
+    except Exception:
+        return None
+    if not isinstance(item, dict):
+        return {
+            "output": {
+                "caseId": case_id,
+                "reportStatus": "not_found",
+                "workflowMode": "report_lookup",
+                "persistence": {
+                    "mode": "dynamodb",
+                    "status": "not_found",
+                    "tableName": table_name,
+                    "caseId": case_id,
+                },
+            }
+        }
+    return _json_safe(
+        {
+            "output": {
+                "caseId": case_id,
+                "reportStatus": item.get("reportStatus") or "unknown",
+                "workflowMode": item.get("workflowMode") or "report_lookup",
+                "structuredReport": item.get("structuredReport"),
+                "run": item.get("run"),
+                "persistence": {
+                    "mode": "dynamodb",
+                    "status": "loaded",
+                    "tableName": table_name,
+                    "caseId": case_id,
+                    "updatedAt": item.get("updatedAt"),
+                },
+            }
+        }
+    )
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=_json_default))
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _text_delta_event(text: str) -> dict[str, Any]:

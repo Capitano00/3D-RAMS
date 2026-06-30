@@ -124,11 +124,15 @@ export class AgentCoreStack extends Stack {
     });
 
     for (const env of this.application.environments.values()) {
-      if ((env.agent as { name?: string }).name !== 'rams_supervisor_runtime') {
-        continue;
+      const agentName = (env.agent as { name?: string }).name;
+      if (agentName === 'rams_supervisor_runtime') {
+        env.runtime.addEnvironmentVariable('RAMS_REPORT_STORE_TABLE', reportStore.tableName);
+        reportStore.grantReadWriteData(env.runtime.role);
       }
-      env.runtime.addEnvironmentVariable('RAMS_REPORT_STORE_TABLE', reportStore.tableName);
-      reportStore.grantReadWriteData(env.runtime.role);
+      if (agentName === 'asi_one_entry_agent') {
+        env.runtime.addEnvironmentVariable('RAMS_REPORT_STORE_TABLE', reportStore.tableName);
+        reportStore.grantReadData(env.runtime.role);
+      }
     }
 
     // Create AgentCoreMcp if there are gateways configured
