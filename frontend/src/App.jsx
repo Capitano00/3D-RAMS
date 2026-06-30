@@ -46,6 +46,16 @@ function humanizeToken(value) {
     .trim();
 }
 
+function firstText(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") return value.message || value.summary || value.title || value.id || "";
+  return "";
+}
+
+function listText(value) {
+  return toList(value).map(firstText).filter(Boolean);
+}
+
 function riskItemsFromRun(run) {
   const hazards = toList(run?.hazards);
   if (hazards.length) return hazards;
@@ -71,6 +81,7 @@ function runToUiState(run) {
     briefing: run.briefing,
     safety: run.safety,
     trace: run.trace,
+    structuredReport: run.structuredReport,
   };
 }
 
@@ -351,6 +362,88 @@ function EvidenceAndTrace({ evidence, trace, safety, runtime }) {
   );
 }
 
+function ReviewAndDataQuality({ report }) {
+  const reviewGate = report?.reviewGate || {};
+  const dataQuality = report?.dataQuality || {};
+  const openWeb = report?.externalSignals?.openWeb || {};
+  const reviewState = reviewStateFromReport(report);
+  const missingItems = Object.entries(dataQuality.completeness || {})
+    .filter(([, present]) => !present)
+    .map(([key]) => humanizeCompleteness(key));
+  const notes = listText(reviewGate.reviewerNotes);
+  const caveats = [
+    ...listText(reviewGate.caveats),
+    ...listText(reviewGate.issues),
+    ...listText(reviewGate.requiredRevisions),
+  ];
+  const gaps = listText(dataQuality.gaps);
+  const warnings = listText(dataQuality.warnings);
+
+  return (
+    <section className="panel assurance-panel">
+      <div className="panel-heading">
+        <ShieldCheck size={18} />
+        <h2>Review + Data Quality</h2>
+      </div>
+      <div className="review-summary">
+        <article>
+          <span>Review gate</span>
+          <strong>{reviewState.label}</strong>
+          <em className={`status ${reviewState.tone}`}>{reviewState.label}</em>
+          <p>{reviewGate.message || "Review status appears after the supervisor returns a structured report."}</p>
+        </article>
+        <article>
+          <span>Safety boundary</span>
+          <strong>{reviewGate.requiresHumanReview === false ? "Human review not flagged" : "Human review required"}</strong>
+          <p>Non-certified pre-visit review pack. Not RAMS certification, emergency guidance, or approval to work.</p>
+        </article>
+        <article>
+          <span>Open-web signals</span>
+          <strong>{humanizeToken(openWeb.status || "not_configured")}</strong>
+          <p>{toList(openWeb.items).length ? `${toList(openWeb.items).length} signal(s) included as context.` : "No open-web signals are included."}</p>
+        </article>
+      </div>
+      <div className="assurance-grid">
+        <div>
+          <h3>Report Sections</h3>
+          {toList(report?.sections).map((section) => (
+            <article className="compact-row section-row" key={section.id || section.title}>
+              <strong>{section.title || humanizeToken(section.id)}</strong>
+              <span>{firstText(toList(section.body)[0])}</span>
+              <small className={`status ${section.status || "review_required"}`}>{humanizeToken(section.status || "review_required")}</small>
+            </article>
+          ))}
+        </div>
+        <div>
+          <h3>Limitations</h3>
+          <article className="compact-row">
+            <strong>{dataQuality.dataMode || "unknown data mode"}</strong>
+            <span>{missingItems.length ? `Missing: ${missingItems.join(", ")}` : "Completeness flags are satisfied."}</span>
+          </article>
+          {[...caveats, ...notes, ...gaps, ...warnings].slice(0, 8).map((item) => (
+            <article className="compact-row" key={item}>
+              <span>{item}</span>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function reviewStateFromReport(report) {
+  const reviewGate = report?.reviewGate || {};
+  const raw = String(reviewGate.decision || reviewGate.status || report?.status || "review_required").toLowerCase();
+  if (["pass", "passed", "review_passed"].includes(raw)) return { label: "Passed", tone: "passed" };
+  if (["pass_with_caveats", "passed_with_caveats"].includes(raw)) return { label: "Passed with caveats", tone: "caveats" };
+  if (["block", "blocked"].includes(raw)) return { label: "Blocked", tone: "blocked" };
+  return { label: "Review required", tone: "review_required" };
+}
+
+function humanizeCompleteness(key) {
+  return humanizeToken(String(key).replace(/^has/, "").replace(/([a-z])([A-Z])/g, "$1 $2"));
+}
+
 function App() {
   const [request, setRequest] = useState(DEFAULT_REQUEST);
   const [prompt, setPrompt] = useState(STARTER_PROMPT);
@@ -626,6 +719,7 @@ function App() {
 
       <section className="insight-grid">
         <RiskCards hazards={ui.hazards} briefing={ui.briefing} />
+        <ReviewAndDataQuality report={ui.structuredReport} />
         <EvidenceAndTrace evidence={ui.evidence} trace={ui.trace} safety={ui.safety} runtime={runtime} />
       </section>
     </main>
