@@ -73,7 +73,7 @@ class SessionStartRequest(BaseModel):
 
     accessCode: str | None = Field(
         default=None,
-        max_length=160,
+        max_length=256,
         description="Shared tester access code. The backend validates it before any model call.",
     )
     testerAlias: str | None = Field(

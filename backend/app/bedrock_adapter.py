@@ -126,7 +126,8 @@ def generate_bedrock_planner_synthesis(
             "task": "Synthesize a concise review briefing from bounded local tool outputs.",
             "safety_boundary": (
                 "Do not certify RAMS, approve work, provide emergency instructions, or replace a competent person. "
-                "Output is for human review only."
+                "Output is for human review only. In generated fields, avoid the words certify, certified, approve, "
+                "approved, approval, emergency guidance, and work approval except when quoting the required safety boundary."
             ),
             "required_json_schema": {
                 "headline": "string",
@@ -165,7 +166,8 @@ def _anthropic_payload(
         "task": "Create a concise pre-visit review briefing from structured site evidence.",
         "safety_boundary": (
             "Do not certify RAMS, approve work, provide emergency instructions, or replace a competent person. "
-            "Output is for human review only."
+            "Output is for human review only. In generated fields, avoid the words certify, certified, approve, "
+            "approved, approval, emergency guidance, and work approval except when quoting the required safety boundary."
         ),
         "required_json_schema": {
             "headline": "string",

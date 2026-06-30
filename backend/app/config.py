@@ -52,6 +52,7 @@ class RuntimeConfig:
     s3_upload_bucket: str | None
     dynamodb_session_table: str | None
     upload_retention_days: int
+    session_retention_days: int
 
     @classmethod
     def from_env(cls, *, request_bedrock: bool = True) -> "RuntimeConfig":
@@ -67,7 +68,7 @@ class RuntimeConfig:
             ),
             bedrock_max_tokens=_env_int("BEDROCK_MAX_TOKENS", 1200),
             bedrock_temperature=_env_float("BEDROCK_TEMPERATURE", 0.2),
-            bedrock_max_model_calls=min(max(_env_int("BEDROCK_MAX_MODEL_CALLS", 4), 0), 4),
+            bedrock_max_model_calls=min(max(_env_int("BEDROCK_MAX_MODEL_CALLS", 2), 0), 2),
             bedrock_mock_response=_env_bool("BEDROCK_MOCK_RESPONSE", False),
             bedrock_simulate_failure=_env_bool("BEDROCK_SIMULATE_FAILURE", False),
             app_env=os.getenv("APP_ENV", "local"),
@@ -80,6 +81,7 @@ class RuntimeConfig:
             s3_upload_bucket=os.getenv("S3_UPLOAD_BUCKET") or None,
             dynamodb_session_table=os.getenv("DYNAMODB_SESSION_TABLE") or None,
             upload_retention_days=_env_int("UPLOAD_RETENTION_DAYS", 7),
+            session_retention_days=_env_int("SESSION_RETENTION_DAYS", 7),
         )
 
     def public_runtime(self, *, status: str, fallback_reason: str | None = None) -> dict[str, object]:

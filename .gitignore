@@ -28,3 +28,10 @@ Thumbs.db
 exports/
 screenshots/
 docs/evaluation-results/*.json
+
+# Deployment artefacts
+.deploy-build/
+deploy/*.zip
+deploy/*.json
+!deploy/*.example.json
+deploy/*.local.*

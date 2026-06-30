@@ -1,16 +1,17 @@
 # Optional AWS Bedrock Setup
 
-This guide is for maintainers who want to test the optional live Bedrock LLM-first path. It is not required for normal teammate testing, Codespaces testing, CI, or the deterministic demo.
+This guide is for maintainers who operate or test the live Bedrock LLM-first path. It is not required for normal teammate testing, Codespaces testing, CI, or the deterministic demo.
 
 For the hosted product rebuild, Bedrock must remain server-side behind API Gateway/Lambda. Do not expose Bedrock credentials, AWS profiles, or model calls from the browser.
 
-Default 3D-RAMS behavior remains local and no-AWS:
+Default local 3D-RAMS behavior remains no-AWS:
 
 - `ENABLE_BEDROCK=false`;
 - cached public and synthetic fixtures only;
-- no hosted public endpoint;
 - no live planning portal, Google Maps, or Cesium ion dependency;
 - deterministic briefing fallback available for every run.
+
+Hosted teammate testing is live through the Amplify/API Gateway/Lambda path. Bedrock is still server-side only and requires the shared access code before any model call.
 
 ## Use This Only After Cost Guardrails
 
@@ -19,14 +20,14 @@ Before repeated live Bedrock testing:
 1. Confirm the AWS account and region.
 2. Confirm payment preferences are understood.
 3. Create a small budget alert, such as `25 USD/month`.
-4. Keep usage low: no more than 4 Bedrock model calls per maintainer run.
+4. Keep usage low: no more than 2 Bedrock model calls per hosted run unless a later reviewed gate raises the cap.
 
 For hosted teammate testing, use a stricter first gate:
 
 - shared access code required before any model call;
-- API Gateway throttling enabled;
-- Lambda reserved concurrency considered;
-- target one Bedrock synthesis call per run until evaluation proves more calls are needed;
+- API Gateway throttling or WAF remains a future improvement;
+- Lambda reserved concurrency was attempted but may be blocked by account-level unreserved concurrency limits;
+- target no more than 2 Bedrock model calls per run;
 - `BEDROCK_MAX_TOKENS=1200`;
 - `BEDROCK_TEMPERATURE=0.2`;
 - CloudWatch logs only structured run metadata, not access codes or uploaded file contents.
@@ -44,7 +45,7 @@ AWS_REGION=eu-west-2
 BEDROCK_MODEL_ID=anthropic.claude-3-7-sonnet-20250219-v1:0
 BEDROCK_MAX_TOKENS=1200
 BEDROCK_TEMPERATURE=0.2
-BEDROCK_MAX_MODEL_CALLS=4
+BEDROCK_MAX_MODEL_CALLS=2
 ```
 
 Bedrock remains disabled unless explicitly enabled:
@@ -112,15 +113,15 @@ Bedrock is not the source of truth for evidence extraction in the current MVP. T
 - Do not add AWS credentials to GitHub, Codespaces secrets, issues, screenshots, or chat.
 - Do not send real client or private site data to the model.
 - Do not claim certified RAMS, emergency response guidance, work approval, or production deployment.
-- Do not imply Bedrock is public-user enabled; current live testing remains maintainer-only.
-- Do not add DynamoDB, S3, CloudWatch, Guardrails, or AgentCore until the core Bedrock path and demo proof are stable.
+- Do not expose Bedrock directly to the browser; live testing is access-code gated through the hosted backend.
+- Do not add Guardrails, AgentCore, Cognito, unrestricted uploads, or live planning/geospatial/news adapters without a later reviewed gate.
 
 ## Production Path Later
 
-After the local Bedrock path is stable and cost-guarded, the next AWS stages can be evaluated separately:
+After the hosted Bedrock MVP is stable and cost-guarded, the next AWS stages can be evaluated separately:
 
-- CloudWatch-style traces for model latency, status, fallback reason, and safety decision;
-- S3 evidence-pack exports if shareable site packs become part of the demo;
-- DynamoDB session/version records if approval, revise, or rollback becomes a real workflow;
+- CloudWatch dashboard/log queries for model latency, status, fallback reason, and safety decision;
+- richer S3 evidence-pack exports if shareable site packs become part of the demo;
+- deeper DynamoDB session/version records if approval, revise, or rollback becomes a real workflow;
 - Bedrock Guardrails as an additional safety layer, not a replacement for local checks;
 - AgentCore Runtime or Observability only if it reduces operational complexity or a bounty rewards it.

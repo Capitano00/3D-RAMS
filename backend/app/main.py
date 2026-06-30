@@ -7,6 +7,7 @@ from .access import validate_access_code
 from .agent import run_site_briefing
 from .chat_agent import run_fieldbrief_chat
 from .config import RuntimeConfig
+from .hosted_logging import log_event, now_ms
 from .models import ChatRequest, HealthResponse, SessionStartRequest, SiteBriefRequest, UploadUrlRequest
 from .session_store import create_session, get_session, public_session
 from .upload_service import create_upload_target
@@ -39,9 +40,18 @@ def run_agent(payload: SiteBriefRequest, x_3drams_access: str | None = Header(de
 
 @app.post("/api/session/start")
 def start_session(payload: SessionStartRequest) -> dict[str, object]:
+    started = now_ms()
     config = RuntimeConfig.from_env(request_bedrock=False)
     access_label = validate_access_code(payload.accessCode, config)
     session = create_session(tester_alias=payload.testerAlias, access_label=access_label, config=config)
+    log_event(
+        "session_start",
+        sessionId=session["sessionId"],
+        accessLabel=access_label,
+        testerAliasPresent=bool(payload.testerAlias),
+        storageMode=session.get("storageMode", "memory"),
+        latencyMs=now_ms() - started,
+    )
     return {
         "sessionId": session["sessionId"],
         "testerAlias": session.get("testerAlias"),
@@ -56,6 +66,7 @@ def start_session(payload: SessionStartRequest) -> dict[str, object]:
 
 @app.post("/api/upload-url")
 def create_upload_url(payload: UploadUrlRequest) -> dict[str, object]:
+    started = now_ms()
     config = RuntimeConfig.from_env(request_bedrock=False)
     get_session(payload.sessionId, config)
     upload = create_upload_target(
@@ -68,20 +79,49 @@ def create_upload_url(payload: UploadUrlRequest) -> dict[str, object]:
     from .session_store import add_upload
 
     add_upload(payload.sessionId, upload, config)
+    log_event(
+        "upload_url",
+        sessionId=payload.sessionId,
+        uploadId=upload.get("uploadId"),
+        contentType=payload.contentType,
+        sizeBytes=payload.sizeBytes,
+        status=upload.get("status"),
+        storageMode=upload.get("storageMode"),
+        latencyMs=now_ms() - started,
+    )
     return upload
 
 
 @app.post("/api/chat")
 def chat(payload: ChatRequest) -> dict[str, object]:
+    started = now_ms()
     config = RuntimeConfig.from_env(request_bedrock=payload.useBedrock)
     get_session(payload.sessionId, config)
-    return run_fieldbrief_chat(
+    log_event(
+        "chat_start",
+        sessionId=payload.sessionId,
+        useBedrock=payload.useBedrock,
+        messageLength=len(payload.message),
+        uploadCount=len(payload.uploadedFileIds),
+    )
+    result = run_fieldbrief_chat(
         session_id=payload.sessionId,
         message=payload.message,
         uploaded_file_ids=payload.uploadedFileIds,
         use_bedrock=payload.useBedrock,
         config=config,
     )
+    log_event(
+        "chat_end",
+        sessionId=payload.sessionId,
+        runId=result.get("runId"),
+        needsClarification=result.get("needsClarification"),
+        safetyLevel=result.get("safety", {}).get("level"),
+        fallbackStatus=result.get("fallback", {}).get("status"),
+        modelCallCount=len(result.get("modelCalls", [])),
+        latencyMs=now_ms() - started,
+    )
+    return result
 
 
 @app.get("/api/session/{session_id}")

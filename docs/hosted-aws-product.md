@@ -1,6 +1,6 @@
 # Hosted AWS Product Path
 
-3D-RAMS is being rebuilt as a hosted browser-based pre-visit agent product. The intended tester path is a normal URL, not Codespaces, local Python, Node, or AWS CLI.
+3D-RAMS is being rebuilt as a hosted browser-based pre-visit agent product. The tester path is a normal URL, not Codespaces, local Python, Node, or AWS CLI.
 
 ## Target Experience
 
@@ -34,36 +34,44 @@ flowchart LR
     Tools --> Planning["Planning/context adapter"]
     Tools --> Weather["Weather adapter"]
     Tools --> Uploads["S3 PDF/image evidence"]
-    Agent --> Bedrock["Bedrock deploy target"]
-    Lambda --> DynamoDB["DynamoDB trace target"]
-    Lambda --> CloudWatch["CloudWatch log target"]
-    Lambda --> S3["S3 upload target"]
+    Agent --> Bedrock["Amazon Bedrock Claude 3.7 Sonnet"]
+    Lambda --> DynamoDB["DynamoDB session trace"]
+    Lambda --> CloudWatch["CloudWatch structured logs"]
+    Lambda --> S3["Private S3 upload bucket"]
     Lambda --> Amplify
 ```
 
 ## Current Implementation Status
 
-Implemented locally:
+Implemented and hosted for the MVP:
 
 - chat-first React product surface;
 - session start endpoint with shared-code access model;
 - hosted-style `/api/chat` endpoint;
-- upload metadata and S3 presign adapter with local mock fallback;
-- in-memory session trace with DynamoDB adapter path;
-- Lambda adapter via Mangum;
+- upload metadata and S3 presign adapter;
+- DynamoDB session trace with TTL;
+- Lambda adapter via Mangum behind API Gateway HTTP API;
+- Amplify-hosted frontend;
+- CloudWatch structured events for session start, upload-url, chat start/end, safety, fallback, model-call count, and latency;
 - Strands-ready backend dependency and orchestrator boundary, with existing deterministic tools still used as the current execution core;
-- server-side Bedrock/fallback boundary;
+- server-side Bedrock/fallback boundary using Claude 3.7 Sonnet in `eu-west-2`;
 - visible map, evidence, trace, risk, and safety panels.
 
-Not yet deployed:
+Hosted MVP endpoints and resources:
 
-- Amplify frontend;
-- API Gateway HTTP API;
-- Lambda function;
-- S3 upload bucket;
-- DynamoDB session table;
+- frontend: <https://main.d62sagixyhsmv.amplifyapp.com>;
+- API Gateway: `https://1rfpw4fi53.execute-api.eu-west-2.amazonaws.com`;
+- Lambda: `3d-rams-mvp-api`;
+- DynamoDB: `3d-rams-mvp-sessions`;
+- S3 bucket: private MVP upload bucket with 7-day lifecycle deletion;
+- CloudWatch log group: `/aws/lambda/3d-rams-mvp-api`.
+
+Still deferred:
+
 - CloudWatch dashboard/log queries;
-- hosted Bedrock smoke test.
+- AgentCore Observability;
+- Cognito login;
+- richer live data adapters beyond current cached-public/synthetic fallback shape.
 
 ## Security And Cost Boundaries
 
@@ -91,7 +99,7 @@ AWS_REGION=eu-west-2
 BEDROCK_MODEL_ID=anthropic.claude-3-7-sonnet-20250219-v1:0
 BEDROCK_MAX_TOKENS=1200
 BEDROCK_TEMPERATURE=0.2
-BEDROCK_MAX_MODEL_CALLS=1
+BEDROCK_MAX_MODEL_CALLS=2
 S3_UPLOAD_BUCKET=<private evidence bucket>
 DYNAMODB_SESSION_TABLE=<session trace table>
 UPLOAD_RETENTION_DAYS=7
@@ -114,11 +122,11 @@ VITE_CESIUM_ION_TOKEN=
 
 ## Deployment Gates
 
-1. Local chat-agent contract passes.
-2. Backend is deployed behind API Gateway and blocks unauthorized requests.
-3. Amplify frontend calls hosted backend.
-4. Teammate test pack uses URL + access code only.
-5. CloudWatch/DynamoDB evidence is reviewed before stronger production-readiness claims.
+1. Local chat-agent contract passes. Complete.
+2. Backend is deployed behind API Gateway and blocks unauthorized requests. Complete.
+3. Amplify frontend calls hosted backend. Complete by build/config; browser-click automation is limited by the current in-app browser controller, but hosted assets and CORS are verified.
+4. Teammate test pack uses URL + access code only. Ready for quality review.
+5. CloudWatch/DynamoDB evidence is reviewed before stronger production-readiness claims. Initial evidence complete; dashboard remains deferred.
 
 ## Deferred
 

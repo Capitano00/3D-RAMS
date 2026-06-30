@@ -14,12 +14,14 @@ _SESSIONS: dict[str, dict[str, Any]] = {}
 
 def create_session(*, tester_alias: str | None, access_label: str, config: RuntimeConfig) -> dict[str, Any]:
     now = _now_iso()
+    expires_at = int(time.time()) + max(config.session_retention_days, 1) * 86400
     session = {
         "sessionId": f"session-{uuid.uuid4().hex[:16]}",
         "testerAlias": tester_alias,
         "accessLabel": access_label,
         "createdAt": now,
         "updatedAt": now,
+        "expiresAt": expires_at,
         "runs": [],
         "uploads": [],
         "storageMode": "memory",
@@ -43,7 +45,7 @@ def get_session(session_id: str, config: RuntimeConfig | None = None) -> dict[st
 
 def add_upload(session_id: str, upload: dict[str, Any], config: RuntimeConfig) -> None:
     session = get_session(session_id, config)
-    session["uploads"].append(upload)
+    session["uploads"].append(_stored_upload(upload))
     session["updatedAt"] = _now_iso()
     _persist_session(session, config)
 
@@ -62,9 +64,18 @@ def public_session(session: dict[str, Any]) -> dict[str, Any]:
         "accessLabel": session.get("accessLabel"),
         "createdAt": session.get("createdAt"),
         "updatedAt": session.get("updatedAt"),
+        "expiresAt": session.get("expiresAt"),
         "runs": session.get("runs", []),
-        "uploads": session.get("uploads", []),
+        "uploads": [_stored_upload(upload) for upload in session.get("uploads", [])],
         "storageMode": session.get("storageMode", "memory"),
+    }
+
+
+def _stored_upload(upload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in upload.items()
+        if key not in {"uploadUrl", "fields"}
     }
 
 

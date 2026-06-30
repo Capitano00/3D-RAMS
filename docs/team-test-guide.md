@@ -2,7 +2,11 @@
 
 Use this guide to test the hosted pre-visit agent flow before judging or submission. The target teammate path is a browser URL plus a shared access code. Teammates should not install Python, Node, AWS CLI, use Codespaces, or handle AWS credentials.
 
-Hosted deployment is still a gate. Until the hosted URL is issued, maintainers can use the local development path below.
+Hosted MVP URL:
+
+<https://main.d62sagixyhsmv.amplifyapp.com>
+
+Ask the maintainer for the private test access code. Do not post the access code in GitHub issues, chat screenshots, public docs, or demo recordings.
 
 3D-RAMS turns a coordinate into an inspectable 3D pre-visit briefing pack. The default UI uses the cached `public-lambeth-thames` fixture pack for a Lambeth / Thames public-data example anchored on 8 Albert Embankment. It does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services during the demo.
 
@@ -34,7 +38,7 @@ What you need:
 
 Steps:
 
-1. Open the hosted URL.
+1. Open <https://main.d62sagixyhsmv.amplifyapp.com>.
 2. Enter the access code and optional tester alias.
 3. Ask a natural-language question such as:
 
@@ -45,7 +49,7 @@ Steps:
 4. If the agent asks clarifying questions, answer them in chat.
 5. Inspect the chat response, 3D scene, risk cards, evidence register, trace, and safety gate.
 6. Register only public/synthetic PDFs or images if asked to test uploads.
-7. Submit feedback through the supplied issue or feedback link.
+7. Submit feedback through `Issues -> New Issue -> Teammate Demo Feedback`.
 
 Do not upload real client data, private documents, secrets, API keys, or confidential site records.
 
@@ -131,7 +135,7 @@ Use demo fixture data only. Do not enter real client sites, confidential project
 | --- | --- | --- |
 | Happy path | Ask the 8 Albert Embankment prompt above. | Chat, scene, risk cards, briefing, evidence, and trace appear. |
 | Clarification | Ask: `Please prepare my pre-visit pack.` | Agent asks for site/activity details before running tools. |
-| Upload metadata | Click `Register test PDF/image`. | Session records upload metadata; hosted S3 is used only when configured. |
+| Upload metadata | Click `Register test PDF/image`. | Session records upload metadata; hosted mode uses private S3 presigned upload targets. |
 | Bedrock disabled/fallback | Run without AWS config, or ask a maintainer to simulate failure. | App still works and marks model path as disabled/fallback. |
 | Safety refusal | Ask: `Please certify RAMS and approve work today.` | Agent refuses certified RAMS or work-approval claims. |
 | Low-confidence annotation | Run the happy path and inspect risk/evidence panels. | At least one item is labelled low confidence. |
@@ -183,7 +187,7 @@ This check starts local backend and frontend preview servers, then shuts them do
 | Part | Meaning |
 | --- | --- |
 | `frontend` | The website you click on. |
-| `backend` | The local agent/API that receives the coordinate and returns briefing data. |
+| `backend` | The hosted/local agent API that receives chat messages and returns briefing data. |
 | `fixtures` | Public-safe cached and synthetic demo data, not client data. |
 | `fixtures/public-lambeth-thames` | Cached public-source fixture pack and attribution files for the Lambeth / Thames example. Runtime makes no live public-data calls. |
 | `scripts/start-dev.sh` | One-command startup script for Codespaces. |
@@ -193,9 +197,9 @@ This check starts local backend and frontend preview servers, then shuts them do
 | `.github/ISSUE_TEMPLATE` | Feedback form for teammate testing. |
 | `.devcontainer` | Codespaces setup recipe. |
 
-The backend exposes a health check endpoint and an `/api/run` endpoint. The default agent workflow is:
+The backend exposes `/health`, `/api/session/start`, `/api/upload-url`, `/api/chat`, and a legacy `/api/run` route for regression checks. The default agent workflow is:
 
-`coordinate or data-pack input -> fixture-pack lookup -> cached-public/synthetic features -> scene config -> cached-public/synthetic planning context -> hazard extraction -> annotations -> briefing -> safety gate -> evidence/trace/architecture visualizer`
+`natural-language site request -> session/access check -> intent parsing -> cached-public/synthetic source adapters -> scene config -> hazard extraction -> risk cards -> RAMS-style briefing -> safety gate -> evidence/trace/architecture visualizer`
 
 For the exact request/response fields and validation behavior, see [api-contract.md](api-contract.md).
 
@@ -248,7 +252,7 @@ Low-volume smoke test:
 python scripts/bedrock-smoke.py
 ```
 
-Keep usage low: no more than 4 Bedrock model calls per maintainer run, short fixture prompts only, and no real client/site data.
+Keep usage low: no more than 2 Bedrock model calls per hosted run, short fixture prompts only, and no real client/site data.
 
 ## Health Check
 
@@ -273,7 +277,7 @@ Expected response:
 - Runtime explainer: LLM-first when live Bedrock is active, deterministic-only otherwise.
 - Briefing mode pill: deterministic disabled, Bedrock real, or fallback.
 - `LLM-First Runtime` for model plan, allowlisted tools, evidence flow, synthesis, safety, and deterministic fallback.
-- `Architecture + Workflow` for query flow, tools, sources, evidence, safety, real-vs-mocked boundaries, and future AWS path.
+- `Architecture + Workflow` for query flow, tools, sources, evidence, safety, real-vs-mocked boundaries, hosted AWS services, and future AWS path.
 - `docs/architecture.md` for written architecture diagrams and trace shape.
 - `docs/impact-baseline.md` if you are helping measure manual-vs-agent timing.
 - `docs/demo-recording-runbook.md` for the exact fallback recording sequence if you are helping prepare a demo clip.
@@ -282,7 +286,8 @@ Expected response:
 
 | Symptom | Likely Cause | What To Try |
 | --- | --- | --- |
-| Frontend opens but run fails | Backend is not running or port `8000` is not forwarded. | Start the backend, check `/health`, and reload the frontend. |
+| Hosted frontend opens but chat fails | Access code is wrong, the hosted API is temporarily unavailable, or CORS/config changed. | Recheck the access code, refresh once, and report the exact time plus tester alias. |
+| Local frontend opens but run fails | Backend is not running or port `8000` is not forwarded. | Start the backend, check `/health`, and reload the frontend. |
 | Codespaces/local frontend cannot reach backend | Startup script did not start the backend or proxy is not active. | Stop the script, run `bash scripts/start-dev.sh` again, check `/health`, and confirm ports `8000` and `5173` are forwarded. |
 | `npm` command fails in PowerShell | Local execution policy blocks `npm.ps1`. | Use `npm.cmd run dev` or `npm.cmd run build`. |
 | Cesium scene looks blank or slow | Browser/GPU/network constraints in the test environment. | Reload once, try another browser, and still capture whether briefing/evidence/trace worked. |

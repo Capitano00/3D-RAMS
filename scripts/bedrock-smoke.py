@@ -19,7 +19,7 @@ def main() -> int:
     os.environ.setdefault("BEDROCK_MODEL_ID", "anthropic.claude-3-7-sonnet-20250219-v1:0")
     os.environ.setdefault("BEDROCK_MAX_TOKENS", "1200")
     os.environ.setdefault("BEDROCK_TEMPERATURE", "0.2")
-    os.environ.setdefault("BEDROCK_MAX_MODEL_CALLS", "4")
+    os.environ.setdefault("BEDROCK_MAX_MODEL_CALLS", "2")
 
     result = run_site_briefing({
         "agentMode": "llm-planner",

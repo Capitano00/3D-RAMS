@@ -2,7 +2,7 @@
 
 This page is a public-safe readiness snapshot for teammates, judges, and contributors.
 
-3D-RAMS is ready for no-AWS teammate testing. It is not a certified RAMS product, live planning portal product, emergency tool, or production deployment.
+3D-RAMS is ready for hosted access-code teammate testing. It is not a certified RAMS product, live planning portal product, emergency tool, or production deployment.
 
 ## Current Status
 
@@ -23,7 +23,7 @@ Current evidence snapshot:
 | Architecture visualizer | Ready for demo use | UI and [architecture.md](architecture.md) show tool sequence, boundaries, trace, and AWS path. |
 | Safety gate | Verified for demo boundary | Unsafe certified RAMS/work-approval requests are blocked in tests and evaluation. |
 | CI | Active | GitHub Actions runs the local verification stack on push and pull request. |
-| Live Bedrock | Optional local path | Available only when explicitly configured; deterministic fallback remains default. |
+| Hosted Bedrock | Live in hosted MVP | Server-side Lambda calls Bedrock after access-code validation; deterministic fallback remains available. |
 
 ## One-Command Checks
 
@@ -74,8 +74,9 @@ The deterministic evaluation runner covers:
 | Planning data | Cached fixture only; no live planning portal scraping in MVP. |
 | Public source freshness | Source metadata is visible, but the app does not refresh sources at runtime. |
 | 3D map data | Token-free local Cesium view and fixture overlay; no Google Earth/3D Tiles. |
-| Bedrock | Optional local model-assisted briefing only; no hosted public endpoint. |
-| AWS production path | Architecture path only for DynamoDB, S3, CloudWatch, Guardrails, and AgentCore. |
+| Bedrock | Hosted server-side model-assisted planner/synthesis behind access-code validation; deterministic fallback remains available. |
+| AWS hosted path | Amplify, API Gateway, Lambda, Bedrock, DynamoDB, S3 presign, and CloudWatch structured logs are live for MVP testing. |
+| AWS future path | Cognito, Guardrails, AgentCore, CloudWatch dashboards, API throttling/WAF, and richer live adapters remain deferred. |
 | Safety/RAMS | Human-review briefing only; not certified RAMS, work approval, or emergency guidance. |
 | Impact metrics | [impact-baseline.md](impact-baseline.md) is ready; numeric speed-up claims still need a completed and reviewed timed run. |
 
@@ -97,5 +98,5 @@ The deterministic evaluation runner covers:
 | Teammate feedback | Project team | Ready to collect through GitHub issue template. |
 | Stopwatch baseline | Demo reviewer | Worksheet ready; measured run pending before numeric speed-up claims. |
 | Fallback recording | Demo reviewer | Runbook ready; actual recording pending before final demo package. |
-| AWS budget/payment guardrail | AWS account owner | Pending before controlled live Bedrock verification, repeated live Bedrock use, or additional AWS services. |
-| Hosted public endpoint | Project team | Deferred unless Codespaces fails for teammates or submission needs it. |
+| AWS budget/payment guardrail | AWS account owner | Complete for hosted MVP; monitor usage during teammate testing. |
+| Hosted public endpoint | Project team | Live behind access-code gate; full browser click-through needs teammate confirmation. |

@@ -36,20 +36,22 @@ This rendered diagram is the README-scale view of the workflow in [docs/architec
 | --- | --- | --- |
 | Agent workflow | Real Python code | Chat session, tool sequence, evidence, trace, safety gate, deterministic fallback, and response shape are implemented. |
 | Public data pack | Cached public fixture | `fixtures/public-lambeth-thames` includes source metadata for a Lambeth / Thames public-data pack anchored on 8 Albert Embankment. Runtime makes no live public-data calls. |
-| Bedrock planner + briefing | Optional live AWS path | Maintainer-only live Bedrock path uses a bounded planner/synthesis path, capped at 4 model calls per run, when `ENABLE_BEDROCK=true`; deterministic fallback remains available. |
+| Bedrock planner + briefing | Live hosted MVP path | Server-side Bedrock planner/synthesis is enabled in the hosted MVP, capped at 2 model calls per run; deterministic fallback remains available. |
 | 3D viewer | Real React/Vite + CesiumJS UI | Uses a token-free Cesium canvas plus local scene overlay and annotations. |
 | Geospatial features | Cached-public or mocked fixture | Default pack uses cached public-source metadata; synthetic fallback uses `fixtures/geospatial_features.json`. |
 | Planning/context notes | Cached-public or synthetic fixture | Default pack uses cached public-safe notes and source metadata; synthetic fallback uses `fixtures/planning_report.txt`. |
-| AWS | Deploy-ready interfaces | Bedrock can be live server-side when configured; Lambda adapter, S3 upload adapter, and DynamoDB trace adapter are present. Amplify/API Gateway/Lambda deployment remains a gate. |
+| AWS hosted MVP | Live maintainer deployment | Amplify frontend, API Gateway HTTP API, Lambda/FastAPI backend, Bedrock Claude 3.7 Sonnet, DynamoDB session trace, S3 upload presign, and CloudWatch logs are deployed for access-code teammate testing. |
 | Google Maps / Earth / 3D Tiles | Not used | Kept out of Demo1 to avoid key, cost, licensing, and freshness risk. |
 
 ## Hosted Teammate Testing
 
 Target teammate path is a hosted browser URL plus a shared access code. Teammates should not run Python, Node, Codespaces, AWS CLI, or AWS credentials.
 
-Hosted deployment is not yet complete. The deploy-ready product path is documented in [docs/hosted-aws-product.md](docs/hosted-aws-product.md).
+Hosted MVP URL: <https://main.d62sagixyhsmv.amplifyapp.com>
 
-Local development remains available for maintainers while the AWS deployment gates are cleared. Use [docs/team-test-guide.md](docs/team-test-guide.md) for the current scenario checklist.
+Ask the maintainer for the private test access code. Do not commit, paste into public issues, or share the code outside the test group.
+
+The hosted product path is documented in [docs/hosted-aws-product.md](docs/hosted-aws-product.md). Use [docs/team-test-guide.md](docs/team-test-guide.md) for the current scenario checklist and feedback rules.
 
 No AWS, Google Maps, Cesium ion token, or real site data is required.
 
@@ -107,9 +109,9 @@ The app defaults to deterministic fallback unless the backend is started with Be
 
 - `Hosted Bedrock enabled`: server-side LLM planner/synthesis path, with allowlisted tool calls, evidence trace, safety gate, and deterministic fallback.
 - `No AWS / Bedrock disabled`: deterministic agent path only.
-- `Future AWS path`: CloudWatch, S3, DynamoDB, Guardrails, and AgentCore remain later production-shaped stages.
+- `Future AWS path`: Cognito, Guardrails, AgentCore Observability, CloudWatch dashboards, API throttling/WAF, and richer live data adapters remain later production-shaped stages.
 
-Use the full optional setup guide in [docs/aws-bedrock-setup.md](docs/aws-bedrock-setup.md). Confirm cost guardrails before repeated live testing; the current recommendation is a small budget alert, a maximum of 4 Bedrock model calls per maintainer run, `BEDROCK_MAX_TOKENS=1200`, and `BEDROCK_TEMPERATURE=0.2`.
+Use the full optional setup guide in [docs/aws-bedrock-setup.md](docs/aws-bedrock-setup.md). Confirm cost guardrails before repeated live testing; the hosted MVP is capped to 2 Bedrock model calls per run, `BEDROCK_MAX_TOKENS=1200`, and `BEDROCK_TEMPERATURE=0.2`.
 
 Recommended local settings:
 
@@ -120,7 +122,7 @@ AWS_REGION=eu-west-2
 BEDROCK_MODEL_ID=anthropic.claude-3-7-sonnet-20250219-v1:0
 BEDROCK_MAX_TOKENS=1200
 BEDROCK_TEMPERATURE=0.2
-BEDROCK_MAX_MODEL_CALLS=4
+BEDROCK_MAX_MODEL_CALLS=2
 ```
 
 Run a low-volume smoke test:
@@ -129,7 +131,7 @@ Run a low-volume smoke test:
 python scripts/bedrock-smoke.py
 ```
 
-Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client/site data. The UI shows whether a run used LLM-first runtime, deterministic mode, or fallback. Hosted Bedrock remains server-side and maintainer-controlled until the AWS deployment gate is cleared.
+Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client/site data. The UI shows whether a run used LLM-first runtime, deterministic mode, or fallback. Hosted Bedrock remains server-side and access-code gated for teammate testing.
 
 ## Local Quickstart
 
@@ -179,7 +181,7 @@ curl http://localhost:8000/openapi.json
 | --- | --- | --- |
 | Happy path | Ask: `I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.` | Chat, scene, risk cards, briefing, evidence, and trace are returned. |
 | Clarification | Ask for a pack without giving a site. | Agent asks targeted questions before running tools. |
-| Upload metadata | Register a test PDF/image. | Upload evidence metadata is attached to the session; S3 is used only when configured. |
+| Upload metadata | Register a test PDF/image. | Upload evidence metadata is attached to the session; hosted mode uses private S3 presigned upload targets. |
 | Bedrock fallback | Run without backend Bedrock config, or set `BEDROCK_SIMULATE_FAILURE=true`. | Runtime marks model path as disabled/fallback; deterministic briefing remains available. |
 | Unsafe request | Ask the agent to certify RAMS or approve work. | Safety gate blocks certified RAMS/work approval behavior. |
 | Low confidence | Run the Lambeth prompt and inspect risk/evidence panels. | Low-confidence items remain visible for human review. |
@@ -189,12 +191,12 @@ curl http://localhost:8000/openapi.json
 
 Demo1 trace and response objects are shaped to map naturally to an AWS implementation:
 
-- Amazon Bedrock for the maintainer-only LLM planner and synthesis path.
+- Amazon Bedrock for the hosted server-side LLM planner and synthesis path.
 - DynamoDB for versioned project state, approvals, and rollback records.
 - S3 for evidence packs, exported briefings, screenshots, and source documents.
 - CloudWatch for trace, latency, cost, and failure visibility.
-- Guardrails for unsafe claim and policy filtering.
-- AgentCore Runtime and Observability as a stretch layer after the bounded Bedrock planner loop is proven.
+- Bedrock Guardrails for unsafe claim and policy filtering as a future layer after the local safety gate.
+- AgentCore Runtime and Observability as a stretch layer after the hosted MVP is stable.
 
 See [docs/architecture.md](docs/architecture.md) for the workflow and AWS diagrams.
 
