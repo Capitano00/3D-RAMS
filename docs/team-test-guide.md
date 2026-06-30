@@ -8,7 +8,7 @@ Hosted MVP URL:
 
 Ask the maintainer for the private test access code. Do not post the access code in GitHub issues, chat screenshots, public docs, or demo recordings.
 
-3D-RAMS turns a confirmed site location into an inspectable 3D pre-visit briefing pack. The default UI uses the cached `public-lambeth-thames` fixture pack for a Lambeth / Thames public-data example anchored on 8 Albert Embankment. Unknown named sites now enter a V3.1 location-resolution loop first; the agent must either show source-labelled candidates for confirmation or ask for postcode, coordinates, nearest town/road, or local authority. Name-only random sites may show a provisional checklist based on the user-described site/activity type, but that is not a site-specific evidence-backed finding. It does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services during the default demo. Geoapify arbitrary-name lookup is an optional server-side spike and must be source-labelled if enabled.
+3D-RAMS turns a confirmed site location into an inspectable 3D pre-visit briefing pack. The default UI uses the cached `public-lambeth-thames` fixture pack for a Lambeth / Thames public-data example anchored on 8 Albert Embankment. Unknown named sites now enter a V3.2 location-resolution loop first; the reliable MVP path is postcode/outcode or latitude/longitude. The agent shows a source-labelled candidate card with map preview and location context, then waits for confirmation before map, evidence, risk, or briefing tools run. Name-only random sites may show a provisional checklist based on the user-described site/activity type, but that is not a site-specific evidence-backed finding. It does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, OS services, or Geoapify during the default demo.
 
 1. shared-code session start;
 2. natural-language site visit request;
@@ -48,14 +48,14 @@ Steps:
    ```
 
 4. If the agent shows candidate location cards, confirm one before expecting a 3D review pack.
-5. If the agent cannot find a reliable candidate, provide a postcode, coordinate, nearest town/road, or local authority.
+5. If the agent cannot find a reliable candidate, provide a postcode/outcode, latitude/longitude, OS grid reference, nearest town/road, or public evidence.
 6. Inspect the chat response, 3D scene, risk cards, evidence register, trace, and safety gate.
 7. Register only public/synthetic PDFs or images if asked to test uploads.
 8. Submit feedback through `Issues -> New Issue -> Teammate Demo Feedback`.
 
 Do not upload real client data, private documents, secrets, API keys, or confidential site records.
 
-## V3.1 Location And Random-Site Checks
+## V3.2 Location And Random-Site Checks
 
 Use these prompts to test the location gate:
 
@@ -65,13 +65,13 @@ Use these prompts to test the location gate:
 | Unknown named site | `I want to visit Bilsbrae Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.` | Does not use Lambeth; enters location-resolution stage and asks for more location detail because no reliable cached/public candidate is bundled. |
 | Random name only | `I want to visit Foxglove Farm Solar Site tomorrow for a PV module inspection.` | Does not invent coordinates; asks for postcode/coordinate/source evidence and may show a provisional solar inspection checklist. |
 | Random name plus nearest town | `I want to visit Foxglove Farm Solar Site near Hexham tomorrow for a PV module inspection.` | Names the nearest-town clue, still asks for stronger location evidence, and does not produce map/evidence-backed findings. |
-| Postcode candidate | `I want to visit a site near SW1A 1AA tomorrow for a survey.` | Backend creates a source-labelled Postcodes.io candidate and waits for confirmation before review tools run. |
+| Postcode candidate | `I want to visit a site near SW1A 1AA tomorrow for a survey.` | Backend creates a source-labelled Postcodes.io candidate, shows map/context preview, and waits for confirmation before review tools run. |
 | Candidate confirmation demo | `I want to visit Greenacre Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.` | Shows a clearly synthetic candidate card; confirm it to run the review workflow. |
-| Coordinate solar path | `I want to visit Foxglove Farm Solar Site at 54.9712, -2.1013 tomorrow for a PV module inspection.` | Skips candidate search, keeps a clean site label, and runs a low-confidence coordinate-based pack with solar/PV/access-specific provisional risks. |
-| Coordinate quarry path | `I want to visit Moor Edge Quarry at 54.9712, -2.1013 tomorrow for a drainage and slope inspection.` | Produces quarry/drainage/slope-specific provisional risks, not the same risk set as the solar path. |
+| Coordinate solar path | `I want to visit Foxglove Farm Solar Site at 54.9712, -2.1013 tomorrow for a PV module inspection.` | Shows a user-supplied coordinate candidate, map/context preview, and provisional solar checklist; confirm it before the full review workflow runs. |
+| Coordinate quarry path | `I want to visit Moor Edge Quarry at 53.3600, -1.9300 tomorrow for a drainage and slope inspection.` | Shows a coordinate candidate first; after confirmation, produces quarry/drainage/slope-specific provisional risks, not the same risk set as the solar path. |
 | Unsafe standalone request | `Please certify RAMS and approve work today.` | Refuses certification/work-approval behavior before location parsing and does not treat the text as a site name. |
 
-No site-specific RAMS-style review pack, evidence-backed risk cards, or map annotations should be generated before location confirmation for named-site-only prompts. A provisional checklist is acceptable only when it is clearly labelled as pending location evidence and not site-specific.
+No site-specific RAMS-style review pack, evidence-backed risk cards, or map annotations should be generated before location confirmation for named-site, postcode, or coordinate prompts. A provisional checklist is acceptable only when it is clearly labelled as pending location confirmation and not site-specific evidence.
 
 ## Local Maintainer Walkthrough
 

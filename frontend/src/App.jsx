@@ -165,6 +165,34 @@ function SceneViewer({ scene, annotations, location }) {
   );
 }
 
+function CandidateMapPreview({ candidate }) {
+  if (!candidate?.latitude || !candidate?.longitude) return null;
+  const context = candidate.locationContext || {};
+  const submitted = context.submittedLocation;
+  return (
+    <div className="candidate-map-preview">
+      <div className="candidate-map-canvas" aria-label="Candidate location preview">
+        <span className="candidate-map-pin" />
+        <div className="candidate-map-grid" />
+      </div>
+      <div className="candidate-map-summary">
+        <strong>{candidate.name || "Candidate site"}</strong>
+        <span>{candidate.relativeLocation || context.summary || "Location context pending"}</span>
+        <dl>
+          <div>
+            <dt>{submitted?.type || "input"}</dt>
+            <dd>{submitted?.value || `${candidate.latitude}, ${candidate.longitude}`}</dd>
+          </div>
+          <div>
+            <dt>coordinate</dt>
+            <dd>{candidate.latitude}, {candidate.longitude}</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 function AccessPanel({ onStart, loading }) {
   const [accessCode, setAccessCode] = useState("");
   const [testerAlias, setTesterAlias] = useState(localStorage.getItem("3drams-tester-alias") || "");
@@ -319,6 +347,7 @@ function RiskCards({ hazards, briefing, reviewMode }) {
 function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, loading }) {
   if (!resolution?.siteName && !toList(resolution?.locationCandidates).length) return null;
   const candidates = toList(resolution.locationCandidates);
+  const primaryCandidate = candidates[0];
   return (
     <section className="panel location-confirmation-panel">
       <div className="panel-heading">
@@ -330,6 +359,7 @@ function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, 
           ? "The agent found source-labelled candidate locations. Confirm one before map, evidence, risk, or briefing tools run."
           : "The agent searched the cached/source resolver but did not find a reliable candidate. Any risk prompts shown below are provisional and not site-specific evidence."}
       </p>
+      <CandidateMapPreview candidate={primaryCandidate} />
       {candidates.length > 0 ? (
         <div className="candidate-grid">
           {candidates.map((candidate) => (
@@ -341,7 +371,7 @@ function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, 
               <dl>
                 <div>
                   <dt>Nearest town/road</dt>
-                  <dd>{candidate.nearestTown || candidate.nearestRoad || "not available"}</dd>
+                  <dd>{candidate.nearestTown || candidate.nearestRoad || candidate.locationContext?.nearestTown || "not available"}</dd>
                 </div>
                 <div>
                   <dt>Authority</dt>
@@ -354,6 +384,18 @@ function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, 
                 <div>
                   <dt>Approx coordinate</dt>
                   <dd>{candidate.latitude}, {candidate.longitude}</dd>
+                </div>
+                <div>
+                  <dt>Ward/parish</dt>
+                  <dd>{candidate.ward || candidate.parish || "not available"}</dd>
+                </div>
+                <div>
+                  <dt>Region</dt>
+                  <dd>{candidate.region || candidate.locationContext?.region || "not available"}</dd>
+                </div>
+                <div>
+                  <dt>Relative position</dt>
+                  <dd>{candidate.relativeLocation || candidate.locationContext?.relativeLocation || "not available"}</dd>
                 </div>
               </dl>
               <p>{candidate.reason || "Candidate requires human confirmation before use."}</p>
@@ -653,7 +695,7 @@ function App() {
   }
 
   function rejectLocationCandidate() {
-    setPrompt("This is not the right site. The nearest town/council/postcode is ");
+    setPrompt("This is not the right site. The corrected postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence is ");
   }
 
   function enterCoordinatesManually() {

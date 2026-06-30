@@ -139,15 +139,18 @@ def _parse_message_to_request(
             "message": "I cannot certify RAMS, approve work, or provide emergency guidance. Provide a real site and visit activity if you want a non-certified pre-visit review pack for human review.",
             "triggeredRules": intent["unsafeTerms"],
         }
+    coordinate_needs_confirmation = bool(coordinate and not known_lambeth)
     unresolved_named_site = bool(site_label and not coordinate and not known_lambeth and named_site_hint)
     has_site_signal = coordinate is not None or known_lambeth or named_site_hint
-    trace_status = "warning" if unresolved_named_site or not has_site_signal else "ok"
+    trace_status = "warning" if coordinate_needs_confirmation or unresolved_named_site or not has_site_signal else "ok"
     trace = [
         trace_step(
             "chat_parse_user_request",
             trace_status,
             (
-                "Found a named site but no coordinate or approved fixture; asking for location evidence before running tools."
+                "Found a coordinate that requires user confirmation before running tools."
+                if coordinate_needs_confirmation
+                else "Found a named site but no coordinate or approved fixture; asking for location evidence before running tools."
                 if unresolved_named_site
                 else "Parsed the natural-language site visit request into an agent run envelope."
             ),
@@ -162,9 +165,13 @@ def _parse_message_to_request(
                 "knownPublicFixture": known_lambeth,
                 "namedSiteHint": named_site_hint,
                 "siteName": site_label,
-                "siteResolution": "unresolved" if unresolved_named_site else ("coordinate" if coordinate else "fixture" if known_lambeth else "missing"),
+                "siteResolution": (
+                    "coordinate-confirmation"
+                    if coordinate_needs_confirmation
+                    else "unresolved" if unresolved_named_site else ("fixture" if known_lambeth else "missing")
+                ),
                 "fixturePackSelected": "public-lambeth-thames" if known_lambeth else None,
-                "clarificationRequired": unresolved_named_site or not has_site_signal,
+                "clarificationRequired": coordinate_needs_confirmation or unresolved_named_site or not has_site_signal,
                 "uploadedFileIds": uploaded_file_ids,
                 "messageSummary": _summarise_message(message),
             },
@@ -175,13 +182,19 @@ def _parse_message_to_request(
             "Which site should I assess? Please provide a site name, address, or coordinate.",
             "What is the planned visit activity, for example survey, inspection, delivery, or maintenance?",
         ], None, None
-    if unresolved_named_site:
+    if coordinate_needs_confirmation or unresolved_named_site:
         location_resolution, resolver_trace = resolve_location_candidates(site_label, message, intent=intent)
         trace.append(resolver_trace)
-        clarification = [
-            f"I found the site name '{site_label}', but I need a confirmed location before generating a review pack.",
-            _targeted_location_question(intent),
-        ]
+        if coordinate_needs_confirmation and location_resolution["locationCandidates"]:
+            clarification = [
+                f"I found a user-supplied coordinate for '{site_label}', but I need you to confirm it is the intended site before generating a review pack.",
+                "Confirm the candidate card, or provide a corrected postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence.",
+            ]
+        else:
+            clarification = [
+                f"I found the site name '{site_label}', but I need a confirmed location before generating a review pack.",
+                _targeted_location_question(intent),
+            ]
         if not location_resolution["locationCandidates"]:
             clarification.append("No reliable cached/public candidate was found for this site name. I can only show provisional, non-site-specific risk prompts until location evidence is provided.")
         return {}, trace, clarification, location_resolution, None

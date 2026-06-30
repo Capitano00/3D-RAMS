@@ -129,14 +129,26 @@ $solarCoordinateRun = Invoke-JsonPost "/api/runs" @{
     useBedrock = $false
     autoStart = $true
 }
-if ($solarCoordinateRun.status -ne "completed") {
-    throw "Solar coordinate smoke expected completed run."
+if ($solarCoordinateRun.status -ne "waiting_for_location_confirmation") {
+    throw "Solar coordinate smoke expected location confirmation before review workflow."
 }
-if ($solarCoordinateRun.result.uiState.location.label -ne "Foxglove Farm Solar Site") {
-    throw "Solar coordinate smoke expected clean site label."
+if (@($solarCoordinateRun.result.locationCandidates).Count -lt 1) {
+    throw "Solar coordinate smoke expected one user-supplied coordinate candidate."
 }
-if ($solarCoordinateRun.result.uiState.hazards[0].title -ne "PV electrical isolation and inverter boundary") {
-    throw "Solar coordinate smoke expected PV-specific first risk."
+if ($solarCoordinateRun.result.locationCandidates[0].source -ne "user-supplied-coordinate") {
+    throw "Solar coordinate smoke expected user-supplied-coordinate source."
+}
+$solarCoordinateConfirm = Invoke-JsonPost "/api/runs/$($solarCoordinateRun.runId)/confirm-location" @{
+    candidateId = $solarCoordinateRun.result.locationCandidates[0].candidateId
+}
+if ($solarCoordinateConfirm.status -ne "completed") {
+    throw "Solar coordinate confirmation did not complete the review workflow."
+}
+if ($solarCoordinateConfirm.result.uiState.location.label -ne "Foxglove Farm Solar Site") {
+    throw "Solar coordinate confirmation expected clean site label."
+}
+if ($solarCoordinateConfirm.result.uiState.hazards[0].title -ne "PV electrical isolation and inverter boundary") {
+    throw "Solar coordinate confirmation expected PV-specific first risk."
 }
 
 $quarryCoordinateRun = Invoke-JsonPost "/api/runs" @{
@@ -146,14 +158,23 @@ $quarryCoordinateRun = Invoke-JsonPost "/api/runs" @{
     useBedrock = $false
     autoStart = $true
 }
-if ($quarryCoordinateRun.status -ne "completed") {
-    throw "Quarry coordinate smoke expected completed run."
+if ($quarryCoordinateRun.status -ne "waiting_for_location_confirmation") {
+    throw "Quarry coordinate smoke expected location confirmation before review workflow."
 }
-if ($quarryCoordinateRun.result.uiState.location.label -ne "Moor Edge Quarry") {
-    throw "Quarry coordinate smoke expected clean site label."
+if (@($quarryCoordinateRun.result.locationCandidates).Count -lt 1) {
+    throw "Quarry coordinate smoke expected one user-supplied coordinate candidate."
 }
-if ($quarryCoordinateRun.result.uiState.hazards[0].title -ne "Excavation edge and unstable ground") {
-    throw "Quarry coordinate smoke expected quarry-specific first risk."
+$quarryCoordinateConfirm = Invoke-JsonPost "/api/runs/$($quarryCoordinateRun.runId)/confirm-location" @{
+    candidateId = $quarryCoordinateRun.result.locationCandidates[0].candidateId
+}
+if ($quarryCoordinateConfirm.status -ne "completed") {
+    throw "Quarry coordinate confirmation did not complete the review workflow."
+}
+if ($quarryCoordinateConfirm.result.uiState.location.label -ne "Moor Edge Quarry") {
+    throw "Quarry coordinate confirmation expected clean site label."
+}
+if ($quarryCoordinateConfirm.result.uiState.hazards[0].title -ne "Excavation edge and unstable ground") {
+    throw "Quarry coordinate confirmation expected quarry-specific first risk."
 }
 
 $unsafe = $null
@@ -213,10 +234,14 @@ if ($IncludeUnsafe) {
     greenacreConfirmedLocation = $greenacreConfirm.result.uiState.location.label
     foxgloveNameStatus = $foxgloveNameRun.status
     foxgloveNameReviewMode = $foxgloveNameRun.result.uiState.reviewMode
-    solarCoordinateLocation = $solarCoordinateRun.result.uiState.location.label
-    solarFirstRisk = $solarCoordinateRun.result.uiState.hazards[0].title
-    quarryCoordinateLocation = $quarryCoordinateRun.result.uiState.location.label
-    quarryFirstRisk = $quarryCoordinateRun.result.uiState.hazards[0].title
+    solarCoordinateStatus = $solarCoordinateRun.status
+    solarCoordinateCandidateSource = $solarCoordinateRun.result.locationCandidates[0].source
+    solarCoordinateLocation = $solarCoordinateConfirm.result.uiState.location.label
+    solarFirstRisk = $solarCoordinateConfirm.result.uiState.hazards[0].title
+    quarryCoordinateStatus = $quarryCoordinateRun.status
+    quarryCoordinateCandidateSource = $quarryCoordinateRun.result.locationCandidates[0].source
+    quarryCoordinateLocation = $quarryCoordinateConfirm.result.uiState.location.label
+    quarryFirstRisk = $quarryCoordinateConfirm.result.uiState.hazards[0].title
     unsafeSafety = if ($unsafe) { $unsafe.safety.level } else { $null }
     unsafeDurableSafety = if ($unsafeDurable) { $unsafeDurable.safetyResult.level } else { $null }
 } | ConvertTo-Json -Depth 8

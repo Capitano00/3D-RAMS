@@ -555,6 +555,94 @@ textarea {
   font-weight: 700;
 }
 
+.candidate-map-preview {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1fr);
+  gap: 12px;
+  margin: 0 14px 14px;
+  border: 1px solid #d8e3de;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f7faf8;
+}
+
+.candidate-map-canvas {
+  position: relative;
+  min-height: 190px;
+  overflow: hidden;
+  border: 1px solid #cbd8d2;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at center, rgba(11, 111, 101, 0.18), transparent 24%),
+    linear-gradient(90deg, rgba(11, 111, 101, 0.12) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(11, 111, 101, 0.12) 1px, transparent 1px),
+    #e1ebe6;
+  background-size: auto, 28px 28px, 28px 28px, auto;
+}
+
+.candidate-map-grid {
+  position: absolute;
+  inset: 18px;
+  border: 2px dashed rgba(11, 111, 101, 0.36);
+  border-radius: 10px;
+}
+
+.candidate-map-pin {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #0b6f65;
+  box-shadow: 0 0 0 8px rgba(11, 111, 101, 0.18);
+  transform: translate(-50%, -50%);
+}
+
+.candidate-map-summary {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+}
+
+.candidate-map-summary strong {
+  font-size: 1.05rem;
+}
+
+.candidate-map-summary span {
+  color: #40564f;
+  font-weight: 800;
+}
+
+.candidate-map-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.candidate-map-summary dl div {
+  border: 1px solid #dce7e2;
+  border-radius: 8px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.candidate-map-summary dt {
+  color: #65766f;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.candidate-map-summary dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 900;
+}
+
 .candidate-grid {
   display: grid;
   gap: 12px;
@@ -740,6 +828,10 @@ textarea {
 
   .candidate-card dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .candidate-map-preview {
+    grid-template-columns: 1fr;
   }
 }
 

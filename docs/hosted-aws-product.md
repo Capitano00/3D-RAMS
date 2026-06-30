@@ -57,10 +57,10 @@ Implemented for the MVP code path:
 - Strands-ready backend dependency and orchestrator boundary, with existing deterministic tools still used as the current execution core;
 - server-side Bedrock/fallback boundary using Claude 3.7 Sonnet in `eu-west-2`;
 - visible map, evidence, trace, risk, and safety panels.
-- V3.1 intent parser and location-resolution loop that pauses named-site-only prompts before site-specific review generation.
-- server-side Postcodes.io postcode/outcode lookup for source-labelled location candidates, with broad site-name web geocoding deferred.
-- optional server-side Geoapify candidate geocoding spike behind `ENABLE_GEOAPIFY_GEOCODING` and `GEOAPIFY_API_KEY`; candidates still require user confirmation before review tools run.
-- provisional site/activity risk profiles for name-only or coordinate-backed arbitrary sites, labelled separately from evidence-backed findings.
+- V3.2 intent parser and location-resolution loop that pauses named-site, postcode, and coordinate prompts before site-specific review generation.
+- server-side Postcodes.io postcode/outcode lookup plus user-supplied coordinate candidate generation with deterministic distance/bearing context.
+- Geoapify candidate geocoding code remains behind `ENABLE_GEOAPIFY_GEOCODING`, but the live spike was rejected for current teammate testing and the hosted default keeps it disabled.
+- provisional site/activity risk profiles for name-only and pre-confirmation coordinate/postcode prompts, labelled separately from evidence-backed findings.
 
 Hosted MVP endpoints and resources:
 
@@ -78,20 +78,20 @@ Still deferred:
 - Cognito login;
 - richer live data adapters beyond current cached-public/synthetic fallback shape.
 
-## V3.1 Durable Runtime, Intent Parser, And Location Loop
+## V3.2 Durable Runtime, Intent Parser, And Location Loop
 
-The `feature/durable-runs-tool-loop` branch now carries the V3.1 runtime:
+The `feature/durable-runs-tool-loop` branch now carries the V3.2 runtime:
 
 - `POST /api/runs` creates a `runId` and initial checkpoint;
 - `GET /api/runs/{runId}` lets the frontend poll/reconnect;
 - `POST /api/runs/{runId}/confirm-location` confirms a source-labelled candidate before review tools start;
 - `POST /api/runs/{runId}/cancel` records cancellation;
 - the backend parses site intent before tools: clean site name, coordinate, postcode/outcode, nearest town/road, local authority clue, site type, visit activity, visit date, and unsafe certification/approval intent;
-- named-site-only prompts enter `waiting_for_location_confirmation`;
+- named-site, postcode, and coordinate prompts enter `waiting_for_location_confirmation` unless they are the known cached Lambeth fixture path;
 - name-only prompts can return a clearly labelled provisional checklist pending location evidence, but not site-specific map/evidence findings;
-- coordinate-backed arbitrary sites can return low-confidence synthetic packs with site/activity-specific provisional risks;
+- coordinate-backed arbitrary sites first show a user-supplied coordinate candidate, map/context preview, nearest available Postcodes.io context, and deterministic distance/bearing from UK anchor cities;
 - the resolver does not use broad public Nominatim geocoding in the MVP. Postcodes.io is used only server-side for postcode/outcode clues and must be source-labelled in the UI;
-- Geoapify can be enabled as a server-side candidate resolver for arbitrary named sites, but it must never auto-start map/evidence/review tools. The user confirms a candidate first, and provider failure falls back to the existing provisional checklist / location-evidence request.
+- Geoapify remains disabled by default after live relevance testing returned misleading candidates; arbitrary text search is deferred.
 - the backend executes only allowlisted tools from a registry;
 - planner, reasoner, and compiler phases have separate token budgets;
 - the run store remains local/memory-backed until a separate DynamoDB run table plus worker path is reviewed.

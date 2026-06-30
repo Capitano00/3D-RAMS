@@ -12,10 +12,10 @@ The frontend never calls Bedrock directly. Hosted model calls, uploads, session 
 | `POST` | `/api/session/start` | Validates the shared access code and starts a tester session. |
 | `POST` | `/api/upload-url` | Registers PDF/image evidence and returns an S3 presigned upload URL when hosted storage is configured. |
 | `POST` | `/api/chat` | Runs the chat-first hosted agent workflow. |
-| `POST` | `/api/runs` | V3.1 branch: creates a durable run and returns run status/checkpoints. |
-| `GET` | `/api/runs/{runId}` | V3.1 branch: returns latest durable run status, partial/final UI state, location-resolution state, and trace. |
-| `POST` | `/api/runs/{runId}/confirm-location` | V3.1 branch: confirms a source-labelled location candidate and continues the review workflow. |
-| `POST` | `/api/runs/{runId}/cancel` | V3.1 branch: requests cancellation for a queued/running durable run. |
+| `POST` | `/api/runs` | V3.2 branch: creates a durable run and returns run status/checkpoints. |
+| `GET` | `/api/runs/{runId}` | V3.2 branch: returns latest durable run status, partial/final UI state, location-resolution state, and trace. |
+| `POST` | `/api/runs/{runId}/confirm-location` | V3.2 branch: confirms a source-labelled location candidate and continues the review workflow. |
+| `POST` | `/api/runs/{runId}/cancel` | V3.2 branch: requests cancellation for a queued/running durable run. |
 | `GET` | `/api/session/{sessionId}` | Returns session metadata and run summaries for refresh/debug. |
 | `POST` | `/api/run` | Compatibility route for the older coordinate-to-briefing workflow. |
 | `GET` | `/openapi.json` | Returns the generated OpenAPI schema from FastAPI. |
@@ -92,9 +92,9 @@ Important response fields:
 
 `POST /api/runs`
 
-The V3.1 branch uses this endpoint instead of a long synchronous chat request. It creates a `runId`, stores a checkpointed run record, and lets the frontend poll with `GET /api/runs/{runId}`. A structured intent parser extracts site name, coordinate/postcode clues, nearest-town clues, site/activity type, visit date, and unsafe certification/approval intent before review tools start.
+The V3.2 branch uses this endpoint instead of a long synchronous chat request. It creates a `runId`, stores a checkpointed run record, and lets the frontend poll with `GET /api/runs/{runId}`. A structured intent parser extracts site name, coordinate/postcode clues, nearest-town clues, site/activity type, visit date, and unsafe certification/approval intent before review tools start.
 
-Named-site-only prompts run a location-resolution stage before any site-specific map/evidence/risk/briefing tools start. If no source-labelled candidate is available, the API may return `uiState.reviewMode = "provisional checklist pending location"` and hazards with `dataMode = "provisional-from-user-description"`. These are non-site-specific prompts for human review, not evidence-backed findings.
+Named-site, postcode, and coordinate prompts run a location-resolution stage before any site-specific map/evidence/risk/briefing tools start, except for the known cached Lambeth fixture path. If no source-labelled candidate is available, the API may return `uiState.reviewMode = "provisional checklist pending location"` and hazards with `dataMode = "provisional-from-user-description"`. These are non-site-specific prompts for human review, not evidence-backed findings.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -122,7 +122,7 @@ Important run-status fields:
 | `fallbackReason` | Reason the deterministic/default path was used. |
 | `errorSummary` | Safe error summary for failed runs. |
 
-Hazard objects may include `dataMode` values such as `cached-public-fixture`, `synthetic-fixture`, `source-labelled-location`, or `provisional-from-user-description`. The UI should display these labels so testers can distinguish source evidence from prompt-derived risk prompts.
+Hazard and location objects may include `dataMode` values such as `cached-public-fixture`, `synthetic-fixture`, `source-labelled-location`, `source-labelled-coordinate`, or `provisional-from-user-description`. The UI should display these labels so testers can distinguish source evidence from prompt-derived risk prompts.
 
 The current branch implementation uses a local memory run store. Future AWS deployment should use a separate DynamoDB run table plus SQS worker Lambda after review.
 
@@ -147,7 +147,16 @@ Response:
 - no review pack, risk cards, or evidence are produced before this confirmation;
 - invalid candidate ids return a safe `400` error.
 
-The current MVP resolver is fixture-first plus server-side postcode/outcode lookup through Postcodes.io. It may return a clearly labelled synthetic candidate for demo paths, and it may return a source-labelled postcode/outcode candidate, but it must not fabricate real-world coordinates from the LLM. If `ENABLE_GEOAPIFY_GEOCODING=true` and `GEOAPIFY_API_KEY` is configured server-side, the resolver may also return up to three Geoapify source-labelled candidates for arbitrary named sites. All provider candidates still require user confirmation before review tools run. If no reliable cached/public/postcode/provider candidate exists, the run asks the user for postcode, coordinate, nearest road/town, or local authority.
+The current MVP resolver is fixture-first plus server-side postcode/outcode lookup through Postcodes.io and user-supplied latitude/longitude candidates. It may return a clearly labelled synthetic candidate for demo paths, a source-labelled postcode/outcode candidate, or a user-supplied coordinate candidate with deterministic distance/bearing context. It must not fabricate real-world coordinates from the LLM. Geoapify code exists behind `ENABLE_GEOAPIFY_GEOCODING`, but the live provider spike was rejected for current teammate testing because candidate relevance was weak, so the default hosted product keeps Geoapify disabled. All provider or coordinate candidates still require user confirmation before review tools run. If no reliable cached/public/postcode/coordinate candidate exists, the run asks the user for postcode, coordinate, OS grid reference, nearest road/town, local authority, or public evidence.
+
+Candidate objects may include `locationContext`:
+
+| Field | Meaning |
+| --- | --- |
+| `submittedLocation` | Original postcode, outcode, or latitude/longitude supplied by the user. |
+| `coordinate` | Candidate WGS84 latitude/longitude. |
+| `nearestTown`, `ward`, `parish`, `district`, `county`, `region` | Source-labelled administrative context where available. |
+| `nearestAnchor` / `relativeLocation` | Deterministic distance and bearing from a known UK city, for example `about 50 km west of Manchester`. |
 
 Public Nominatim-style broad geocoding is deliberately deferred because the MVP is not a generic geocoding service and would need compliant caching, attribution, rate limiting, and usage controls before use.
 

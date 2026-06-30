@@ -130,21 +130,74 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertIn("near Hexham", " ".join(result["result"]["clarifyingQuestions"]))
 
     def test_durable_run_coordinate_site_profiles_are_activity_specific(self):
-        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+        solar_response = Mock()
+        solar_response.raise_for_status.return_value = None
+        solar_response.json.return_value = {
+            "status": 200,
+            "result": [
+                {
+                    "postcode": "NE46 1AA",
+                    "outcode": "NE46",
+                    "latitude": 54.9712,
+                    "longitude": -2.1010,
+                    "admin_district": "Northumberland",
+                    "admin_ward": "Hexham",
+                    "region": "North East",
+                    "country": "England",
+                }
+            ],
+        }
+        quarry_response = Mock()
+        quarry_response.raise_for_status.return_value = None
+        quarry_response.json.return_value = {
+            "status": 200,
+            "result": [
+                {
+                    "postcode": "SK23 0AA",
+                    "outcode": "SK23",
+                    "latitude": 53.36,
+                    "longitude": -1.93,
+                    "admin_district": "High Peak",
+                    "admin_ward": "Hope Valley",
+                    "region": "East Midlands",
+                    "country": "England",
+                }
+            ],
+        }
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.location_resolver.httpx.get",
+            side_effect=[solar_response, quarry_response],
+        ):
             session = self._session()
-            solar = self._run(
+            solar_created = self._run(
                 session["sessionId"],
                 "I want to visit Foxglove Farm Solar Site at 54.9712, -2.1010 tomorrow for a PV module inspection and access track survey.",
             ).json()
-            quarry = self._run(
+            quarry_created = self._run(
                 session["sessionId"],
                 "I want to visit Moor Edge Quarry at 53.3600, -1.9300 tomorrow for a drainage and slope inspection.",
             ).json()
+            solar = self.client.post(
+                f"/api/runs/{solar_created['runId']}/confirm-location",
+                json={"candidateId": solar_created["result"]["locationCandidates"][0]["candidateId"]},
+            ).json()
+            quarry = self.client.post(
+                f"/api/runs/{quarry_created['runId']}/confirm-location",
+                json={"candidateId": quarry_created["result"]["locationCandidates"][0]["candidateId"]},
+            ).json()
 
+        self.assertEqual(solar_created["status"], "waiting_for_location_confirmation")
+        self.assertEqual(quarry_created["status"], "waiting_for_location_confirmation")
+        self.assertEqual(solar_created["result"]["evidence"], [])
+        self.assertEqual(quarry_created["result"]["evidence"], [])
+        self.assertEqual(solar_created["result"]["locationCandidates"][0]["source"], "user-supplied-coordinate")
+        self.assertEqual(quarry_created["result"]["locationCandidates"][0]["source"], "user-supplied-coordinate")
         self.assertEqual(solar["status"], "completed")
         self.assertEqual(quarry["status"], "completed")
         self.assertEqual(solar["result"]["uiState"]["location"]["label"], "Foxglove Farm Solar Site")
         self.assertEqual(quarry["result"]["uiState"]["location"]["label"], "Moor Edge Quarry")
+        self.assertEqual(solar["result"]["uiState"]["location"]["authority"], "Northumberland")
+        self.assertEqual(quarry["result"]["uiState"]["location"]["authority"], "High Peak")
         solar_titles = {hazard["title"] for hazard in solar["result"]["uiState"]["hazards"]}
         quarry_titles = {hazard["title"] for hazard in quarry["result"]["uiState"]["hazards"]}
         self.assertEqual(solar["result"]["uiState"]["hazards"][0]["title"], "PV electrical isolation and inverter boundary")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -28,6 +29,19 @@ _CACHED_CANDIDATES: list[dict[str, Any]] = [
     }
 ]
 
+_UK_ANCHORS: list[dict[str, float | str]] = [
+    {"name": "London", "latitude": 51.5074, "longitude": -0.1278},
+    {"name": "Manchester", "latitude": 53.4808, "longitude": -2.2426},
+    {"name": "Birmingham", "latitude": 52.4862, "longitude": -1.8904},
+    {"name": "Leeds", "latitude": 53.8008, "longitude": -1.5491},
+    {"name": "Liverpool", "latitude": 53.4084, "longitude": -2.9916},
+    {"name": "Newcastle", "latitude": 54.9783, "longitude": -1.6178},
+    {"name": "Edinburgh", "latitude": 55.9533, "longitude": -3.1883},
+    {"name": "Glasgow", "latitude": 55.8642, "longitude": -4.2518},
+    {"name": "Cardiff", "latitude": 51.4816, "longitude": -3.1791},
+    {"name": "Bristol", "latitude": 51.4545, "longitude": -2.5879},
+]
+
 
 def resolve_location_candidates(
     site_name: str,
@@ -44,14 +58,17 @@ def resolve_location_candidates(
     intent = intent or {}
     normalized_site = _normalize(site_name)
     normalized_message = _normalize(message)
+    coordinate_candidate, coordinate_trace = _coordinate_candidate(site_name, intent)
     matches = [
         _public_candidate(candidate)
         for candidate in _CACHED_CANDIDATES
         if any(term in normalized_site or term in normalized_message for term in candidate["matchTerms"])
     ][:3]
+    if coordinate_candidate:
+        matches = [coordinate_candidate]
     sources_used = sorted({candidate["source"] for candidate in matches}) if matches else []
     postcode_candidate, postcode_trace = _postcode_candidate(site_name, intent)
-    if postcode_candidate:
+    if postcode_candidate and not coordinate_candidate:
         matches = [postcode_candidate, *matches][:3]
         sources_used = sorted({candidate["source"] for candidate in matches})
     geoapify_trace = None
@@ -70,12 +87,13 @@ def resolve_location_candidates(
             "localAuthority": intent.get("localAuthority"),
             "siteTypes": intent.get("siteTypes", []),
             "activities": intent.get("activities", []),
+            "coordinate": intent.get("coordinate"),
         },
         "needsLocationConfirmation": bool(matches),
         "locationCandidates": matches,
         "confirmedLocation": None,
         "nextStage": "confirm_location" if matches else "provide_location_detail",
-        "resolverMode": "fixture-first-plus-postcodes-io-plus-geoapify",
+        "resolverMode": "coordinate-postcode-confirmation-plus-fixtures",
         "minimumEvidenceMet": bool(matches),
         "message": (
             "One or more source-labelled candidate locations were found and need user confirmation."
@@ -85,6 +103,8 @@ def resolve_location_candidates(
         "provisionalRisks": provisional_risks(intent),
     }
     trace_status = status
+    if coordinate_trace:
+        trace_status = coordinate_trace.get("status", status)
     if postcode_trace:
         trace_status = postcode_trace.get("status", status)
     if geoapify_trace and geoapify_trace.get("status") in {"ok", "warning"}:
@@ -100,6 +120,7 @@ def resolve_location_candidates(
             "candidateIds": [candidate["candidateId"] for candidate in matches],
             "nextStage": resolution["nextStage"],
             "sourcesUsed": sources_used,
+            "coordinateLookup": coordinate_trace,
             "postcodeLookup": postcode_trace,
             "geoapifyLookup": geoapify_trace,
             "nearestTown": intent.get("nearestTown"),
@@ -133,6 +154,7 @@ def confirmed_location_to_request(candidate: dict[str, Any], *, message: str, us
             "source": candidate.get("source"),
             "confidence": candidate.get("confidence"),
             "dataMode": candidate.get("dataMode"),
+            "locationContext": candidate.get("locationContext"),
         },
     }
     if candidate.get("latitude") is not None and candidate.get("longitude") is not None:
@@ -179,6 +201,14 @@ def _postcode_candidate(site_name: str, intent: dict[str, Any]) -> tuple[dict[st
             return None, {"status": "warning", "source": "postcodes.io", "reason": "No coordinate returned."}
         source_label = "postcodes.io/postcodes" if postcode else "postcodes.io/outcodes"
         area = postcode or outcode
+        location_context = _build_location_context(
+            latitude=float(latitude),
+            longitude=float(longitude),
+            submitted_type="postcode" if postcode else "outcode",
+            submitted_value=str(area),
+            intent=intent,
+            postcode_result=result,
+        )
         return {
             "candidateId": f"candidate-postcodes-io-{re.sub(r'[^A-Za-z0-9]+', '-', str(area)).strip('-').lower()}",
             "name": site_name,
@@ -186,12 +216,18 @@ def _postcode_candidate(site_name: str, intent: dict[str, Any]) -> tuple[dict[st
             "nearestRoad": None,
             "countyOrAuthority": result.get("admin_district") or result.get("admin_county") or intent.get("localAuthority"),
             "postcodeArea": result.get("outcode") or outcode or (postcode.split()[0] if postcode else None),
+            "ward": result.get("admin_ward"),
+            "parish": result.get("parish"),
+            "region": result.get("region"),
+            "country": result.get("country"),
             "latitude": float(latitude),
             "longitude": float(longitude),
             "confidence": "medium" if postcode else "low",
             "source": source_label,
             "dataMode": "source-labelled-location",
             "reason": "Postcode/outcode lookup gives an approximate location candidate. Confirm before review tools run.",
+            "locationContext": location_context,
+            "relativeLocation": location_context["relativeLocation"],
             "fixturePack": None,
             "intent": intent,
         }, {"status": "ok", "source": source_label, "postcode": postcode, "outcode": outcode}
@@ -203,6 +239,199 @@ def _postcode_candidate(site_name: str, intent: dict[str, Any]) -> tuple[dict[st
             "outcode": outcode,
             "reason": f"Lookup failed: {exc.__class__.__name__}",
         }
+
+
+def _coordinate_candidate(site_name: str, intent: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    coordinate = intent.get("coordinate")
+    if not coordinate:
+        return None, None
+    latitude = float(coordinate[0])
+    longitude = float(coordinate[1])
+    reverse_result, reverse_trace = _reverse_postcode_context(latitude, longitude)
+    location_context = _build_location_context(
+        latitude=latitude,
+        longitude=longitude,
+        submitted_type="coordinate",
+        submitted_value=f"{_format_coordinate(latitude)}, {_format_coordinate(longitude)}",
+        intent=intent,
+        postcode_result=reverse_result,
+    )
+    source_ids = ["user-supplied-coordinate"]
+    if reverse_trace.get("status") == "ok":
+        source_ids.append("postcodes.io/nearest")
+    candidate_id = re.sub(
+        r"[^A-Za-z0-9]+",
+        "-",
+        f"coordinate-{_format_coordinate(latitude)}-{_format_coordinate(longitude)}",
+    ).strip("-").lower()
+    candidate = {
+        "candidateId": f"candidate-{candidate_id}",
+        "name": site_name or "User-supplied coordinate",
+        "nearestTown": intent.get("nearestTown") or location_context.get("nearestTown"),
+        "nearestRoad": None,
+        "countyOrAuthority": location_context.get("district") or location_context.get("county") or intent.get("localAuthority"),
+        "postcodeArea": location_context.get("postcodeArea"),
+        "ward": location_context.get("ward"),
+        "parish": location_context.get("parish"),
+        "region": location_context.get("region"),
+        "country": location_context.get("country"),
+        "latitude": latitude,
+        "longitude": longitude,
+        "confidence": "medium",
+        "source": "user-supplied-coordinate",
+        "sourceIds": source_ids,
+        "dataMode": "source-labelled-coordinate",
+        "reason": "The user supplied this coordinate. Confirm it is the intended site before review tools run.",
+        "locationContext": location_context,
+        "relativeLocation": location_context["relativeLocation"],
+        "fixturePack": None,
+        "intent": intent,
+    }
+    trace = {
+        **reverse_trace,
+        "source": "user-supplied-coordinate",
+        "reversePostcodeSource": reverse_trace.get("source"),
+        "coordinate": {"latitude": latitude, "longitude": longitude},
+        "relativeLocation": location_context["relativeLocation"],
+    }
+    return candidate, trace
+
+
+def _reverse_postcode_context(latitude: float, longitude: float) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    try:
+        response = httpx.get(
+            "https://api.postcodes.io/postcodes",
+            params={"lat": latitude, "lon": longitude, "limit": 1},
+            headers={"User-Agent": "3D-RAMS-hackathon-demo/0.1"},
+            timeout=3.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("result") or []
+        if not results:
+            return None, {"status": "warning", "source": "postcodes.io/nearest", "reason": "No nearest postcode context returned."}
+        result = results[0] or {}
+        return result, {
+            "status": "ok",
+            "source": "postcodes.io/nearest",
+            "postcode": result.get("postcode"),
+            "outcode": result.get("outcode"),
+        }
+    except Exception as exc:
+        return None, {
+            "status": "warning",
+            "source": "postcodes.io/nearest",
+            "reason": f"Reverse lookup unavailable: {exc.__class__.__name__}",
+        }
+
+
+def _build_location_context(
+    *,
+    latitude: float,
+    longitude: float,
+    submitted_type: str,
+    submitted_value: str,
+    intent: dict[str, Any],
+    postcode_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    postcode_result = postcode_result or {}
+    nearest_anchor = _nearest_anchor(latitude, longitude)
+    nearest_town = intent.get("nearestTown") or postcode_result.get("admin_ward") or postcode_result.get("parish")
+    district = postcode_result.get("admin_district") or intent.get("localAuthority")
+    county = postcode_result.get("admin_county")
+    region = postcode_result.get("region")
+    postcode = postcode_result.get("postcode")
+    outcode = postcode_result.get("outcode") or intent.get("outcode")
+    summary_parts = []
+    if nearest_town:
+        summary_parts.append(f"near {nearest_town}")
+    if district:
+        summary_parts.append(f"in {district}")
+    if county and county != district:
+        summary_parts.append(f"{county}")
+    if region:
+        summary_parts.append(f"{region}")
+    summary_parts.append(nearest_anchor["phrase"])
+    return {
+        "submittedLocation": {"type": submitted_type, "value": submitted_value},
+        "coordinate": {"latitude": latitude, "longitude": longitude},
+        "nearestTown": nearest_town,
+        "ward": postcode_result.get("admin_ward"),
+        "parish": postcode_result.get("parish"),
+        "district": district,
+        "county": county,
+        "region": region,
+        "country": postcode_result.get("country"),
+        "postcode": postcode,
+        "postcodeArea": outcode,
+        "nearestAnchor": nearest_anchor,
+        "relativeLocation": nearest_anchor["phrase"],
+        "summary": ", ".join(part for part in summary_parts if part),
+        "sourceLabels": [submitted_type, *(["postcodes.io"] if postcode_result else [])],
+    }
+
+
+def _nearest_anchor(latitude: float, longitude: float) -> dict[str, Any]:
+    ranked = sorted(
+        (
+            (
+                _haversine_km(latitude, longitude, float(anchor["latitude"]), float(anchor["longitude"])),
+                anchor,
+            )
+            for anchor in _UK_ANCHORS
+        ),
+        key=lambda item: item[0],
+    )
+    distance_km, anchor = ranked[0]
+    bearing = _bearing_degrees(float(anchor["latitude"]), float(anchor["longitude"]), latitude, longitude)
+    direction = _bearing_to_cardinal(bearing)
+    city = str(anchor["name"])
+    rounded_distance = int(round(distance_km))
+    return {
+        "city": city,
+        "distanceKm": rounded_distance,
+        "bearingDegrees": round(bearing, 1),
+        "direction": direction,
+        "phrase": f"about {rounded_distance} km {direction} of {city}",
+    }
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius_km = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    return radius_km * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _bearing_degrees(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_lambda = math.radians(lon2 - lon1)
+    y = math.sin(delta_lambda) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+def _bearing_to_cardinal(bearing: float) -> str:
+    directions = [
+        "north",
+        "north-east",
+        "east",
+        "south-east",
+        "south",
+        "south-west",
+        "west",
+        "north-west",
+    ]
+    return directions[int((bearing + 22.5) // 45) % 8]
+
+
+def _format_coordinate(value: float) -> str:
+    formatted = f"{value:.6f}".rstrip("0").rstrip(".")
+    return formatted if formatted != "-0" else "0"
 
 
 def provisional_risks(intent: dict[str, Any] | None) -> list[dict[str, Any]]:

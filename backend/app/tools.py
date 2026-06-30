@@ -217,20 +217,35 @@ def resolve_location(
 
     latitude = float(request.get("latitude", 52.2053))
     longitude = float(request.get("longitude", -1.6022))
+    confirmed_location = (request.get("locationResolution") or {}).get("confirmedLocation") or {}
+    source_ids = confirmed_location.get("sourceIds") or []
+    if confirmed_location.get("source") and confirmed_location.get("source") not in source_ids:
+        source_ids = [*source_ids, confirmed_location["source"]]
+    data_mode = confirmed_location.get("dataMode") or "synthetic-fixture"
+    authority = (
+        confirmed_location.get("countyOrAuthority")
+        or confirmed_location.get("district")
+        or confirmed_location.get("region")
+        or "Syntheticshire District Council"
+    )
     location = {
         "label": request.get("siteName") or "Demo rural field fixture",
         "latitude": latitude,
         "longitude": longitude,
-        "authority": "Syntheticshire District Council",
+        "authority": authority,
         "coordinate_system": "WGS84",
-        "confidence": "high" if request.get("latitude") and request.get("longitude") else "medium",
+        "confidence": confirmed_location.get("confidence") or ("high" if request.get("latitude") and request.get("longitude") else "medium"),
+        "dataMode": data_mode,
+        "sourceIds": source_ids or ["location-fixture"],
+        "locationContext": confirmed_location.get("locationContext"),
+        "relativeLocation": confirmed_location.get("relativeLocation"),
     }
     return location, trace_step(
         "resolve_location",
         "ok",
-        "Resolved the submitted coordinate to the public-safe demo location fixture.",
-        {"location": location, "dataMode": "synthetic-fixture"},
-        source_ids=["user-request", "location-fixture"],
+        "Resolved the user-confirmed location candidate into the review workflow coordinate.",
+        {"location": location, "dataMode": data_mode},
+        source_ids=["user-request", *location["sourceIds"]],
     )
 
 
@@ -594,7 +609,7 @@ def generate_site_brief(
         "site": location["label"],
         "headline": "Pre-visit 3D field briefing for early RAMS scoping.",
         "summary": [
-            f"Coordinate resolved to {location['latitude']}, {location['longitude']} in the demo authority fixture.",
+            f"Coordinate resolved to {location['latitude']}, {location['longitude']} with authority/context label: {location.get('authority', 'not available')}.",
             f"{len(hazards)} candidate hazards were found from geospatial and planning fixtures.",
             "The output is a review pack, not operational approval.",
         ],

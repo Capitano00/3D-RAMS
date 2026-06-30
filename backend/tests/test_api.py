@@ -256,7 +256,24 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(resolver_step["output"]["candidateCount"], 0)
 
     def test_chat_endpoint_coordinate_named_site_uses_synthetic_coordinate_not_lambeth(self):
-        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "status": 200,
+            "result": [
+                {
+                    "postcode": "KY12 9AB",
+                    "outcode": "KY12",
+                    "latitude": 56.123,
+                    "longitude": -3.456,
+                    "admin_district": "Fife",
+                    "admin_ward": "Dunfermline Central",
+                    "region": "Scotland",
+                    "country": "Scotland",
+                }
+            ],
+        }
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None), patch("app.location_resolver.httpx.get", return_value=fake_response):
             session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
             response = self.client.post(
                 "/api/chat",
@@ -269,16 +286,43 @@ class ApiContractTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         result = response.json()
-        self.assertFalse(result["needsClarification"])
+        self.assertTrue(result["needsClarification"])
+        self.assertTrue(result["needsLocationConfirmation"])
+        self.assertEqual(result["nextStage"], "confirm_location")
         self.assertNotIn("8 Albert Embankment", result["assistantMessage"])
         self.assertIn("Bilsbrae", result["assistantMessage"])
-        self.assertAlmostEqual(result["uiState"]["location"]["latitude"], 56.1234)
-        self.assertAlmostEqual(result["uiState"]["location"]["longitude"], -3.4567)
-        self.assertIsNone(result["runtime"]["fixturePack"])
-        self.assertEqual(result["runtime"]["fixturePackMode"], "synthetic-default")
+        self.assertIsNone(result["scene"])
+        self.assertEqual(result["evidence"], [])
+        candidate = result["locationCandidates"][0]
+        self.assertEqual(candidate["source"], "user-supplied-coordinate")
+        self.assertEqual(candidate["dataMode"], "source-labelled-coordinate")
+        self.assertAlmostEqual(candidate["latitude"], 56.1234)
+        self.assertAlmostEqual(candidate["longitude"], -3.4567)
+        self.assertEqual(candidate["locationContext"]["district"], "Fife")
+        parse_step = next(step for step in result["trace"] if step["name"] == "chat_parse_user_request")
+        self.assertEqual(parse_step["output"]["siteResolution"], "coordinate-confirmation")
+        resolver_step = next(step for step in result["trace"] if step["name"] == "resolve_location_candidates")
+        self.assertEqual(resolver_step["output"]["candidateCount"], 1)
 
     def test_chat_endpoint_coordinate_site_keeps_clean_label_and_prompt_risks(self):
-        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "status": 200,
+            "result": [
+                {
+                    "postcode": "NE46 1AA",
+                    "outcode": "NE46",
+                    "latitude": 54.9712,
+                    "longitude": -2.1010,
+                    "admin_district": "Northumberland",
+                    "admin_ward": "Hexham",
+                    "region": "North East",
+                    "country": "England",
+                }
+            ],
+        }
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None), patch("app.location_resolver.httpx.get", return_value=fake_response):
             session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
             response = self.client.post(
                 "/api/chat",
@@ -292,9 +336,12 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         result = response.json()
         hazards = result["uiState"]["hazards"]
-        self.assertEqual(result["uiState"]["location"]["label"], "Foxglove Farm Solar Site")
-        self.assertEqual(hazards[0]["title"], "PV electrical isolation and inverter boundary")
-        self.assertTrue(any(hazard["title"] == "PV electrical isolation and inverter boundary" for hazard in hazards))
+        self.assertIsNone(result["uiState"]["location"])
+        self.assertTrue(result["needsLocationConfirmation"])
+        self.assertEqual(result["locationCandidates"][0]["name"], "Foxglove Farm Solar Site")
+        self.assertEqual(result["locationCandidates"][0]["locationContext"]["nearestTown"], "Hexham")
+        self.assertEqual(hazards[0]["title"], "PV electrical isolation and inverter interface")
+        self.assertTrue(any(hazard["title"] == "PV electrical isolation and inverter interface" for hazard in hazards))
         self.assertTrue(any(hazard.get("dataMode") == "provisional-from-user-description" for hazard in hazards))
 
     def test_chat_endpoint_postcode_prompt_returns_source_labelled_candidate(self):
