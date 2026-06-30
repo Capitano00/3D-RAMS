@@ -199,7 +199,7 @@ textarea {
 
 .insight-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(300px, 0.75fr) minmax(340px, 1fr) minmax(0, 1.15fr);
   gap: 14px;
   margin-top: 14px;
 }
@@ -381,6 +381,7 @@ textarea {
 .risk-grid article,
 .compact-row,
 .runtime-strip article,
+.review-summary article,
 .briefing-block {
   border: 1px solid #dce4e0;
   border-radius: 8px;
@@ -413,11 +414,40 @@ textarea {
   min-height: 420px;
 }
 
+.assurance-panel {
+  min-height: 420px;
+}
+
 .runtime-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 14px;
+}
+
+.review-summary {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.review-summary article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 4px 8px;
+}
+
+.review-summary span {
+  color: #5f706a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.review-summary p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #4d625b;
 }
 
 .runtime-strip span,
@@ -440,7 +470,15 @@ textarea {
   padding: 0 14px 14px;
 }
 
-.evidence-trace-grid h3 {
+.assurance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  padding: 0 14px 14px;
+}
+
+.evidence-trace-grid h3,
+.assurance-grid h3 {
   margin-bottom: 8px;
 }
 
@@ -458,6 +496,14 @@ textarea {
   border-left: 3px solid #0b6f65;
 }
 
+.section-row {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.section-row span {
+  grid-column: 1 / -1;
+}
+
 .status {
   width: max-content;
   border-radius: 999px;
@@ -471,6 +517,8 @@ textarea {
 
 .status.low,
 .status.warning,
+.status.review_required,
+.status.caveats,
 .status.fallback {
   background: #fff5df;
   color: #8a5600;
@@ -479,9 +527,16 @@ textarea {
 .status.high,
 .status.ok,
 .status.cached,
+.status.ready,
+.status.passed,
 .status.real {
   background: #eefaf6;
   color: #075e4e;
+}
+
+.status.blocked {
+  background: #fff4ed;
+  color: #8a2d10;
 }
 
 .error-banner {
@@ -503,6 +558,7 @@ textarea {
   .product-grid,
   .insight-grid,
   .evidence-trace-grid,
+  .assurance-grid,
   .runtime-strip {
     grid-template-columns: 1fr;
   }
