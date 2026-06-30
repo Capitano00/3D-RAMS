@@ -147,7 +147,7 @@ Response:
 - no review pack, risk cards, or evidence are produced before this confirmation;
 - invalid candidate ids return a safe `400` error.
 
-The current MVP resolver is fixture-first plus server-side postcode/outcode lookup through Postcodes.io. It may return a clearly labelled synthetic candidate for demo paths, and it may return a source-labelled postcode/outcode candidate, but it must not fabricate real-world coordinates from the LLM. If no reliable cached/public/postcode candidate exists, the run asks the user for postcode, coordinate, nearest road/town, or local authority.
+The current MVP resolver is fixture-first plus server-side postcode/outcode lookup through Postcodes.io. It may return a clearly labelled synthetic candidate for demo paths, and it may return a source-labelled postcode/outcode candidate, but it must not fabricate real-world coordinates from the LLM. If `ENABLE_GEOAPIFY_GEOCODING=true` and `GEOAPIFY_API_KEY` is configured server-side, the resolver may also return up to three Geoapify source-labelled candidates for arbitrary named sites. All provider candidates still require user confirmation before review tools run. If no reliable cached/public/postcode/provider candidate exists, the run asks the user for postcode, coordinate, nearest road/town, or local authority.
 
 Public Nominatim-style broad geocoding is deliberately deferred because the MVP is not a generic geocoding service and would need compliant caching, attribution, rate limiting, and usage controls before use.
 

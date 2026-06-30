@@ -2,7 +2,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -193,6 +193,58 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(result["result"]["uiState"]["location"]["label"], "Greenacre Solar Farm")
         self.assertIsNone(result["result"]["runtime"]["fixturePack"])
         self.assertEqual(result["result"]["runtime"]["fixturePackMode"], "synthetic-default")
+        self.assertNotIn("8 Albert Embankment", result["result"]["assistantMessage"])
+
+    def test_durable_run_geoapify_candidate_requires_confirmation_before_tools(self):
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "place_id": "foxglove-demo-place",
+                        "formatted": "Foxglove Farm Solar Site, Hexham, Northumberland, UK",
+                        "city": "Hexham",
+                        "county": "Northumberland",
+                        "postcode": "NE46",
+                        "lat": 54.9712,
+                        "lon": -2.101,
+                        "rank": {"confidence": 0.83},
+                    },
+                    "geometry": {"type": "Point", "coordinates": [-2.101, 54.9712]},
+                }
+            ],
+        }
+        with EnvPatch(
+            ENABLE_BEDROCK="false",
+            APP_ACCESS_TOKEN_HASH=None,
+            DURABLE_RUN_PROCESS_INLINE="true",
+            ENABLE_GEOAPIFY_GEOCODING="true",
+            GEOAPIFY_API_KEY="test-key",
+        ), patch("app.geoapify_resolver.httpx.get", return_value=fake_response):
+            session = self._session()
+            response = self._run(
+                session["sessionId"],
+                "I want to visit Foxglove Farm Solar Site near Hexham tomorrow for a PV module inspection.",
+            )
+            created = response.json()
+            confirm = self.client.post(
+                f"/api/runs/{created['runId']}/confirm-location",
+                json={"candidateId": created["result"]["locationCandidates"][0]["candidateId"]},
+            )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(created["status"], "waiting_for_location_confirmation")
+        self.assertEqual(created["modelCallsUsed"], 0)
+        self.assertTrue(created["result"]["needsLocationConfirmation"])
+        self.assertEqual(created["result"]["locationCandidates"][0]["source"], "geoapify/geocode/search")
+        self.assertEqual(created["result"]["evidence"], [])
+        self.assertEqual(confirm.status_code, 202)
+        result = confirm.json()
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["result"]["uiState"]["location"]["label"], "Foxglove Farm Solar Site, Hexham, Northumberland, UK")
         self.assertNotIn("8 Albert Embankment", result["result"]["assistantMessage"])
 
     def test_durable_run_safety_blocks_certified_rams_request(self):

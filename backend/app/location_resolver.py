@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from .geoapify_resolver import resolve_geoapify_candidates
 from .tools import trace_step
 
 
@@ -53,6 +54,12 @@ def resolve_location_candidates(
     if postcode_candidate:
         matches = [postcode_candidate, *matches][:3]
         sources_used = sorted({candidate["source"] for candidate in matches})
+    geoapify_trace = None
+    if not postcode_candidate and not matches:
+        geoapify_candidates, geoapify_trace = resolve_geoapify_candidates(site_name, intent)
+        if geoapify_candidates:
+            matches = geoapify_candidates[:3]
+            sources_used = sorted({candidate["source"] for candidate in matches})
     status = "ok" if matches else "warning"
     resolution = {
         "siteName": site_name,
@@ -68,7 +75,7 @@ def resolve_location_candidates(
         "locationCandidates": matches,
         "confirmedLocation": None,
         "nextStage": "confirm_location" if matches else "provide_location_detail",
-        "resolverMode": "fixture-first-plus-postcodes-io",
+        "resolverMode": "fixture-first-plus-postcodes-io-plus-geoapify",
         "minimumEvidenceMet": bool(matches),
         "message": (
             "One or more source-labelled candidate locations were found and need user confirmation."
@@ -77,11 +84,15 @@ def resolve_location_candidates(
         ),
         "provisionalRisks": provisional_risks(intent),
     }
-    trace_status = status if not postcode_trace else postcode_trace.get("status", status)
+    trace_status = status
+    if postcode_trace:
+        trace_status = postcode_trace.get("status", status)
+    if geoapify_trace and geoapify_trace.get("status") in {"ok", "warning"}:
+        trace_status = geoapify_trace["status"]
     trace = trace_step(
         "resolve_location_candidates",
         trace_status,
-        "Searched allowlisted cached location candidates before starting the review workflow.",
+        "Searched allowlisted cached, postcode, and optional Geoapify candidate tools before starting the review workflow.",
         {
             "siteName": site_name,
             "resolverMode": resolution["resolverMode"],
@@ -90,6 +101,7 @@ def resolve_location_candidates(
             "nextStage": resolution["nextStage"],
             "sourcesUsed": sources_used,
             "postcodeLookup": postcode_trace,
+            "geoapifyLookup": geoapify_trace,
             "nearestTown": intent.get("nearestTown"),
             "provisionalRiskCount": len(resolution["provisionalRisks"]),
         },

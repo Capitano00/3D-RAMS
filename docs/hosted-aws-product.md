@@ -59,6 +59,7 @@ Implemented for the MVP code path:
 - visible map, evidence, trace, risk, and safety panels.
 - V3.1 intent parser and location-resolution loop that pauses named-site-only prompts before site-specific review generation.
 - server-side Postcodes.io postcode/outcode lookup for source-labelled location candidates, with broad site-name web geocoding deferred.
+- optional server-side Geoapify candidate geocoding spike behind `ENABLE_GEOAPIFY_GEOCODING` and `GEOAPIFY_API_KEY`; candidates still require user confirmation before review tools run.
 - provisional site/activity risk profiles for name-only or coordinate-backed arbitrary sites, labelled separately from evidence-backed findings.
 
 Hosted MVP endpoints and resources:
@@ -90,6 +91,7 @@ The `feature/durable-runs-tool-loop` branch now carries the V3.1 runtime:
 - name-only prompts can return a clearly labelled provisional checklist pending location evidence, but not site-specific map/evidence findings;
 - coordinate-backed arbitrary sites can return low-confidence synthetic packs with site/activity-specific provisional risks;
 - the resolver does not use broad public Nominatim geocoding in the MVP. Postcodes.io is used only server-side for postcode/outcode clues and must be source-labelled in the UI;
+- Geoapify can be enabled as a server-side candidate resolver for arbitrary named sites, but it must never auto-start map/evidence/review tools. The user confirms a candidate first, and provider failure falls back to the existing provisional checklist / location-evidence request.
 - the backend executes only allowlisted tools from a registry;
 - planner, reasoner, and compiler phases have separate token budgets;
 - the run store remains local/memory-backed until a separate DynamoDB run table plus worker path is reviewed.
@@ -128,6 +130,10 @@ BEDROCK_MAX_MODEL_CALLS=2
 S3_UPLOAD_BUCKET=<private evidence bucket>
 DYNAMODB_SESSION_TABLE=<session trace table>
 UPLOAD_RETENTION_DAYS=7
+ENABLE_GEOAPIFY_GEOCODING=false
+GEOAPIFY_API_KEY=<server-side key only>
+GEOAPIFY_GEOCODING_LIMIT=3
+GEOAPIFY_GEOCODING_TIMEOUT_SECONDS=4
 ```
 
 Generate the access-code hash locally and store only the hash in backend settings:

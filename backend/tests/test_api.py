@@ -332,6 +332,90 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(candidate["dataMode"], "source-labelled-location")
         self.assertEqual(candidate["countyOrAuthority"], "Westminster")
 
+    def test_chat_endpoint_geoapify_prompt_returns_source_labelled_candidate_when_enabled(self):
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "place_id": "foxglove-demo-place",
+                        "formatted": "Foxglove Farm Solar Site, Hexham, Northumberland, UK",
+                        "city": "Hexham",
+                        "county": "Northumberland",
+                        "postcode": "NE46",
+                        "lat": 54.9712,
+                        "lon": -2.101,
+                        "rank": {"confidence": 0.83},
+                    },
+                    "geometry": {"type": "Point", "coordinates": [-2.101, 54.9712]},
+                }
+            ],
+        }
+        with EnvPatch(
+            ENABLE_BEDROCK="false",
+            APP_ACCESS_TOKEN_HASH=None,
+            ENABLE_GEOAPIFY_GEOCODING="true",
+            GEOAPIFY_API_KEY="test-key",
+        ), patch("app.geoapify_resolver.httpx.get", return_value=fake_response) as get_mock:
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Foxglove Farm Solar Site near Hexham tomorrow for a PV module inspection.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get_mock.call_count, 1)
+        result = response.json()
+        self.assertTrue(result["needsLocationConfirmation"])
+        self.assertEqual(result["nextStage"], "confirm_location")
+        self.assertEqual(result["scene"], None)
+        self.assertEqual(result["evidence"], [])
+        candidate = result["locationCandidates"][0]
+        self.assertEqual(candidate["source"], "geoapify/geocode/search")
+        self.assertEqual(candidate["provider"], "Geoapify")
+        self.assertEqual(candidate["dataMode"], "source-labelled-location")
+        self.assertEqual(candidate["confidence"], "high")
+        resolver_step = next(step for step in result["trace"] if step["name"] == "resolve_location_candidates")
+        self.assertEqual(resolver_step["output"]["geoapifyLookup"]["status"], "ok")
+        self.assertEqual(resolver_step["output"]["candidateCount"], 1)
+
+    def test_chat_endpoint_geoapify_failure_falls_back_to_provisional_location_gate(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="false",
+            APP_ACCESS_TOKEN_HASH=None,
+            ENABLE_GEOAPIFY_GEOCODING="true",
+            GEOAPIFY_API_KEY="test-key",
+        ), patch("app.geoapify_resolver.httpx.get", side_effect=RuntimeError("rate limit")):
+            session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Foxglove Farm Solar Site near Hexham tomorrow for a PV module inspection.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result["needsClarification"])
+        self.assertFalse(result["needsLocationConfirmation"])
+        self.assertEqual(result["nextStage"], "provide_location_detail")
+        self.assertEqual(result["locationCandidates"], [])
+        self.assertEqual(result["scene"], None)
+        self.assertEqual(result["evidence"], [])
+        self.assertEqual(result["uiState"]["reviewMode"], "provisional checklist pending location")
+        resolver_step = next(step for step in result["trace"] if step["name"] == "resolve_location_candidates")
+        self.assertEqual(resolver_step["output"]["geoapifyLookup"]["status"], "warning")
+        self.assertEqual(resolver_step["output"]["candidateCount"], 0)
+
     def test_chat_endpoint_standalone_certification_request_is_blocked(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None):
             session = self.client.post("/api/session/start", json={"testerAlias": "qa"}).json()
