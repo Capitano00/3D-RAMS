@@ -127,7 +127,7 @@ export class AgentCoreStack extends Stack {
         continue;
       }
       env.runtime.addEnvironmentVariable('RAMS_REPORT_STORE_TABLE', reportStore.tableName);
-      reportStore.grantWriteData(env.runtime.role);
+      reportStore.grantReadWriteData(env.runtime.role);
     }
 
     // Create AgentCoreMcp if there are gateways configured

@@ -11,6 +11,9 @@ class DynamoTable(Protocol):
     def put_item(self, *, Item: dict[str, Any]) -> Any:  # noqa: N803 - boto3 API casing
         ...
 
+    def get_item(self, *, Key: dict[str, Any]) -> dict[str, Any]:  # noqa: N803 - boto3 API casing
+        ...
+
 
 class ReportStoreError(RuntimeError):
     pass
@@ -47,6 +50,79 @@ def persist_report(
         }
 
 
+def load_report(
+    case_id: str,
+    *,
+    table: DynamoTable | None = None,
+    table_name: str | None = None,
+) -> dict[str, Any]:
+    resolved_table_name = table_name or os.getenv("RAMS_REPORT_STORE_TABLE")
+    if not resolved_table_name and table is None:
+        return {
+            "output": {
+                "caseId": case_id,
+                "reportStatus": "not_found",
+                "workflowMode": "report_lookup",
+                "persistence": {
+                    "mode": "disabled",
+                    "status": "skipped",
+                    "reason": "RAMS_REPORT_STORE_TABLE is not set.",
+                    "caseId": case_id,
+                },
+            }
+        }
+
+    try:
+        dynamo_table = table or _dynamodb_table(str(resolved_table_name))
+        response = dynamo_table.get_item(Key={"caseId": case_id})
+        item = response.get("Item") if isinstance(response, dict) else None
+        if not isinstance(item, dict):
+            return {
+                "output": {
+                    "caseId": case_id,
+                    "reportStatus": "not_found",
+                    "workflowMode": "report_lookup",
+                    "persistence": {
+                        "mode": "dynamodb",
+                        "status": "not_found",
+                        "tableName": resolved_table_name,
+                        "caseId": case_id,
+                    },
+                }
+            }
+        return {
+            "output": {
+                "caseId": case_id,
+                "reportStatus": item.get("reportStatus") or "unknown",
+                "workflowMode": item.get("workflowMode") or "report_lookup",
+                "structuredReport": item.get("structuredReport"),
+                "run": item.get("run"),
+                "persistence": {
+                    "mode": "dynamodb",
+                    "status": "loaded",
+                    "tableName": resolved_table_name,
+                    "caseId": case_id,
+                    "updatedAt": item.get("updatedAt"),
+                },
+            }
+        }
+    except Exception as exc:  # noqa: BLE001 - lookup errors should be visible to the caller.
+        return {
+            "output": {
+                "caseId": case_id,
+                "reportStatus": "lookup_error",
+                "workflowMode": "report_lookup",
+                "persistence": {
+                    "mode": "dynamodb",
+                    "status": "error",
+                    "tableName": resolved_table_name,
+                    "caseId": case_id,
+                    "message": str(exc),
+                },
+            }
+        }
+
+
 def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
     case_id = _text(output.get("caseId"))
     if not case_id:
@@ -70,6 +146,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
         "evidenceCount": len(run.get("evidence") or []),
         "traceCount": len(run.get("trace") or []),
         "structuredReport": report,
+        "run": run,
         "runSummary": {
             "runId": _text(run.get("runId")),
             "runtime": run.get("runtime") if isinstance(run.get("runtime"), dict) else {},

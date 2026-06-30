@@ -19,6 +19,7 @@ const AGENTCORE_URL = import.meta.env.VITE_AGENTCORE_URL || "/agentcore/invocati
 const CLOUD_ENTRY_PROXY_URL = import.meta.env.VITE_CLOUD_ENTRY_PROXY_URL || "";
 const USE_LOCAL_ASIONE = import.meta.env.VITE_USE_LOCAL_ASIONE === "true";
 const ENTRY_AGENT_URL = USE_LOCAL_ASIONE ? import.meta.env.VITE_LOCAL_ASIONE_URL || AGENTCORE_URL : CLOUD_ENTRY_PROXY_URL;
+const REPORT_LOOKUP_URL = USE_LOCAL_ASIONE ? AGENTCORE_URL : ENTRY_AGENT_URL;
 const STARTER_PROMPT =
   "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.";
 
@@ -108,6 +109,29 @@ function buildLocalAsiOnePayload({ submittedText, request, uploads }) {
         summary: upload.summary,
       })),
     },
+  };
+}
+
+function caseIdFromPath() {
+  const match = window.location.pathname.match(/^\/case\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function buildReportLookupPayload(caseId) {
+  if (USE_LOCAL_ASIONE) {
+    return {
+      input: {
+        operation: "getReport",
+        caseId,
+      },
+    };
+  }
+  return {
+    frontendInvoke: true,
+    operation: "getReport",
+    caseId,
+    conversationId: "frontend-demo-session",
+    entryAgentId: "fieldbrief-demo-ui",
   };
 }
 
@@ -308,6 +332,8 @@ function App() {
   ]);
   const [uploads, setUploads] = useState([]);
   const [run, setRun] = useState(null);
+  const [caseId, setCaseId] = useState(caseIdFromPath());
+  const [persistence, setPersistence] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -345,8 +371,10 @@ function App() {
       });
       if (!response.ok) throw new Error(`Agent run failed (${response.status})`);
       const payload = await response.json();
+      const output = payload.output || {};
       const nextEntryResponse = payload.output?.localAsiOne || payload.output?.entryAgent || null;
       setEntryResponse(nextEntryResponse);
+      setPersistence(output.persistence || nextEntryResponse?.agentcoreOutput?.persistence || null);
       if (nextEntryResponse) {
         setMessages((current) => [
           ...current,
@@ -365,7 +393,49 @@ function App() {
       }
       const nextRun = nextEntryResponse?.run || payload.output?.run;
       if (!nextRun) throw new Error("Entry agent response did not include a supervisor run");
+      const nextCaseId = output.caseId || nextEntryResponse?.caseId || nextRun.caseId || "";
+      setCaseId(nextCaseId);
+      if (nextCaseId && output.persistence?.status === "stored") {
+        window.history.replaceState(null, "", `/case/${encodeURIComponent(nextCaseId)}`);
+      }
       setRun(nextRun);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadCaseReport(nextCaseId) {
+    if (!nextCaseId || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      if (!REPORT_LOOKUP_URL) {
+        throw new Error("Report lookup is not configured. Set VITE_CLOUD_ENTRY_PROXY_URL, or use local ASI:ONE mode with the AgentCore proxy.");
+      }
+      const response = await fetch(REPORT_LOOKUP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildReportLookupPayload(nextCaseId)),
+      });
+      if (!response.ok) throw new Error(`Report lookup failed (${response.status})`);
+      const payload = await response.json();
+      const output = payload.output || {};
+      setPersistence(output.persistence || null);
+      if (!output.run) {
+        throw new Error(`No stored report found for ${nextCaseId}.`);
+      }
+      setEntryResponse(null);
+      setCaseId(output.caseId || nextCaseId);
+      setRun(output.run);
+      setMessages([
+        {
+          id: `case-${nextCaseId}`,
+          role: "assistant",
+          text: output.structuredReport?.executiveSummary?.headline || "Stored report loaded.",
+        },
+      ]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -401,10 +471,22 @@ function App() {
       },
     ]);
     setUploads([]);
+    setRun(null);
+    setEntryResponse(null);
+    setCaseId("");
+    setPersistence(null);
+    if (window.location.pathname.startsWith("/case/")) {
+      window.history.replaceState(null, "", "/");
+    }
     sendToFieldBrief(STARTER_PROMPT, false);
   }
 
   useEffect(() => {
+    const routeCaseId = caseIdFromPath();
+    if (routeCaseId) {
+      loadCaseReport(routeCaseId);
+      return;
+    }
     sendToFieldBrief(STARTER_PROMPT, false);
   }, []);
 
@@ -434,6 +516,11 @@ function App() {
             <Cloud size={16} />
             {runtime.subagentExecutionMode || runtime.supervisorRuntime || (USE_LOCAL_ASIONE ? "local" : "cloud")}
           </div>
+          {caseId && (
+            <div className="safety-pill pending" title={persistence?.status || "case id"}>
+              {caseId}
+            </div>
+          )}
         </div>
       </header>
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent import run_site_briefing
-from .report_store import persist_report
+from .report_store import load_report, persist_report
 from .structured_report import build_structured_report
 
 
@@ -42,6 +42,9 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
 def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
     payload = payload or {}
     request = _extract_request(payload)
+    if _is_report_lookup_request(request):
+        return load_report(str(request["caseId"]))
+
     run = run_site_briefing(request)
     case_id = run.get("caseId")
     report_status = "review_required" if run["safety"]["allowed"] else "blocked"
@@ -91,6 +94,11 @@ def _extract_request(payload: dict[str, Any]) -> dict[str, Any]:
         if not request.get("caseId") and isinstance(upstream, dict) and upstream.get("caseId"):
             request["caseId"] = str(upstream["caseId"])
     return request
+
+
+def _is_report_lookup_request(request: dict[str, Any]) -> bool:
+    operation = str(request.get("operation") or request.get("action") or "").strip().lower()
+    return operation in {"getreport", "get_report", "lookupreport", "lookup_report"} and bool(request.get("caseId"))
 
 
 def _workflow_mode(run: dict[str, Any]) -> str:

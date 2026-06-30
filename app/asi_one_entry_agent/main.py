@@ -98,6 +98,9 @@ def handle_invocation(
     invoke_runtime=invoke_runtime_json,
 ) -> dict[str, Any]:
     payload = payload or {}
+    if _is_report_lookup_payload(payload):
+        return _handle_report_lookup(payload, supervisor_runtime_arn=supervisor_runtime_arn, invoke_runtime=invoke_runtime)
+
     if not _is_structured_frontend_payload(payload):
         raise AdapterValidationError("Structured entry payload must include frontendInvoke or intake.")
 
@@ -124,6 +127,7 @@ def handle_invocation(
             "structuredReport": output.get("structuredReport"),
             "reportStatus": output.get("reportStatus") or delivery.get("status"),
             "workflowMode": output.get("workflowMode") or delivery.get("workflowMode"),
+            "persistence": output.get("persistence"),
             "entryAgent": {
                 "mode": "cloud-supervisor-handoff",
                 "adapterVersion": "asi-one-entry-agent-v1",
@@ -190,7 +194,7 @@ if app is not None:
     async def invoke(payload: dict[str, Any], context: Any):
         log.info("Invoking 3D-RAMS AgentVerse entry runtime.")
 
-        if _is_structured_frontend_payload(payload):
+        if _is_structured_frontend_payload(payload) or _is_report_lookup_payload(payload):
             result = handle_invocation(payload)
             yield _text_delta_event(json.dumps(result))
             return
@@ -211,6 +215,44 @@ if app is not None:
 
 def _is_structured_frontend_payload(payload: dict[str, Any]) -> bool:
     return bool(payload.get("frontendInvoke") or payload.get("intake"))
+
+
+def _is_report_lookup_payload(payload: dict[str, Any]) -> bool:
+    operation = str(payload.get("operation") or payload.get("action") or "").strip().lower()
+    return operation in {"getreport", "get_report", "lookupreport", "lookup_report"} and bool(payload.get("caseId"))
+
+
+def _handle_report_lookup(
+    payload: dict[str, Any],
+    *,
+    supervisor_runtime_arn: str | None = None,
+    invoke_runtime=invoke_runtime_json,
+) -> dict[str, Any]:
+    runtime_arn = supervisor_runtime_arn or os.getenv("RAMS_SUPERVISOR_RUNTIME_ARN")
+    if not runtime_arn:
+        raise AdapterValidationError("RAMS_SUPERVISOR_RUNTIME_ARN is required for report lookup.")
+
+    case_id = str(payload["caseId"])
+    conversation_id = str(payload.get("conversationId") or payload.get("sessionId") or f"report-lookup-{case_id}")
+    user_id = str(payload.get("userId") or "3d-rams-entry-agent")
+    response = invoke_runtime(
+        runtime_arn=runtime_arn,
+        payload={"input": {"operation": "getReport", "caseId": case_id}},
+        session_id=conversation_id,
+        user_id=user_id,
+    )
+    output = response.get("output") if isinstance(response.get("output"), dict) else {}
+    return {
+        "output": {
+            **output,
+            "entryAgent": {
+                "mode": "cloud-report-lookup",
+                "adapterVersion": "asi-one-entry-agent-v1",
+                "conversationId": conversation_id,
+                "caseId": case_id,
+            },
+        }
+    }
 
 
 def _text_delta_event(text: str) -> dict[str, Any]:

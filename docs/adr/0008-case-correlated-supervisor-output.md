@@ -33,6 +33,8 @@ The supervisor runtime must echo the same id in:
 
 When `RAMS_REPORT_STORE_TABLE` is set, the supervisor runtime must also write a DynamoDB report-store item keyed by `caseId`. When the variable is unset, the runtime must skip persistence and keep the no-AWS local demo path runnable.
 
+The same AgentCore invocation path should support report lookup with `operation: "getReport"` and `caseId`. Cloud frontend callers should send lookup requests through the AgentVerse entry proxy, which forwards them to the supervisor runtime.
+
 ## Boundaries
 
 The `caseId` is the DynamoDB partition key only when report-store persistence is configured. It is not:
@@ -66,8 +68,9 @@ Tradeoffs:
 - Local deterministic ASI:ONE fallback and cloud handoff paths expose the same field.
 - When `RAMS_REPORT_STORE_TABLE` is unset, output includes skipped persistence status and no AWS write is attempted.
 - When `RAMS_REPORT_STORE_TABLE` is set, supervisor output writes a DynamoDB item keyed by `caseId` and returns stored/error status.
+- Report lookup by `caseId` returns the stored `run` and `structuredReport` payloads when present.
 - Public docs describe DynamoDB persistence without implying certified RAMS output, approval to work, or independent review completion.
 
 ## Next Review Trigger
 
-Revisit this ADR when `/case/{caseId}` routing, report retrieval APIs, retention policy, or CloudWatch search dashboards are implemented.
+Revisit this ADR when retention policy, report access control, or CloudWatch search dashboards are implemented.

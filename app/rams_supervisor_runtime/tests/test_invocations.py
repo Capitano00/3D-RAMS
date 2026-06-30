@@ -14,7 +14,7 @@ for path in (TOOLS_ROOT, APP_ROOT):
 
 from main import invoke_local, ping_local  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
-from supervisor_core.report_store import persist_report  # noqa: E402
+from supervisor_core.report_store import load_report, persist_report  # noqa: E402
 
 
 class AgentCoreInvocationTests(unittest.TestCase):
@@ -180,7 +180,51 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(item["reportStatus"], "review_required")
         self.assertEqual(item["workflowMode"], "cached_public_fixture")
         self.assertEqual(item["structuredReport"]["caseId"], "case_store_test_001")
+        self.assertEqual(item["run"]["caseId"], "case_store_test_001")
         self.assertEqual(item["runSummary"]["runtime"]["fixturePack"], "public-lambeth-thames")
+
+    def test_report_lookup_returns_stored_report_payload(self):
+        response = invoke_local(
+            {
+                "input": {
+                    "caseId": "case_lookup_test_001",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": False,
+                }
+            }
+        )
+        output = response["output"]
+        item = {}
+
+        class WriteTable:
+            def put_item(self, *, Item):
+                item.update(Item)
+
+        class FakeTable:
+            def get_item(self, *, Key):
+                assert Key == {"caseId": "case_lookup_test_001"}
+                return {"Item": item}
+
+        persist_report(output, table=WriteTable())
+
+        lookup = load_report("case_lookup_test_001", table=FakeTable())
+        lookup_output = lookup["output"]
+
+        self.assertEqual(lookup_output["caseId"], "case_lookup_test_001")
+        self.assertEqual(lookup_output["reportStatus"], "review_required")
+        self.assertEqual(lookup_output["persistence"]["status"], "loaded")
+        self.assertEqual(lookup_output["structuredReport"]["caseId"], "case_lookup_test_001")
+        self.assertEqual(lookup_output["run"]["caseId"], "case_lookup_test_001")
+
+    def test_report_lookup_without_table_returns_not_found_contract(self):
+        response = invoke_local({"input": {"operation": "getReport", "caseId": "case_missing_local"}})
+
+        output = response["output"]
+
+        self.assertEqual(output["caseId"], "case_missing_local")
+        self.assertEqual(output["reportStatus"], "not_found")
+        self.assertEqual(output["workflowMode"], "report_lookup")
+        self.assertEqual(output["persistence"]["mode"], "disabled")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,34 @@ Known `input` fields:
 | `additionalRequest` | string | Optional user instruction. Unsafe RAMS/work-approval claims are blocked. |
 | `upstream` | object | Optional upstream metadata from AgentVerse, ASI:ONE, or another entry agent. |
 
+## Report Lookup Request
+
+Stored reports can be loaded through the same AgentCore invocation path:
+
+```json
+{
+  "input": {
+    "operation": "getReport",
+    "caseId": "case_demo_fixture_001"
+  }
+}
+```
+
+Frontend cloud mode sends the same lookup through the entry proxy:
+
+```json
+{
+  "frontendInvoke": true,
+  "operation": "getReport",
+  "caseId": "case_demo_fixture_001",
+  "conversationId": "frontend-demo-session"
+}
+```
+
+The supervisor returns `output.run` and `output.structuredReport` when DynamoDB contains the case. If `RAMS_REPORT_STORE_TABLE` is unset or the item is missing, the response keeps the envelope shape but sets `output.reportStatus` to `not_found` and reports the reason in `output.persistence`.
+
+The React frontend uses this contract for `/case/{caseId}` routes. A direct page load on that route performs a lookup instead of starting a fresh supervisor run.
+
 ## Invocation Response
 
 The response keeps the AgentCore output envelope:

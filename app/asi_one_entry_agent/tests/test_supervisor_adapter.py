@@ -142,6 +142,41 @@ class AgentVerseAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterValidationError, "RAMS_SUPERVISOR_RUNTIME_ARN"):
             handle_invocation(confirmed_entry_payload(), supervisor_runtime_arn="", invoke_runtime=lambda **_: {})
 
+    def test_entry_report_lookup_forwards_to_supervisor_runtime(self):
+        calls: list[dict] = []
+
+        def fake_invoke_runtime(**kwargs):
+            calls.append(kwargs)
+            return {
+                "output": {
+                    "caseId": "case_test_agentverse_001",
+                    "reportStatus": "not_found",
+                    "workflowMode": "report_lookup",
+                    "persistence": {
+                        "mode": "dynamodb",
+                        "status": "not_found",
+                        "caseId": "case_test_agentverse_001",
+                    },
+                }
+            }
+
+        response = handle_invocation(
+            {
+                "frontendInvoke": True,
+                "operation": "getReport",
+                "caseId": "case_test_agentverse_001",
+                "conversationId": "agentverse-session-id",
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["payload"]["input"], {"operation": "getReport", "caseId": "case_test_agentverse_001"})
+        self.assertEqual(response["output"]["caseId"], "case_test_agentverse_001")
+        self.assertEqual(response["output"]["workflowMode"], "report_lookup")
+        self.assertEqual(response["output"]["entryAgent"]["mode"], "cloud-report-lookup")
+
 
 if __name__ == "__main__":
     unittest.main()
