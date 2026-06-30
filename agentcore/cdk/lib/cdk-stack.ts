@@ -113,6 +113,7 @@ export class AgentCoreStack extends Stack {
       appProps.credentials = credentials;
     }
     this.application = new AgentCoreApplication(this, 'Application', appProps as any);
+    this.configureRamsWorkflowEnvironment();
 
     const reportStore = new dynamodb.Table(this, 'ReportStore', {
       partitionKey: { name: 'caseId', type: dynamodb.AttributeType.STRING },
@@ -266,5 +267,49 @@ export class AgentCoreStack extends Stack {
       description: 'DynamoDB table storing 3D-RAMS report metadata and structured report payloads by caseId',
       value: reportStore.tableName,
     });
+  }
+
+  private configureRamsWorkflowEnvironment(): void {
+    const entry = this.application.environments.get('asi_one_entry_agent');
+    const supervisor = this.application.environments.get('rams_supervisor_runtime');
+    if (!entry || !supervisor) {
+      return;
+    }
+
+    entry.runtime.addEnvironmentVariable('RAMS_SUPERVISOR_RUNTIME_ARN', supervisor.runtime.runtimeArn);
+    supervisor.runtime.grantInvoke(entry.runtime.role);
+
+    const harnessNames = [
+      'rams_geospatial_harness',
+      'rams_planning_harness',
+      'rams_hazard_harness',
+      'rams_annotation_harness',
+      'rams_briefing_harness',
+      'rams_review_harness',
+    ];
+    const harnessArnMapping: Record<string, string> = {};
+    const harnessArns: string[] = [];
+    for (const name of harnessNames) {
+      const harness = this.application.harnesses.get(name);
+      if (!harness) {
+        continue;
+      }
+      harnessArnMapping[name] = harness.harnessArn;
+      harnessArns.push(harness.harnessArn);
+    }
+    if (harnessArns.length === 0) {
+      return;
+    }
+
+    supervisor.runtime.addEnvironmentVariable('RAMS_SUBAGENT_EXECUTION_MODE', 'agentcore_harness');
+    supervisor.runtime.addEnvironmentVariable('RAMS_HARNESS_ARNS', Stack.of(this).toJsonString(harnessArnMapping));
+    supervisor.runtime.addEnvironmentVariable('ENABLE_BEDROCK', 'true');
+    supervisor.runtime.addEnvironmentVariable('RUNTIME_DATA_MODE', 'fixture_first');
+    supervisor.runtime.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock-agentcore:InvokeHarness', 'bedrock-agentcore:InvokeAgentRuntime'],
+        resources: harnessArns,
+      })
+    );
   }
 }

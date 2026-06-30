@@ -6,6 +6,11 @@ import uuid
 from typing import Any
 
 from agentcore_client import invoke_runtime_json
+from intake_coordinator import (
+    build_confirmed_entry_payload,
+    build_entry_turn,
+    coordinate_intake,
+)
 from supervisor_adapter import AdapterValidationError, build_agentcore_invocation, build_delivery_payload
 
 try:
@@ -48,6 +53,7 @@ AgentCore integration is working.
 
 tools = []
 _INLINE_FUNCTION_NAMES = set()
+_PENDING_INTAKES: dict[str, dict[str, Any]] = {}
 
 
 @tool
@@ -97,32 +103,61 @@ def handle_invocation(
     *,
     supervisor_runtime_arn: str | None = None,
     invoke_runtime=invoke_runtime_json,
+    model_json=None,
 ) -> dict[str, Any]:
-    payload = payload or {}
+    payload = _coerce_entry_payload(payload or {})
     if _is_report_lookup_payload(payload):
         return _handle_report_lookup(payload, supervisor_runtime_arn=supervisor_runtime_arn, invoke_runtime=invoke_runtime)
 
-    if not _is_structured_frontend_payload(payload):
-        raise AdapterValidationError("Structured entry payload must include frontendInvoke or intake.")
+    if not _is_entry_turn_payload(payload):
+        raise AdapterValidationError("Entry payload must include message, prompt, messages, or intake.")
+
+    turn = build_entry_turn(payload)
+    if payload.get("confirmedByUser") is True and "intake" not in payload and turn["conversationId"] in _PENDING_INTAKES:
+        payload = {**payload, "intake": _PENDING_INTAKES[turn["conversationId"]]}
+    intake_result = coordinate_intake(payload, model_json=model_json)
+    conversation_id = turn["conversationId"]
+    user_id = str(payload.get("userId") or "3d-rams-entry-agent")
+
+    if intake_result["status"] != "launch_ready":
+        if intake_result["status"] == "confirmation_required" and isinstance(intake_result.get("intake"), dict):
+            _PENDING_INTAKES[conversation_id] = intake_result["intake"]
+        return {
+            "output": {
+                "caseId": intake_result.get("caseId"),
+                "delivery": None,
+                "run": None,
+                "structuredReport": None,
+                "reportStatus": "entry_pending",
+                "workflowMode": "entry_intake",
+                "entryAgent": {
+                    "mode": "intake-coordinator",
+                    "adapterVersion": "asi-one-entry-agent-v2",
+                    "conversationId": conversation_id,
+                    **intake_result,
+                },
+            }
+        }
+
+    confirmed_payload = build_confirmed_entry_payload(turn, intake_result)
+    _PENDING_INTAKES.pop(conversation_id, None)
 
     runtime_arn = supervisor_runtime_arn or os.getenv("RAMS_SUPERVISOR_RUNTIME_ARN")
     if not runtime_arn:
         raise AdapterValidationError("RAMS_SUPERVISOR_RUNTIME_ARN is required for cloud supervisor handoff.")
 
-    invocation = build_agentcore_invocation(payload)
-    conversation_id = str(payload.get("conversationId") or payload.get("sessionId") or "3d-rams-entry-session")
-    user_id = str(payload.get("userId") or "3d-rams-entry-agent")
+    invocation = build_agentcore_invocation(confirmed_payload)
     agentcore_response = invoke_runtime(
         runtime_arn=runtime_arn,
         payload=invocation,
         session_id=_agentcore_session_id(conversation_id),
         user_id=user_id,
     )
-    delivery = build_delivery_payload(agentcore_response, entry_payload=payload)
+    delivery = build_delivery_payload(agentcore_response, entry_payload=confirmed_payload)
     output = agentcore_response.get("output") if isinstance(agentcore_response.get("output"), dict) else {}
     return {
         "output": {
-            "caseId": output.get("caseId") or delivery.get("caseId"),
+            "caseId": output.get("caseId") or delivery.get("caseId") or confirmed_payload["caseId"],
             "delivery": delivery,
             "run": output.get("run"),
             "structuredReport": output.get("structuredReport"),
@@ -131,9 +166,12 @@ def handle_invocation(
             "persistence": output.get("persistence"),
             "entryAgent": {
                 "mode": "cloud-supervisor-handoff",
-                "adapterVersion": "asi-one-entry-agent-v1",
+                "adapterVersion": "asi-one-entry-agent-v2",
                 "conversationId": conversation_id,
-                "caseId": output.get("caseId") or delivery.get("caseId"),
+                "caseId": output.get("caseId") or delivery.get("caseId") or confirmed_payload["caseId"],
+                "status": "delivered",
+                "assistantMessage": delivery.get("customerSummary", {}).get("headline") or "Supervisor workflow completed.",
+                "intake": intake_result["intake"],
             },
         }
     }
@@ -144,7 +182,7 @@ def invoke_local(
     *,
     supervisor_invoker=None,
 ) -> dict[str, Any]:
-    if payload and not _is_structured_frontend_payload(payload) and "input" in payload:
+    if payload and not _is_entry_turn_payload(payload) and "input" in payload:
         from supervisor_core.agentcore_adapter import handle_invocation as supervisor_handle_invocation
 
         return supervisor_handle_invocation(payload)
@@ -189,14 +227,28 @@ def _extract_prompt(payload: dict[str, Any]):
     return payload.get("prompt", "")
 
 
+def _coerce_entry_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str):
+        return payload
+    try:
+        parsed = json.loads(prompt)
+    except json.JSONDecodeError:
+        return payload
+    if not isinstance(parsed, dict):
+        return payload
+    return {**payload, **parsed}
+
+
 if app is not None:
 
     @app.entrypoint
     async def invoke(payload: dict[str, Any], context: Any):
         log.info("Invoking 3D-RAMS AgentVerse entry runtime.")
 
-        if _is_structured_frontend_payload(payload) or _is_report_lookup_payload(payload):
-            result = handle_invocation(payload)
+        coerced_payload = _coerce_entry_payload(payload)
+        if _is_entry_turn_payload(coerced_payload) or _is_report_lookup_payload(coerced_payload):
+            result = handle_invocation(coerced_payload)
             yield _text_delta_event(json.dumps(result))
             return
 
@@ -214,8 +266,15 @@ if app is not None:
             yield event
 
 
-def _is_structured_frontend_payload(payload: dict[str, Any]) -> bool:
-    return bool(payload.get("frontendInvoke") or payload.get("intake"))
+def _is_entry_turn_payload(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("entryTurn")
+        or payload.get("frontendInvoke")
+        or payload.get("intake")
+        or payload.get("message") is not None
+        or payload.get("prompt") is not None
+        or payload.get("messages") is not None
+    )
 
 
 def _is_report_lookup_payload(payload: dict[str, Any]) -> bool:

@@ -46,7 +46,7 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
         return load_report(str(request["caseId"]))
 
     run = run_site_briefing(request)
-    case_id = run.get("caseId")
+    case_id = run.get("caseId") or request.get("caseId")
     report_status = "review_required" if run["safety"]["allowed"] else "blocked"
     workflow_mode = _workflow_mode(run)
     structured_report = build_structured_report(run, report_status, workflow_mode)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -27,6 +28,7 @@ from supervisor_adapter import (  # noqa: E402
 def confirmed_entry_payload() -> dict:
     return {
         "caseId": "case_test_agentverse_001",
+        "caller": "agentverse",
         "conversationId": "agentverse-session-id",
         "entryAgentId": "rams-entry-agent",
         "confirmedByUser": True,
@@ -64,6 +66,13 @@ class AgentVerseAdapterTests(unittest.TestCase):
         payload["confirmedByUser"] = False
 
         with self.assertRaisesRegex(AdapterValidationError, "confirmedByUser"):
+            build_agentcore_invocation(payload)
+
+    def test_rejects_payload_without_case_id(self):
+        payload = confirmed_entry_payload()
+        del payload["caseId"]
+
+        with self.assertRaisesRegex(AdapterValidationError, "caseId"):
             build_agentcore_invocation(payload)
 
     def test_rejects_payload_without_area_scope(self):
@@ -104,6 +113,7 @@ class AgentVerseAdapterTests(unittest.TestCase):
 
         self.assertEqual(delivery["caseId"], "case_test_agentverse_001")
         self.assertEqual(delivery["conversationId"], "agentverse-session-id")
+        self.assertEqual(delivery["caseUrl"], "/case/case_test_agentverse_001")
         self.assertEqual(delivery["status"], "review_required")
         self.assertEqual(delivery["workflowMode"], "cached_public_fixture")
         self.assertEqual(delivery["customerSummary"]["title"], "8 Albert Embankment and land to the rear")
@@ -137,6 +147,57 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(output["entryAgent"]["caseId"], "case_test_agentverse_001")
         self.assertTrue(output["structuredReport"]["visualization"]["annotations"])
         self.assertIsNone(output["run"]["runtime"].get("localAsiOneSubstitute"))
+
+    def test_entry_intake_clarifies_without_location(self):
+        response = handle_invocation(
+            {"entryTurn": True, "message": "Can you help me?", "conversationId": "c1"},
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
+        )
+
+        entry = response["output"]["entryAgent"]
+        self.assertEqual(response["output"]["reportStatus"], "entry_pending")
+        self.assertEqual(entry["status"], "clarification_required")
+        self.assertTrue(entry["clarifyingQuestions"])
+
+    def test_entry_raw_message_confirmation_then_launch(self):
+        calls: list[dict] = []
+
+        def fake_invoke_runtime(**kwargs):
+            calls.append(kwargs)
+            return invoke_supervisor_local(kwargs["payload"])
+
+        first = handle_invocation(
+            {
+                "entryTurn": True,
+                "caller": "frontend",
+                "message": "I want to visit 8 Albert Embankment tomorrow for a survey for 2km",
+                "conversationId": "frontend-case-test",
+                "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": False},
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+        self.assertEqual(first["output"]["entryAgent"]["status"], "confirmation_required")
+        self.assertEqual(calls, [])
+
+        second = handle_invocation(
+            {
+                "entryTurn": True,
+                "caller": "frontend",
+                "message": "Confirm and launch",
+                "conversationId": "frontend-case-test",
+                "confirmedByUser": True,
+                "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": False},
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(second["output"]["caseId"].startswith("case_"))
+        self.assertEqual(calls[0]["payload"]["input"]["upstream"]["source"], "FRONTEND")
+        self.assertEqual(second["output"]["structuredReport"]["caseId"], second["output"]["caseId"])
 
     def test_entry_cloud_handoff_requires_supervisor_runtime_arn(self):
         with self.assertRaisesRegex(AdapterValidationError, "RAMS_SUPERVISOR_RUNTIME_ARN"):
@@ -176,6 +237,22 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(response["output"]["caseId"], "case_test_agentverse_001")
         self.assertEqual(response["output"]["workflowMode"], "report_lookup")
         self.assertEqual(response["output"]["entryAgent"]["mode"], "cloud-report-lookup")
+
+    def test_entry_accepts_json_envelope_inside_prompt_for_cli_smoke(self):
+        calls: list[dict] = []
+
+        def fake_invoke_runtime(**kwargs):
+            calls.append(kwargs)
+            return invoke_supervisor_local(kwargs["payload"])
+
+        response = handle_invocation(
+            {"prompt": json.dumps(confirmed_entry_payload())},
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(response["output"]["caseId"], "case_test_agentverse_001")
 
 
 if __name__ == "__main__":

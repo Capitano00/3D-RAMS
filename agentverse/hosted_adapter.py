@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from uagents_core.contrib.protocols.chat import (
 AGENTCORE_RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
 AWS_REGION = os.environ.get("AWS_REGION", "eu-west-2")
 ADAPTER_VERSION = "agentcore-agentverse-adapter-v2"
+_PENDING_INTAKES = {}
 
 agent = Agent()
 chat = Protocol(spec=chat_protocol_spec)
@@ -39,14 +41,54 @@ def _session_id(sender: str) -> str:
 def invoke_agentcore(prompt: str, sender: str) -> str:
     session_id = _session_id(sender)
     user_id = f"agentverse-{sender[-48:]}"
-    return invoke_runtime_text(
+    payload = {
+        "entryTurn": True,
+        "caller": "agentverse",
+        "conversationId": session_id,
+        "entryAgentId": "@3d-rams",
+        "confirmedByUser": _looks_like_confirmation(prompt),
+        "message": prompt,
+        "runtimeOptions": {
+            "fixturePack": "public-lambeth-thames",
+            "useBedrock": True,
+            "includePlanningFixture": True,
+            "simulateMapFailure": False,
+        },
+    }
+    if payload["confirmedByUser"] and session_id in _PENDING_INTAKES:
+        payload["intake"] = _PENDING_INTAKES[session_id]
+
+    response_text = invoke_runtime_text(
         runtime_arn=AGENTCORE_RUNTIME_ARN,
-        payload={"prompt": prompt},
+        payload=payload,
         session_id=session_id,
         user_id=user_id,
         region=AWS_REGION,
         timeout=60,
     )
+    _remember_pending_intake(session_id, response_text)
+    return response_text
+
+
+def _looks_like_confirmation(prompt: str) -> bool:
+    normalized = prompt.strip().lower()
+    return normalized in {"yes", "yes please", "confirm", "confirmed", "launch", "go", "go ahead"} or "please launch" in normalized
+
+
+def _remember_pending_intake(session_id: str, response_text: str) -> None:
+    try:
+        response = json.loads(response_text)
+    except json.JSONDecodeError:
+        return
+    output = response.get("output") if isinstance(response, dict) else {}
+    entry_agent = output.get("entryAgent") if isinstance(output, dict) else {}
+    if not isinstance(entry_agent, dict):
+        return
+    if entry_agent.get("status") == "confirmation_required" and isinstance(entry_agent.get("intake"), dict):
+        _PENDING_INTAKES[session_id] = entry_agent["intake"]
+        return
+    if output.get("caseId"):
+        _PENDING_INTAKES.pop(session_id, None)
 
 
 @chat.on_message(model=ChatMessage)

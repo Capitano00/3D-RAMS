@@ -28,7 +28,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
                     "caseId": "case_supervisor_test_001",
                     "fixturePack": "public-lambeth-thames",
                     "useBedrock": False,
-                    "upstream": {"source": "ASI_ONE", "confirmedByUser": True},
+                    "upstream": {"source": "ASI_ONE", "caseId": "case_supervisor_test_001", "confirmedByUser": True},
                 }
             }
         )
@@ -39,6 +39,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(output["caseId"], "case_supervisor_test_001")
         self.assertEqual(run["caseId"], "case_supervisor_test_001")
         self.assertEqual(run["request"]["caseId"], "case_supervisor_test_001")
+        self.assertEqual(run["runtime"]["caseId"], "case_supervisor_test_001")
         self.assertEqual(report["caseId"], "case_supervisor_test_001")
         self.assertEqual(report["intake"]["caseId"], "case_supervisor_test_001")
         self.assertEqual(output["persistence"]["mode"], "disabled")

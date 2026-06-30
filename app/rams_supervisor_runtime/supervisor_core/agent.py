@@ -25,6 +25,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     case_id = request_summary.get("caseId")
     if not case_id and isinstance(upstream_context, dict):
         case_id = upstream_context.get("caseId")
+    request_summary["caseId"] = case_id
     fixture_pack, fixture_pack_warning = load_fixture_pack(request_summary["fixturePack"])
     if fixture_pack:
         pack_location = fixture_pack["location"]
@@ -66,6 +67,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
                     "planning_subagent": harness_for_group("planning_subagent"),
                 },
                 "plannerMode": planner_result["activeAgentMode"],
+                "caseId": case_id,
             },
         )
     )
@@ -103,6 +105,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
                     "briefing_subagent": harness_for_group("briefing_subagent"),
                 },
                 "plannerMode": planner_result["activeAgentMode"],
+                "caseId": case_id,
             },
         )
     )
@@ -163,6 +166,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["plannerMode"] = planner_result["plannerStatus"]
     runtime["activeAgentMode"] = planner_result["activeAgentMode"]
     runtime["modelCallCount"] = len(planner_result["modelCalls"])
+    runtime["caseId"] = case_id
 
     return {
         "runId": "demo1-local-run",

@@ -53,38 +53,20 @@ function runToUiState(run) {
   };
 }
 
-function extractAreaScope(text) {
-  const km = text.match(/(\d+(?:\.\d+)?)\s*km\b/i);
-  if (km) return { type: "radius", meters: Math.round(Number(km[1]) * 1000) };
-  const metres = text.match(/(\d+(?:\.\d+)?)\s*(m|metre|meter|metres|meters)\b/i);
-  if (metres) return { type: "radius", meters: Math.round(Number(metres[1])) };
-  return { type: "radius", meters: 800 };
-}
-
-function buildCloudEntryPayload({ submittedText, request, uploads }) {
-  return {
-    frontendInvoke: true,
+function buildCloudEntryPayload({ submittedText, request, uploads, pendingEntry }) {
+  const isConfirmationTurn = pendingEntry?.status === "confirmation_required" && pendingEntry?.intake;
+  const payload = {
+    entryTurn: true,
+    caller: "frontend",
     conversationId: "frontend-demo-session",
     entryAgentId: "fieldbrief-demo-ui",
-    confirmedByUser: true,
+    confirmedByUser: Boolean(isConfirmationTurn),
     message: submittedText,
-    intake: {
-      locationText: request.siteName || submittedText,
-      locationCandidate: {
-        label: request.siteName || "User supplied site",
-        lat: request.latitude,
-        lng: request.longitude,
-        confidence: 0.72,
-      },
-      areaScope: extractAreaScope(submittedText),
-      userGoal: request.goal || "Pre-visit RAMS-style review pack",
-      userNotes: submittedText,
-      materials: uploads.map((upload) => ({
-        type: upload.type,
-        label: upload.label,
-        summary: upload.summary,
-      })),
-    },
+    materials: uploads.map((upload) => ({
+      type: upload.type,
+      label: upload.label,
+      summary: upload.summary,
+    })),
     runtimeOptions: {
       fixturePack: request.fixturePack,
       useBedrock: request.useBedrock,
@@ -92,6 +74,10 @@ function buildCloudEntryPayload({ submittedText, request, uploads }) {
       simulateMapFailure: request.simulateMapFailure,
     },
   };
+  if (isConfirmationTurn) {
+    payload.intake = pendingEntry.intake;
+  }
+  return payload;
 }
 
 function buildLocalAsiOnePayload({ submittedText, request, uploads }) {
@@ -363,7 +349,7 @@ function App() {
       }
       const requestPayload = USE_LOCAL_ASIONE
         ? buildLocalAsiOnePayload({ submittedText, request, uploads })
-        : buildCloudEntryPayload({ submittedText, request, uploads });
+        : buildCloudEntryPayload({ submittedText, request, uploads, pendingEntry: entryResponse });
       const response = await fetch(ENTRY_AGENT_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -386,7 +372,7 @@ function App() {
           },
         ]);
       }
-      if (nextEntryResponse?.needsClarification || nextEntryResponse?.needsConfirmation) {
+      if (["clarification_required", "confirmation_required"].includes(nextEntryResponse?.status)) {
         setAgentOpen(true);
         setRun(null);
         return;

@@ -34,7 +34,7 @@ def build_structured_report(
 
     report = StructuredReport(
         reportId=str(run.get("runId") or "unknown-run"),
-        caseId=run.get("caseId"),
+        caseId=run.get("caseId") or request.get("caseId"),
         status=_report_status(report_status),
         workflowMode=workflow_mode,
         intake=_build_intake(run, request),
@@ -108,6 +108,7 @@ def _build_runtime(runtime: dict[str, Any]) -> ReportRuntime:
         activeAgentMode=runtime.get("activeAgentMode"),
         modelCallCount=int(runtime.get("modelCallCount") or 0),
         subagentExecutionMode=runtime.get("subagentExecutionMode"),
+        caseId=runtime.get("caseId"),
     )
 
 

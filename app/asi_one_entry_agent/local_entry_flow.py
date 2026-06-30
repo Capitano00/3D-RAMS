@@ -56,7 +56,10 @@ def run_local_asione_chat(
             started=started,
         )
 
+    case_id = f"case_{uuid.uuid5(uuid.NAMESPACE_URL, f'{conversation_id}:{message}').hex[:12]}"
     entry_payload = {
+        "caseId": case_id,
+        "caller": "local-asione",
         "conversationId": conversation_id,
         "caseId": case_id,
         "entryAgentId": "local-asione-substitute",
@@ -85,6 +88,7 @@ def run_local_asione_chat(
         {
             "adapter": "asi_one_entry_agent.supervisor_adapter",
             "confirmedByUser": True,
+            "caseId": case_id,
             "runtimeOptions": sorted(runtime_options),
         },
         source_ids=["user-request"],
