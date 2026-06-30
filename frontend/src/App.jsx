@@ -39,13 +39,34 @@ function toList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function humanizeToken(value) {
+  return String(value || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .trim();
+}
+
+function riskItemsFromRun(run) {
+  const hazards = toList(run?.hazards);
+  if (hazards.length) return hazards;
+  return toList(run?.structuredReport?.findings);
+}
+
+function attachStructuredReport(run, structuredReport) {
+  if (!run || !structuredReport) return run;
+  return {
+    ...run,
+    structuredReport,
+  };
+}
+
 function runToUiState(run) {
   if (!run) return {};
   return {
     location: run.location,
     scene: run.scene,
     annotations: run.annotations,
-    hazards: run.hazards,
+    hazards: riskItemsFromRun(run),
     evidence: run.evidence,
     briefing: run.briefing,
     safety: run.safety,
@@ -232,11 +253,11 @@ function RiskCards({ hazards, briefing }) {
       </div>
       <div className="risk-grid">
         {items.length ? (
-          items.map((hazard) => (
-            <article key={hazard.id || hazard.title}>
-              <strong>{hazard.title}</strong>
-              <em className={`status ${hazard.confidence || "warning"}`}>{hazard.confidence || "review"}</em>
-              <p>{hazard.reason || hazard.summary || hazard.note || "Review this item before the site visit."}</p>
+          items.map((hazard, index) => (
+            <article key={hazard.id || hazard.title || hazard.type || `risk-${index}`}>
+              <strong>{riskCardTitle(hazard, index)}</strong>
+              <em className={`status ${riskCardStatus(hazard)}`}>{riskCardStatus(hazard)}</em>
+              <p>{riskCardBody(hazard)}</p>
             </article>
           ))
         ) : (
@@ -254,6 +275,32 @@ function RiskCards({ hazards, briefing }) {
         </div>
       )}
     </section>
+  );
+}
+
+function riskCardTitle(item, index) {
+  const title = item.title || item.label || item.name;
+  if (title && title !== "unknown-finding") return title;
+  const typedTitle = humanizeToken(item.type || item.category);
+  if (typedTitle && typedTitle !== "Unspecified") return typedTitle;
+  const idTitle = humanizeToken(item.id);
+  if (idTitle && idTitle !== "Unknown Finding") return idTitle;
+  return `Candidate finding ${index + 1}`;
+}
+
+function riskCardStatus(item) {
+  return item.confidence || item.severity || item.level || item.type || item.category || "review";
+}
+
+function riskCardBody(item) {
+  return (
+    item.reason ||
+    item.summary ||
+    item.note ||
+    item.description ||
+    item.rationale ||
+    item.evidence ||
+    "Review this item before the site visit."
   );
 }
 
@@ -377,7 +424,7 @@ function App() {
         setRun(null);
         return;
       }
-      const nextRun = nextEntryResponse?.run || payload.output?.run;
+      const nextRun = attachStructuredReport(nextEntryResponse?.run || payload.output?.run, output.structuredReport);
       if (!nextRun) throw new Error("Entry agent response did not include a supervisor run");
       const nextCaseId = output.caseId || nextEntryResponse?.caseId || nextRun.caseId || "";
       setCaseId(nextCaseId);
@@ -414,7 +461,7 @@ function App() {
       }
       setEntryResponse(null);
       setCaseId(output.caseId || nextCaseId);
-      setRun(output.run);
+      setRun(attachStructuredReport(output.run, output.structuredReport));
       setMessages([
         {
           id: `case-${nextCaseId}`,
