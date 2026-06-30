@@ -530,6 +530,7 @@ def _user_json_message(payload: dict[str, Any]) -> dict[str, Any]:
                     f"then return one JSON object using schemaVersion {HARNESS_OUTPUT_SCHEMA_VERSION}. "
                     "Put all domain-specific fields under data and include subagent, status, summary, "
                     "evidence, findings, trace, references, warnings, errors, and metadata. "
+                    "Do not include hidden chain-of-thought, credentials, signed URLs, or private material content. "
                     "The data object must include requiredDataKeys. Payload:\n"
                     f"{json.dumps(payload, sort_keys=True)}"
                 )
