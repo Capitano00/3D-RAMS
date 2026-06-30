@@ -34,15 +34,42 @@ VITE_AGENTCORE_URL=/agentcore/invocations
 VITE_AGENTCORE_PROXY_TARGET=http://127.0.0.1:8080
 ```
 
-## One-Time Amplify Setup
+## Source-Connected Setup
+
+Use the repository script to create or update the Amplify app, connect the GitHub repository, configure the branch environment, and start a source build:
+
+```bash
+AMPLIFY_GITHUB_TOKEN_FILE=/private/tmp/3d-rams-gh-token \
+VITE_CLOUD_ENTRY_PROXY_URL=https://<signed-proxy-domain>/invoke \
+AWS_PROFILE=3d-rams-deployer \
+AWS_REGION=eu-west-2 \
+bash scripts/deploy-amplify-source.sh
+```
+
+The GitHub token must have repository access plus webhook creation permissions for `Capitano00/3D-RAMS`. Keep it in a local file or environment variable only. Do not commit it or paste it into public logs.
+
+Useful overrides:
+
+```bash
+AMPLIFY_APP_ID=<existing-app-id>
+AMPLIFY_APP_NAME=3d-rams-dev-chunteng
+AMPLIFY_BRANCH=dev-chunteng
+AMPLIFY_REPOSITORY=https://github.com/Capitano00/3D-RAMS
+VITE_USE_LOCAL_ASIONE=false
+VITE_CESIUM_ION_TOKEN=
+```
+
+The signed proxy must already be reachable from the browser before the hosted UI can complete the cloud workflow.
+
+## Manual Console Setup
+
+The script above is the preferred setup path. If the AWS Console is used for inspection or recovery, the equivalent settings are:
 
 1. Create or open the Amplify app.
 2. Connect the intended GitHub branch.
 3. Confirm Amplify picks up `amplify.yml`.
 4. Add the branch environment variables above.
 5. Deploy the branch from source.
-
-The signed proxy must already be reachable from the browser before the hosted UI can complete the cloud workflow.
 
 ## Verification
 
