@@ -85,6 +85,37 @@ class IntakeCoordinatorTests(unittest.TestCase):
         with self.assertRaisesRegex(IntakeValidationError, "valid JSON"):
             coordinate_intake({"message": "8 Albert Embankment for 2km"}, model_json=lambda _: "not json")
 
+    def test_invalid_model_json_uses_deterministic_fallback(self):
+        result = coordinate_intake(
+            {
+                "message": "I want to visit 8 Albert Embankment tomorrow for a survey for 2km",
+                "conversationId": "c4",
+            },
+            model_json=lambda _: "not json",
+            fallback_to_deterministic=True,
+        )
+
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertEqual(result["fallbackReason"], "invalid_model_json")
+        self.assertEqual(result["intakeMode"], "fallback")
+        self.assertEqual(result["intake"]["locationText"], "8 Albert Embankment")
+
+    def test_model_schema_failure_uses_deterministic_fallback_and_can_launch(self):
+        result = coordinate_intake(
+            {
+                "message": "I want to visit 8 Albert Embankment tomorrow for a survey for 2km",
+                "conversationId": "c5",
+                "confirmedByUser": True,
+            },
+            model_json=lambda _: {"status": "launch_ready", "intake": {"locationText": "8 Albert Embankment"}},
+            fallback_to_deterministic=True,
+        )
+
+        self.assertEqual(result["status"], "launch_ready")
+        self.assertEqual(result["fallbackReason"], "schema_validation_failed")
+        self.assertEqual(result["intakeMode"], "fallback")
+        self.assertTrue(result["caseId"].startswith("case_"))
+
     def test_invalid_model_json_can_fallback_to_deterministic_intake(self):
         result = coordinate_intake(
             {"message": "8 Albert Embankment survey for 2km", "conversationId": "c4"},

@@ -469,6 +469,41 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(bedrock_step["output"]["maxTokens"], 1200)
         self.assertEqual(bedrock_step["output"]["temperature"], 0.2)
 
+    def test_bedrock_requested_failure_uses_deterministic_fallback_metadata(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_SIMULATE_FAILURE="true",
+            BEDROCK_MOCK_RESPONSE=None,
+        ):
+            result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": True})
+
+        self.assertEqual(result["runtime"]["briefingMode"], "fallback")
+        self.assertEqual(result["runtime"]["plannerMode"], "fallback")
+        self.assertEqual(result["runtime"]["activeAgentMode"], "deterministic-planner-fallback")
+        self.assertFalse(result["runtime"]["bedrockUsed"])
+        self.assertIn("bedrock_simulated_failure", result["runtime"]["fallbackReason"])
+
+        planner_step = next(step for step in result["trace"] if step["name"] == "plan_subagent_workflow")
+        bedrock_step = next(step for step in result["trace"] if step["name"] == "generate_bedrock_briefing")
+        self.assertEqual(planner_step["status"], "fallback")
+        self.assertEqual(planner_step["fallbackReason"], "bedrock_simulated_failure")
+        self.assertEqual(bedrock_step["status"], "fallback")
+        self.assertEqual(bedrock_step["fallbackReason"], "bedrock_simulated_failure")
+        self.assertEqual(result["briefing"]["dataMode"], "cached-public-fixture")
+
+    def test_bedrock_not_requested_ignores_simulated_failure(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_SIMULATE_FAILURE="true",
+            BEDROCK_MOCK_RESPONSE=None,
+        ):
+            result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        self.assertEqual(result["runtime"]["briefingMode"], "disabled")
+        self.assertEqual(result["runtime"]["plannerMode"], "deterministic")
+        self.assertFalse(result["runtime"]["bedrockUsed"])
+        self.assertFalse(any(step.get("fallbackReason") == "bedrock_simulated_failure" for step in result["trace"]))
+
     def test_unsafe_bedrock_mock_briefing_is_blocked_after_generation(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
@@ -543,8 +578,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["activeAgentMode"], "deterministic-planner-fallback")
         self.assertTrue(result["safety"]["allowed"])
         self.assertTrue(result["annotations"])
-        self.assertIn("Bedrock planner failed", result["runtime"]["fallbackReason"])
-        self.assertIn("Bedrock briefing failed", result["runtime"]["fallbackReason"])
+        self.assertEqual(result["runtime"]["fallbackReason"], "bedrock_simulated_failure")
         fallback_steps = [step for step in result["trace"] if step["status"] == "fallback"]
         self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in fallback_steps))
         self.assertTrue(any(step["name"] == "generate_bedrock_briefing" for step in fallback_steps))

@@ -6,6 +6,7 @@ import re
 import uuid
 from typing import Any, Protocol
 
+from rams_agent_tools.bedrock_adapter import bedrock_error_output
 from rams_agent_tools.config import RuntimeConfig
 from rams_agent_tools.fixtures import load_fixture_pack
 from rams_agent_tools.tools import (
@@ -348,6 +349,12 @@ class AgentCoreHarnessInvoker:
         )
 
     def _invoke_json(self, group: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._invoke_harness_json(group, payload)
+        except Exception as exc:
+            return self._failure_fallback_json(group, payload, exc)
+
+    def _invoke_harness_json(self, group: str, payload: dict[str, Any]) -> dict[str, Any]:
         harness_name = harness_for_group(group)
         if not harness_name:
             raise RuntimeError(f"No Harness is registered for subagent group '{group}'.")
@@ -387,6 +394,24 @@ class AgentCoreHarnessInvoker:
 
         raise RuntimeError(f"Harness '{harness_name}' exceeded local tool-loop limit.")
 
+    def _failure_fallback_json(self, group: str, payload: dict[str, Any], exc: BaseException) -> dict[str, Any]:
+        result = self._direct_fallback(group, payload)
+        result.setdefault("trace", [])
+        error_output = bedrock_error_output(exc)
+        result["trace"].append(
+            trace_step(
+                "agentcore_harness_failure_fallback",
+                "fallback",
+                "Supervisor used deterministic tool fallback because AgentCore Harness invocation failed.",
+                {
+                    "group": group,
+                    **error_output,
+                },
+                fallback_reason=str(error_output["fallbackReason"]),
+            )
+        )
+        return result
+
     def _fallback_json(
         self,
         group: str,
@@ -395,37 +420,7 @@ class AgentCoreHarnessInvoker:
         validation_issues: list[str],
         raw_result: dict[str, Any],
     ) -> dict[str, Any]:
-        fixture_pack = _load_tool_fixture_pack(payload.get("fixturePack"))
-        direct = DirectSubagentInvoker()
-
-        if group == "geospatial_subagent":
-            result = direct.invoke_geospatial(_dict(payload.get("request")), fixture_pack=fixture_pack)
-        elif group == "planning_subagent":
-            result = direct.invoke_planning(
-                {"includePlanningFixture": bool(payload.get("includePlanningFixture", True))},
-                fixture_pack=fixture_pack,
-            )
-        elif group == "hazard_subagent":
-            result = direct.invoke_hazard(
-                payload.get("planningText"),
-                _list(payload.get("features")),
-                fixture_pack=fixture_pack,
-            )
-        elif group == "annotation_subagent":
-            result = direct.invoke_annotation(_dict(payload.get("location")), _list(payload.get("hazards")))
-        elif group == "briefing_subagent":
-            result = direct.invoke_briefing(
-                self.config,
-                _dict(payload.get("location")),
-                _list(payload.get("hazards")),
-                payload.get("planningText"),
-                fixture_pack=fixture_pack,
-            )
-        elif group == "review_guardrail":
-            result = direct.invoke_review(_dict(payload.get("request")), _dict(payload.get("briefing")))
-        else:
-            raise RuntimeError(f"Cannot build fallback result for Harness subagent group '{group}'.")
-
+        result = self._direct_fallback(group, payload)
         result["status"] = "fallback"
         result.setdefault("warnings", [])
         result["warnings"].append(
@@ -460,6 +455,37 @@ class AgentCoreHarnessInvoker:
             )
         )
         return result
+
+    def _direct_fallback(self, group: str, payload: dict[str, Any]) -> dict[str, Any]:
+        fixture_pack = _load_tool_fixture_pack(payload.get("fixturePack"))
+        direct = DirectSubagentInvoker()
+
+        if group == "geospatial_subagent":
+            return direct.invoke_geospatial(_dict(payload.get("request")), fixture_pack=fixture_pack)
+        if group == "planning_subagent":
+            return direct.invoke_planning(
+                {"includePlanningFixture": bool(payload.get("includePlanningFixture", True))},
+                fixture_pack=fixture_pack,
+            )
+        if group == "hazard_subagent":
+            return direct.invoke_hazard(
+                payload.get("planningText"),
+                _list(payload.get("features")),
+                fixture_pack=fixture_pack,
+            )
+        if group == "annotation_subagent":
+            return direct.invoke_annotation(_dict(payload.get("location")), _list(payload.get("hazards")))
+        if group == "briefing_subagent":
+            return direct.invoke_briefing(
+                self.config,
+                _dict(payload.get("location")),
+                _list(payload.get("hazards")),
+                payload.get("planningText"),
+                fixture_pack=fixture_pack,
+            )
+        if group == "review_guardrail":
+            return direct.invoke_review(_dict(payload.get("request")), _dict(payload.get("briefing")))
+        raise RuntimeError(f"Cannot build fallback result for Harness subagent group '{group}'.")
 
 
 def build_subagent_invoker(config: RuntimeConfig) -> SubagentInvoker:

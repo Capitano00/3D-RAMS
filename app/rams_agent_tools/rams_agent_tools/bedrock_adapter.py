@@ -12,6 +12,32 @@ class BedrockAdapterError(RuntimeError):
     pass
 
 
+def bedrock_fallback_reason(exc: BaseException) -> str:
+    code = _exception_code(exc).lower()
+    text = f"{code} {exc.__class__.__name__} {exc}".lower()
+    if "simulated bedrock failure" in text:
+        return "bedrock_simulated_failure"
+    if any(token in text for token in ("accessdenied", "access denied", "unauthorized", "forbidden")):
+        return "bedrock_access_denied"
+    if any(token in text for token in ("timeout", "timedout", "readtimeout", "connecttimeout")):
+        return "bedrock_timeout"
+    if any(token in text for token in ("throttl", "toomanyrequests", "rate exceeded", "servicequota")):
+        return "bedrock_throttled"
+    if "json" in text:
+        return "invalid_model_json"
+    if any(token in text for token in ("schema", "validation", "required")):
+        return "schema_validation_failed"
+    return "bedrock_unavailable"
+
+
+def bedrock_error_output(exc: BaseException) -> dict[str, Any]:
+    return {
+        "fallbackReason": bedrock_fallback_reason(exc),
+        "errorType": exc.__class__.__name__,
+        "errorCode": _exception_code(exc) or None,
+    }
+
+
 def generate_bedrock_briefing(
     *,
     config: RuntimeConfig,
@@ -394,3 +420,12 @@ def _all_required_subagents() -> list[str]:
         "briefing_subagent",
         "review_guardrail",
     ]
+
+
+def _exception_code(exc: BaseException) -> str:
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        error = response.get("Error")
+        if isinstance(error, dict):
+            return str(error.get("Code") or "")
+    return ""
