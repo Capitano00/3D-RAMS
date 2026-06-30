@@ -63,11 +63,7 @@ class FakeHarnessClient:
                         {
                             "contentBlockDelta": {
                                 "contentBlockIndex": 0,
-                                "delta": {
-                                    "toolUse": {
-                                        "input": '{"fixturePack":"public-lambeth-thames","includePlanningFixture":true}'
-                                    }
-                                },
+                                "delta": {"toolUse": {"input": '{"includePlanningFixture":false}'}},
                             }
                         },
                         {"contentBlockStop": {"contentBlockIndex": 0}},
@@ -115,7 +111,7 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         client = FakeHarnessClient()
         with EnvPatch(RAMS_PLANNING_HARNESS_ARN="arn:aws:bedrock-agentcore:eu-west-2:123456789012:harness/rams_planning_harness-ABCDEFGHIJ"):
             invoker = AgentCoreHarnessInvoker(config=config, client=client)
-            result = invoker.invoke_planning({}, fixture_pack={"name": "public-lambeth-thames"})
+            result = invoker.invoke_planning({}, fixture_pack=None)
 
         self.assertEqual(result["schemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
         self.assertEqual(result["data"]["planningText"], "Reviewed cached planning context.")
