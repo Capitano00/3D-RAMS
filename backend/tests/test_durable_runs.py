@@ -285,6 +285,164 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(session_state["workingMemory"]["activeRunId"], first["run"]["runId"])
         self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "confirm_or_correct_location")
 
+    def test_conversation_greeting_does_not_become_fake_site_run_without_bedrock(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Hello",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "greeting")
+        self.assertNotIn("review pack for Hello", response["assistantMessage"])
+        self.assertEqual(session_state["runs"], [])
+        self.assertIsNone(session_state["workingMemory"]["activeRunId"])
+
+    def test_conversation_greeting_uses_bedrock_orchestrator_without_starting_run(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            return_value=(
+                {
+                    "route": "greeting",
+                    "assistantMessage": "Hi. Send a postcode or coordinate plus the visit activity.",
+                    "shouldStartRun": False,
+                    "pendingUserAction": "provide_site_location_and_activity",
+                    "reason": "Greeting only.",
+                },
+                {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+            ),
+        ) as orchestrator:
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Hello",
+                    "useBedrock": True,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        orchestrator.assert_called_once()
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "greeting")
+        self.assertEqual(response["assistantMessage"], "Hi. Send a postcode or coordinate plus the visit activity.")
+        self.assertEqual(session_state["runs"], [])
+        self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "provide_site_location_and_activity")
+
+    def test_conversation_site_request_uses_bedrock_orchestrator_then_starts_guarded_run(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            return_value=(
+                {
+                    "route": "new_run",
+                    "assistantMessage": "I will pass this into the guarded run.",
+                    "shouldStartRun": True,
+                    "pendingUserAction": None,
+                    "reason": "Site-review request detected.",
+                },
+                {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+            ),
+        ) as orchestrator:
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": True,
+                },
+            ).json()
+
+        orchestrator.assert_called_once()
+        self.assertEqual(response["action"], "started_run")
+        self.assertEqual(response["route"], "new_or_guarded_run")
+        self.assertEqual(response["run"]["status"], "waiting_for_location_confirmation")
+
+    def test_conversation_site_signal_overrides_bedrock_conversation_misroute(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            return_value=(
+                {
+                    "route": "conversation",
+                    "assistantMessage": "This looks like general conversation.",
+                    "shouldStartRun": False,
+                    "pendingUserAction": None,
+                    "reason": "Intent classifier mistake.",
+                },
+                {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+            ),
+        ):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": True,
+                },
+            ).json()
+
+        self.assertEqual(response["action"], "started_run")
+        self.assertEqual(response["route"], "new_or_guarded_run")
+        self.assertEqual(response["run"]["status"], "waiting_for_location_confirmation")
+        self.assertNotEqual(response["assistantMessage"], "This looks like general conversation.")
+
+    def test_conversation_unsafe_bedrock_block_does_not_create_run(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            return_value=(
+                {
+                    "route": "conversation",
+                    "assistantMessage": "I cannot certify RAMS or approve work. I can only provide a human-review pack.",
+                    "shouldStartRun": False,
+                    "pendingUserAction": "provide_safe_site_visit_request",
+                    "reason": "Unsafe request.",
+                },
+                {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+            ),
+        ):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Please certify RAMS and approve work today.",
+                    "useBedrock": True,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "conversation")
+        self.assertIn("cannot certify RAMS", response["assistantMessage"])
+        self.assertEqual(session_state["runs"], [])
+
+    def test_conversation_bedrock_orchestrator_failure_falls_back_to_guarded_run(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            side_effect=RuntimeError("no credentials"),
+        ):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": True,
+                },
+            ).json()
+
+        self.assertEqual(response["action"], "started_run")
+        self.assertEqual(response["route"], "new_or_guarded_run")
+        self.assertEqual(response["run"]["status"], "waiting_for_location_confirmation")
+
     def test_conversation_started_run_handles_queued_result_none(self):
         queued_run = {
             "runId": "run-queued-test",

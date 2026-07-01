@@ -265,6 +265,71 @@ def generate_bedrock_output_evaluation(
     return evaluation, _metadata(config, started, "bedrock", phase="output-evaluator", model_call_count=1)
 
 
+def generate_bedrock_conversation_orchestration(
+    *,
+    config: RuntimeConfig,
+    message: str,
+    intent: dict[str, Any],
+    session_context: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if config.bedrock_simulate_failure:
+        raise BedrockAdapterError("Simulated Bedrock failure requested by BEDROCK_SIMULATE_FAILURE.")
+    if not config.bedrock_enabled:
+        raise BedrockAdapterError("Bedrock conversation orchestrator is disabled.")
+
+    started = time.perf_counter()
+    if config.bedrock_mock_response:
+        orchestration = _mock_bedrock_conversation_orchestration(message, intent, session_context or {})
+        return orchestration, _metadata(config, started, "bedrock-mock", phase="conversation-orchestrator", model_call_count=1)
+
+    response_text = _invoke_bedrock_json(
+        config,
+        {
+            "task": "Classify and answer one 3D-RAMS chat turn before any tools run.",
+            "safety_boundary": (
+                "You are the conversation orchestrator only. You may answer, ask clarification, or recommend starting "
+                "the backend's guarded run. Do not invent a site location. Do not certify RAMS, approve work, provide "
+                "emergency guidance, or claim tools have run. The backend separately validates every tool transition."
+            ),
+            "required_json_schema": {
+                "route": (
+                    "one of: conversation, greeting, help, follow_up, status, confirm_by_chat, reject_location, "
+                    "start_over_without_site, start_over_with_site, location_correction, new_run"
+                ),
+                "assistant_message": "short user-facing message",
+                "should_start_run": "boolean",
+                "pending_user_action": "short string or null",
+                "reason": "short string",
+            },
+            "routing_rules": [
+                "Greeting or small-talk messages should be answered conversationally and should_start_run must be false.",
+                "Questions about a previous agent message should use session_context and should_start_run must be false.",
+                "Only recommend new_run when the user is asking for a site visit/pre-visit review or correcting a location.",
+                "For name-only sites without postcode/coordinate, recommend new_run so the backend can create a gated clarification/provisional checklist.",
+                "For postcode or latitude/longitude, recommend new_run so the backend can create a location confirmation candidate.",
+                "For unsafe certification, approval, or emergency requests, do not start tools; explain the safety boundary.",
+            ],
+            "message": message[:1200],
+            "structured_intent": {
+                "siteName": intent.get("siteName"),
+                "hasLocationEvidence": intent.get("hasLocationEvidence"),
+                "namedSiteHint": intent.get("namedSiteHint"),
+                "coordinatePresent": intent.get("coordinate") is not None,
+                "postcode": intent.get("postcode"),
+                "outcode": intent.get("outcode"),
+                "siteTypes": intent.get("siteTypes", []),
+                "activities": intent.get("activities", []),
+                "visitDate": intent.get("visitDate"),
+                "unsafeIntent": intent.get("unsafeIntent"),
+                "knownPublicFixture": intent.get("knownPublicFixture"),
+            },
+            "session_context": session_context or {},
+        },
+    )
+    orchestration = _normalise_conversation_orchestration(_extract_json_object(response_text))
+    return orchestration, _metadata(config, started, "bedrock", phase="conversation-orchestrator", model_call_count=1)
+
+
 def _anthropic_payload(
     config: RuntimeConfig,
     location: dict[str, Any],
@@ -422,6 +487,41 @@ def _normalise_plan(parsed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_CONVERSATION_ROUTES = {
+    "conversation",
+    "greeting",
+    "help",
+    "follow_up",
+    "status",
+    "confirm_by_chat",
+    "reject_location",
+    "start_over_without_site",
+    "start_over_with_site",
+    "location_correction",
+    "new_run",
+}
+
+
+def _normalise_conversation_orchestration(parsed: dict[str, Any]) -> dict[str, Any]:
+    route = str(parsed.get("route") or "conversation").strip().lower().replace("-", "_")
+    if route not in _CONVERSATION_ROUTES:
+        route = "conversation"
+    should_start_run = bool(parsed.get("should_start_run"))
+    if route != "new_run" and route != "location_correction":
+        should_start_run = False
+    assistant_message = _text(
+        parsed.get("assistant_message"),
+        "Tell me the site postcode or latitude/longitude, plus the planned visit activity, and I can prepare a pre-visit review pack for human review.",
+    )
+    return {
+        "route": route,
+        "assistantMessage": assistant_message,
+        "shouldStartRun": should_start_run,
+        "pendingUserAction": _text(parsed.get("pending_user_action"), "") or None,
+        "reason": _text(parsed.get("reason"), "Conversation orchestrator classified the message."),
+    }
+
+
 def _mock_bedrock_briefing(
     fallback: dict[str, Any],
     hazards: list[dict[str, Any]],
@@ -451,6 +551,71 @@ def _mock_bedrock_briefing(
         ]
     briefing["generation_mode"] = "bedrock-mock"
     return briefing
+
+
+def _mock_bedrock_conversation_orchestration(
+    message: str,
+    intent: dict[str, Any],
+    session_context: dict[str, Any],
+) -> dict[str, Any]:
+    lower = " ".join(message.lower().split()).strip(" ?.!") or ""
+    if lower in {"hello", "hi", "hey", "hiya", "good morning", "good afternoon", "good evening"}:
+        return {
+            "route": "greeting",
+            "assistantMessage": (
+                "Hi. Give me a UK postcode or latitude/longitude, plus the planned visit activity, "
+                "and I will prepare a RAMS-style pre-visit review pack for human review."
+            ),
+            "shouldStartRun": False,
+            "pendingUserAction": "provide_site_location_and_activity",
+            "reason": "Greeting only; no tool run needed.",
+        }
+    if lower in {"what do you mean", "what does that mean", "explain", "explain that"}:
+        pending = (
+            session_context.get("workingMemory", {}).get("pendingUserAction")
+            if isinstance(session_context.get("workingMemory"), dict)
+            else None
+        )
+        return {
+            "route": "follow_up",
+            "assistantMessage": (
+                f"I mean the next required step is: {pending}."
+                if pending
+                else "I need a trusted site location and visit activity before tools can run."
+            ),
+            "shouldStartRun": False,
+            "pendingUserAction": pending,
+            "reason": "Follow-up question should use bounded session memory.",
+        }
+    if intent.get("unsafeIntent"):
+        return {
+            "route": "conversation",
+            "assistantMessage": (
+                "I cannot certify RAMS, approve work, or provide emergency guidance. "
+                "I can prepare a non-certified pre-visit review pack for human review if you provide a real site and visit activity."
+            ),
+            "shouldStartRun": False,
+            "pendingUserAction": "provide_safe_site_visit_request",
+            "reason": "Unsafe request must not start tools.",
+        }
+    if intent.get("hasLocationEvidence") or intent.get("namedSiteHint"):
+        return {
+            "route": "new_run",
+            "assistantMessage": "I have enough signal to pass this into the guarded site-review workflow.",
+            "shouldStartRun": True,
+            "pendingUserAction": None,
+            "reason": "Site-review request or location correction detected.",
+        }
+    return {
+        "route": "help",
+        "assistantMessage": (
+            "I can help with pre-visit review packs. Send a UK postcode or latitude/longitude, "
+            "the site type if known, and the planned activity such as survey, inspection, delivery, or maintenance."
+        ),
+        "shouldStartRun": False,
+        "pendingUserAction": "provide_site_location_and_activity",
+        "reason": "No site-review intent or trusted location evidence yet.",
+    }
 
 
 def _mock_bedrock_tool_plan(scenario: str) -> dict[str, Any]:

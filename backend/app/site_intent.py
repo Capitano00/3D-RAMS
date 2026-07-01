@@ -38,6 +38,22 @@ _ACTIVITY_TERMS = {
 }
 
 _WEAK_SITE_LABELS = {
+    "hello",
+    "hi",
+    "hey",
+    "hiya",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "thanks",
+    "thank you",
+    "ok",
+    "okay",
+    "yes",
+    "no",
+    "what do you mean",
+    "what does that mean",
+    "help",
     "today",
     "tomorrow",
     "next week",

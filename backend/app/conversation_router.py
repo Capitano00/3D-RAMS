@@ -4,9 +4,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from .bedrock_adapter import BedrockAdapterError, generate_bedrock_conversation_orchestration
 from .config import RuntimeConfig
 from .durable_runner import create_durable_run, read_durable_run
-from .session_store import add_conversation_turn, get_session, update_working_memory
+from .session_store import add_conversation_turn, get_session, llm_session_context, update_working_memory
 from .site_intent import parse_site_intent
 
 
@@ -74,6 +75,21 @@ _START_OVER_PHRASES = {
     "reset",
     "clear this",
 }
+_GREETING_PHRASES = {
+    "hello",
+    "hi",
+    "hey",
+    "hiya",
+    "good morning",
+    "good afternoon",
+    "good evening",
+}
+_HELP_PHRASES = {
+    "help",
+    "how does this work",
+    "what can you do",
+    "what do you need",
+}
 
 
 def handle_conversation_message(
@@ -96,11 +112,21 @@ def handle_conversation_message(
     )
 
     intent = parse_site_intent(cleaned)
-    route = _classify_message(cleaned, memory, intent)
+    deterministic_route = _classify_message(cleaned, memory, intent)
+    orchestration = _maybe_orchestrate_conversation(
+        session=session,
+        message=cleaned,
+        intent=intent,
+        deterministic_route=deterministic_route,
+        config=config,
+    )
+    route = _validated_route(orchestration, deterministic_route, memory, intent)
+    if route in {"conversation", "greeting", "help"}:
+        return _orchestrated_conversation_response(session_id, route, orchestration, memory, config)
     if route == "status":
         return _status_response(session_id, memory, config)
     if route == "follow_up":
-        return _memory_response(session_id, cleaned, memory, config)
+        return _memory_response(session_id, cleaned, memory, config, orchestration=orchestration)
     if route == "confirm_by_chat":
         return _confirm_by_chat_response(session_id, memory, config)
     if route == "reject_location":
@@ -124,6 +150,7 @@ def handle_conversation_message(
         text=assistant_text,
         metadata={
             "route": "start_run",
+            "conversationOrchestrator": _orchestration_metadata(orchestration),
             "runId": result.get("runId"),
             "runStatus": result.get("status"),
             "siteIntent": {
@@ -165,6 +192,10 @@ def _classify_message(message: str, memory: dict[str, Any], intent: dict[str, An
     pending = memory.get("pendingUserAction")
     has_location_evidence = bool(intent.get("hasLocationEvidence"))
     has_site_signal = bool(intent.get("namedSiteHint") or has_location_evidence)
+    if lower in _GREETING_PHRASES:
+        return "greeting"
+    if lower in _HELP_PHRASES:
+        return "help"
     if lower in _STATUS_PHRASES or any(lower.startswith(f"{phrase} ") for phrase in _STATUS_PHRASES):
         return "status"
     if _starts_with_any(lower, _START_OVER_PHRASES):
@@ -200,6 +231,153 @@ def _looks_like_question(lower: str) -> bool:
         return True
     first = lower.split(" ", 1)[0] if lower else ""
     return first in _QUESTION_PREFIXES
+
+
+def _maybe_orchestrate_conversation(
+    *,
+    session: dict[str, Any],
+    message: str,
+    intent: dict[str, Any],
+    deterministic_route: str,
+    config: RuntimeConfig,
+) -> dict[str, Any] | None:
+    if not config.bedrock_enabled:
+        return None
+    try:
+        orchestration, metadata = generate_bedrock_conversation_orchestration(
+            config=config,
+            message=message,
+            intent=intent,
+            session_context=llm_session_context(session),
+        )
+        orchestration["metadata"] = metadata
+        orchestration["fallbackRoute"] = deterministic_route
+        return orchestration
+    except (BedrockAdapterError, Exception) as exc:
+        return {
+            "route": deterministic_route,
+            "assistantMessage": None,
+            "shouldStartRun": deterministic_route in {"new_run", "location_correction", "start_over_with_site"},
+            "pendingUserAction": None,
+            "reason": f"Conversation orchestrator unavailable; deterministic route used. {exc}",
+            "metadata": {"provider": "deterministic-fallback", "errorType": exc.__class__.__name__},
+            "fallbackRoute": deterministic_route,
+            "failed": True,
+        }
+
+
+def _validated_route(
+    orchestration: dict[str, Any] | None,
+    deterministic_route: str,
+    memory: dict[str, Any],
+    intent: dict[str, Any],
+) -> str:
+    if not orchestration:
+        return deterministic_route
+
+    route = str(orchestration.get("route") or deterministic_route).strip().lower().replace("-", "_")
+    pending = memory.get("pendingUserAction")
+    has_location_evidence = bool(intent.get("hasLocationEvidence"))
+    has_site_signal = bool(intent.get("namedSiteHint") or has_location_evidence)
+
+    if deterministic_route in {
+        "status",
+        "confirm_by_chat",
+        "reject_location",
+        "location_correction",
+        "start_over_without_site",
+        "start_over_with_site",
+    }:
+        return deterministic_route
+    if pending in {"confirm_or_correct_location", "provide_corrected_location"}:
+        if route in {"greeting", "help", "conversation", "follow_up"} and not has_location_evidence:
+            return "follow_up"
+        if not has_site_signal and not intent.get("unsafeIntent"):
+            return "follow_up"
+    if intent.get("unsafeIntent"):
+        if orchestration.get("shouldStartRun") is False:
+            return "conversation"
+        return "new_run"
+    if has_site_signal and deterministic_route in {"new_run", "location_correction", "start_over_with_site"}:
+        return deterministic_route
+    if route in {"new_run", "location_correction", "start_over_with_site"}:
+        if has_site_signal or intent.get("unsafeIntent"):
+            return "new_run" if route != "location_correction" else "location_correction"
+        return "conversation"
+    if not has_site_signal and not intent.get("unsafeIntent"):
+        return route if route in {"conversation", "greeting", "help", "follow_up", "status"} else "conversation"
+    if route in {"conversation", "greeting", "help", "follow_up", "status"}:
+        return route
+    return deterministic_route
+
+
+def _orchestrated_conversation_response(
+    session_id: str,
+    route: str,
+    orchestration: dict[str, Any] | None,
+    memory: dict[str, Any],
+    config: RuntimeConfig,
+) -> dict[str, Any]:
+    text = (
+        (orchestration or {}).get("assistantMessage")
+        or _deterministic_conversation_copy(route, memory)
+    )
+    pending_action = (orchestration or {}).get("pendingUserAction")
+    add_conversation_turn(
+        session_id,
+        role="assistant",
+        text=text,
+        metadata={
+            "route": route,
+            "conversationOrchestrator": _orchestration_metadata(orchestration),
+        },
+        config=config,
+    )
+    update_fields: dict[str, Any] = {"latestRoute": route}
+    if pending_action:
+        update_fields["pendingUserAction"] = pending_action
+    update_working_memory(session_id, config, **update_fields)
+    return {
+        "action": "answered_from_memory",
+        "route": route,
+        "assistantMessage": text,
+        "runtime": _runtime_contract(
+            config,
+            "bedrock-conversation-orchestrator" if orchestration and not orchestration.get("failed") else "lambda-adapter-active",
+        ),
+    }
+
+
+def _deterministic_conversation_copy(route: str, memory: dict[str, Any]) -> str:
+    if route == "greeting":
+        return (
+            "Hi. Give me a UK postcode or latitude/longitude, plus the planned visit activity, "
+            "and I will prepare a RAMS-style pre-visit review pack for human review."
+        )
+    if route == "help":
+        return (
+            "Send a UK postcode or latitude/longitude, the site type if known, and the planned activity "
+            "such as survey, inspection, delivery, or maintenance."
+        )
+    if memory.get("pendingUserAction"):
+        return f"I am waiting for: {memory['pendingUserAction']}."
+    return "Tell me the site postcode or latitude/longitude, plus the planned visit activity, and I can prepare a pre-visit review pack for human review."
+
+
+def _orchestration_metadata(orchestration: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not orchestration:
+        return None
+    metadata = orchestration.get("metadata") or {}
+    return {
+        "route": orchestration.get("route"),
+        "shouldStartRun": orchestration.get("shouldStartRun"),
+        "reason": orchestration.get("reason"),
+        "provider": metadata.get("provider"),
+        "phase": metadata.get("phase"),
+        "modelCallCount": metadata.get("modelCallCount"),
+        "fallbackRoute": orchestration.get("fallbackRoute"),
+        "failed": orchestration.get("failed", False),
+    }
 
 
 def _looks_like_correction(lower: str) -> bool:
@@ -255,10 +433,19 @@ def _status_response(session_id: str, memory: dict[str, Any], config: RuntimeCon
     return {"action": "answered_from_memory", "route": "status", "assistantMessage": text, "runtime": _runtime_contract(config, "lambda-adapter-active")}
 
 
-def _memory_response(session_id: str, message: str, memory: dict[str, Any], config: RuntimeConfig) -> dict[str, Any]:
+def _memory_response(
+    session_id: str,
+    message: str,
+    memory: dict[str, Any],
+    config: RuntimeConfig,
+    *,
+    orchestration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     latest = memory.get("latestAssistantMessage")
     pending = memory.get("pendingUserAction")
-    if latest:
+    if orchestration and orchestration.get("assistantMessage"):
+        text = orchestration["assistantMessage"]
+    elif latest:
         text = (
             "I was referring to the previous step in this same session: "
             f"{latest} "
@@ -272,7 +459,11 @@ def _memory_response(session_id: str, message: str, memory: dict[str, Any], conf
         session_id,
         role="assistant",
         text=text,
-        metadata={"route": "follow_up", "followUpPrompt": message[:120]},
+        metadata={
+            "route": "follow_up",
+            "followUpPrompt": message[:120],
+            "conversationOrchestrator": _orchestration_metadata(orchestration),
+        },
         config=config,
     )
     return {
