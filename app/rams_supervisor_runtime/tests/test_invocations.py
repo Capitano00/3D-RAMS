@@ -366,6 +366,41 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(item["traceSummary"][0]["caseId"], "case_store_test_001")
         self.assertFalse(item["redaction"]["rawPrivateMaterialPersisted"])
 
+    def test_report_store_omits_large_internal_run_fields(self):
+        response = invoke_local(
+            {
+                "input": {
+                    "caseId": "case_store_bounded_001",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": False,
+                    "upstream": {
+                        "source": "ASI_ONE",
+                        "caseId": "case_store_bounded_001",
+                        "confirmedByUser": True,
+                        "reportAccess": report_access("case_store_bounded_001"),
+                    },
+                }
+            }
+        )
+        output = response["output"]
+        output["run"]["subagentOutputs"] = {"large": "x" * 500_000}
+        output["run"]["reviewInput"] = {"large": "x" * 500_000}
+        writes: list[dict] = []
+
+        class WriteTable:
+            def put_item(self, *, Item):
+                writes.append(Item)
+
+        persistence = persist_report(output, table=WriteTable())
+
+        self.assertEqual(persistence["status"], "stored")
+        item = writes[0]
+        self.assertEqual(item["caseId"], "case_store_bounded_001")
+        self.assertIn("location", item["run"])
+        self.assertIn("trace", item["run"])
+        self.assertNotIn("subagentOutputs", item["run"])
+        self.assertNotIn("reviewInput", item["run"])
+
     def test_report_lookup_returns_stored_report_payload(self):
         access = report_access("case_lookup_test_001")
         response = invoke_local(

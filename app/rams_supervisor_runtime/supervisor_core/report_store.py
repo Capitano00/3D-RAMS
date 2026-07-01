@@ -167,7 +167,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
 
     run = output.get("run") if isinstance(output.get("run"), dict) else {}
     report = output.get("structuredReport") if isinstance(output.get("structuredReport"), dict) else {}
-    stored_run = _storage_safe_payload(run)
+    stored_run = _storage_safe_run(run)
     stored_report = _storage_safe_payload(report)
     review_metadata = _review_metadata(case_id, report)
     safety = run.get("safety") if isinstance(run.get("safety"), dict) else {}
@@ -551,6 +551,34 @@ def _storage_safe_payload(value: Any) -> Any:
     if isinstance(value, list):
         return [_storage_safe_payload(item) for item in value]
     return value
+
+
+def _storage_safe_run(run: dict[str, Any]) -> dict[str, Any]:
+    viewer_keys = {
+        "caseId",
+        "runId",
+        "request",
+        "upstream",
+        "location",
+        "scene",
+        "annotations",
+        "hazards",
+        "evidence",
+        "sources",
+        "briefing",
+        "safety",
+        "trace",
+        "runtime",
+        "materialIngestion",
+        "reviewGate",
+        "reviewMetadata",
+        "finalReportStatus",
+        "fallback",
+        "externalSignals",
+        "tokenUsage",
+        "modelCalls",
+    }
+    return {key: _storage_safe_payload(value) for key, value in run.items() if key in viewer_keys}
 
 
 def _text(value: Any) -> str | None:
