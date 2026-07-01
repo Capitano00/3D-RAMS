@@ -210,6 +210,11 @@ function buildReportLookupPayload(caseId) {
 
 function frontendReportSessionId() {
   if (typeof window === "undefined") return "frontend-demo-session";
+  const urlSession = new URLSearchParams(window.location.search).get("reportSessionId");
+  if (urlSession) {
+    window.sessionStorage.setItem(REPORT_SESSION_STORAGE_KEY, urlSession);
+    return urlSession;
+  }
   const existing = window.sessionStorage.getItem(REPORT_SESSION_STORAGE_KEY);
   if (existing) return existing;
   const generated =

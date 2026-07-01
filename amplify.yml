@@ -1,6 +1,10 @@
 version: 1
 applications:
   - appRoot: frontend
+    customRules:
+      - source: /case/<*>
+        target: /index.html
+        status: 200
     frontend:
       phases:
         preBuild:

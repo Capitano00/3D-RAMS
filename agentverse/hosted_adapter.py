@@ -2,6 +2,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from agentcore_client import extract_json_body, extract_text_body, invoke_runtime_text
 from uagents import Agent, Context, Protocol
@@ -56,7 +57,8 @@ def invoke_agentcore(prompt: str, sender: str) -> str:
         timeout=60,
     )
     _remember_pending_intake(session_id, response_text)
-    return extract_text_body(response_text) or response_text
+    reply = extract_text_body(response_text) or response_text
+    return _append_full_report_link(reply, response_text, session_id)
 
 
 def _entry_turn_payload(prompt: str, session_id: str) -> dict:
@@ -105,6 +107,21 @@ def _report_access(case_id: str, session_id: str) -> dict:
 def _case_id_from_prompt(prompt: str):
     match = CASE_REF_RE.search(prompt)
     return match.group(1) if match else None
+
+
+def _append_full_report_link(reply: str, response_text: str, session_id: str) -> str:
+    base_url = os.getenv("PUBLIC_FRONTEND_BASE_URL", "").strip().rstrip("/")
+    if not base_url:
+        return reply
+    response = extract_json_body(response_text)
+    output = response.get("output") if isinstance(response, dict) else {}
+    case_id = output.get("caseId") if isinstance(output, dict) else None
+    if not case_id:
+        return reply
+    url = f"{base_url}/case/{case_id}?{urlencode({'reportSessionId': session_id})}"
+    if url in reply:
+        return reply
+    return f"{reply}\n\nFull report: {url}"
 
 
 def _looks_like_confirmation(prompt: str) -> bool:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 import types
@@ -54,6 +55,20 @@ class HostedAdapterPayloadTests(unittest.TestCase):
             self.hosted_adapter._case_id_from_prompt("Show report /case/case_ec2310c77382 please"),
             "case_ec2310c77382",
         )
+
+    def test_full_report_link_uses_frontend_base_and_session(self):
+        response = json.dumps({"output": {"caseId": "case_ec2310c77382"}})
+        previous = os.environ.get("PUBLIC_FRONTEND_BASE_URL")
+        os.environ["PUBLIC_FRONTEND_BASE_URL"] = "https://example.test"
+        try:
+            text = self.hosted_adapter._append_full_report_link("Summary", response, "agentverse-session")
+        finally:
+            if previous is None:
+                os.environ.pop("PUBLIC_FRONTEND_BASE_URL", None)
+            else:
+                os.environ["PUBLIC_FRONTEND_BASE_URL"] = previous
+
+        self.assertIn("Full report: https://example.test/case/case_ec2310c77382?reportSessionId=agentverse-session", text)
 
 
 def _install_uagents_stubs():
