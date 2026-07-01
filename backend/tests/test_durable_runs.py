@@ -285,6 +285,266 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(session_state["workingMemory"]["activeRunId"], first["run"]["runId"])
         self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "confirm_or_correct_location")
 
+    def test_conversation_started_run_handles_queued_result_none(self):
+        queued_run = {
+            "runId": "run-queued-test",
+            "sessionId": "session-placeholder",
+            "status": "queued",
+            "currentStep": "queued",
+            "result": None,
+        }
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="false"), patch(
+            "app.conversation_router.create_durable_run",
+            return_value=queued_run,
+        ):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["action"], "started_run")
+        self.assertEqual(result["run"]["status"], "queued")
+        self.assertIn("queued", result["assistantMessage"])
+
+    def test_conversation_rejects_candidate_without_starting_fake_run(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            rejection = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Not this site",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(first["run"]["status"], "waiting_for_location_confirmation")
+        self.assertEqual(rejection["action"], "answered_from_memory")
+        self.assertEqual(rejection["route"], "reject_location")
+        self.assertIn("will not run", rejection["assistantMessage"])
+        self.assertEqual(len(session_state["runs"]), 1)
+        self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "provide_corrected_location")
+        self.assertEqual(session_state["workingMemory"]["rejectedRunId"], first["run"]["runId"])
+
+    def test_conversation_chat_confirm_guides_to_confirm_button(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            confirm = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "yes",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(first["run"]["status"], "waiting_for_location_confirmation")
+        self.assertEqual(confirm["action"], "answered_from_memory")
+        self.assertEqual(confirm["route"], "confirm_by_chat")
+        self.assertIn("Confirm this site", confirm["assistantMessage"])
+        self.assertEqual(len(session_state["runs"]), 1)
+        self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "confirm_or_correct_location")
+
+    def test_conversation_corrected_coordinate_starts_new_gated_run(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            correction = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Actually use 50.825351, -0.125125 for the survey site.",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(correction["action"], "started_run")
+        self.assertEqual(correction["route"], "location_correction")
+        self.assertEqual(correction["run"]["status"], "waiting_for_location_confirmation")
+        self.assertNotEqual(first["run"]["runId"], correction["run"]["runId"])
+        self.assertEqual(len(session_state["runs"]), 2)
+        self.assertEqual(session_state["workingMemory"]["previousRunId"], first["run"]["runId"])
+        self.assertEqual(session_state["workingMemory"]["activeRunId"], correction["run"]["runId"])
+        self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "confirm_or_correct_location")
+
+    def test_conversation_bare_coordinate_while_pending_is_location_correction(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            correction = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "50.825351, -0.125125",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(correction["route"], "location_correction")
+        self.assertEqual(correction["run"]["status"], "waiting_for_location_confirmation")
+        self.assertEqual(session_state["workingMemory"]["previousRunId"], first["run"]["runId"])
+        self.assertEqual(session_state["workingMemory"]["activeRunId"], correction["run"]["runId"])
+
+    def test_conversation_bare_postcode_while_pending_is_location_correction(self):
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "status": 200,
+            "result": {
+                "postcode": "BN2 9SB",
+                "outcode": "BN2",
+                "latitude": 50.825351,
+                "longitude": -0.125125,
+                "admin_district": "Brighton and Hove",
+                "admin_county": None,
+                "admin_ward": "Queen's Park",
+                "parish": None,
+                "region": "South East",
+                "country": "England",
+            },
+        }
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.location_resolver.httpx.get",
+            return_value=fake_response,
+        ):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            correction = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "BN2 9SB",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(correction["route"], "location_correction")
+        self.assertEqual(correction["run"]["status"], "waiting_for_location_confirmation")
+        parse_trace = next(
+            trace
+            for trace in correction["run"]["partialUiState"]["trace"]
+            if trace.get("name") == "chat_parse_user_request"
+        )
+        self.assertTrue(parse_trace["output"]["clarificationRequired"])
+        self.assertEqual(parse_trace["output"]["siteResolution"], "postcode-confirmation")
+        self.assertEqual(session_state["workingMemory"]["previousRunId"], first["run"]["runId"])
+        self.assertEqual(session_state["workingMemory"]["activeRunId"], correction["run"]["runId"])
+
+    def test_conversation_reject_then_corrected_coordinate_starts_new_gated_run(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            rejected = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Not this site",
+                    "useBedrock": False,
+                },
+            ).json()
+            correction = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "The corrected coordinate is 50.825351, -0.125125.",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(rejected["route"], "reject_location")
+        self.assertEqual(correction["action"], "started_run")
+        self.assertEqual(correction["route"], "location_correction")
+        self.assertEqual(correction["run"]["status"], "waiting_for_location_confirmation")
+        self.assertEqual(len(session_state["runs"]), 2)
+        self.assertEqual(session_state["workingMemory"]["previousRunId"], first["run"]["runId"])
+        self.assertEqual(session_state["workingMemory"]["activeRunId"], correction["run"]["runId"])
+
+    def test_conversation_start_over_without_site_clears_active_run(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": False,
+                },
+            ).json()
+            start_over = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Start again",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(start_over["action"], "answered_from_memory")
+        self.assertEqual(start_over["route"], "start_over_without_site")
+        self.assertIn("fresh site review", start_over["assistantMessage"])
+        self.assertEqual(len(session_state["runs"]), 1)
+        self.assertEqual(session_state["workingMemory"]["previousRunId"], first["run"]["runId"])
+        self.assertIsNone(session_state["workingMemory"]["activeRunId"])
+        self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "provide_new_site_request")
+
     def test_durable_run_geoapify_candidate_requires_confirmation_before_tools(self):
         fake_response = Mock()
         fake_response.raise_for_status.return_value = None

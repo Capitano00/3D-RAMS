@@ -139,10 +139,15 @@ def _parse_message_to_request(
             "message": "I cannot certify RAMS, approve work, or provide emergency guidance. Provide a real site and visit activity if you want a non-certified pre-visit review pack for human review.",
             "triggeredRules": intent["unsafeTerms"],
         }
+    postcode = intent.get("postcode")
+    outcode = intent.get("outcode")
+    postcode_needs_confirmation = bool((postcode or outcode) and not known_lambeth)
     coordinate_needs_confirmation = bool(coordinate and not known_lambeth)
+    location_evidence_needs_confirmation = coordinate_needs_confirmation or postcode_needs_confirmation
     unresolved_named_site = bool(site_label and not coordinate and not known_lambeth and named_site_hint)
-    has_site_signal = coordinate is not None or known_lambeth or named_site_hint
-    trace_status = "warning" if coordinate_needs_confirmation or unresolved_named_site or not has_site_signal else "ok"
+    has_site_signal = coordinate is not None or postcode or outcode or known_lambeth or named_site_hint
+    trace_status = "warning" if location_evidence_needs_confirmation or unresolved_named_site or not has_site_signal else "ok"
+    site_label = site_label or postcode or outcode or "User-supplied location"
     trace = [
         trace_step(
             "chat_parse_user_request",
@@ -150,6 +155,8 @@ def _parse_message_to_request(
             (
                 "Found a coordinate that requires user confirmation before running tools."
                 if coordinate_needs_confirmation
+                else "Found a postcode/outcode that requires user confirmation before running tools."
+                if postcode_needs_confirmation
                 else "Found a named site but no coordinate or approved fixture; asking for location evidence before running tools."
                 if unresolved_named_site
                 else "Parsed the natural-language site visit request into an agent run envelope."
@@ -168,10 +175,12 @@ def _parse_message_to_request(
                 "siteResolution": (
                     "coordinate-confirmation"
                     if coordinate_needs_confirmation
+                    else "postcode-confirmation"
+                    if postcode_needs_confirmation
                     else "unresolved" if unresolved_named_site else ("fixture" if known_lambeth else "missing")
                 ),
                 "fixturePackSelected": "public-lambeth-thames" if known_lambeth else None,
-                "clarificationRequired": coordinate_needs_confirmation or unresolved_named_site or not has_site_signal,
+                "clarificationRequired": location_evidence_needs_confirmation or unresolved_named_site or not has_site_signal,
                 "uploadedFileIds": uploaded_file_ids,
                 "messageSummary": _summarise_message(message),
             },
@@ -182,12 +191,17 @@ def _parse_message_to_request(
             "Which site should I assess? Please provide a site name, address, or coordinate.",
             "What is the planned visit activity, for example survey, inspection, delivery, or maintenance?",
         ], None, None
-    if coordinate_needs_confirmation or unresolved_named_site:
+    if location_evidence_needs_confirmation or unresolved_named_site:
         location_resolution, resolver_trace = resolve_location_candidates(site_label, message, intent=intent)
         trace.append(resolver_trace)
         if coordinate_needs_confirmation and location_resolution["locationCandidates"]:
             clarification = [
                 f"I found a user-supplied coordinate for '{site_label}', but I need you to confirm it is the intended site before generating a review pack.",
+                "Confirm the candidate card, or provide a corrected postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence.",
+            ]
+        elif postcode_needs_confirmation and location_resolution["locationCandidates"]:
+            clarification = [
+                f"I found a postcode/outcode candidate for '{site_label}', but I need you to confirm it is the intended site before generating a review pack.",
                 "Confirm the candidate card, or provide a corrected postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence.",
             ]
         else:

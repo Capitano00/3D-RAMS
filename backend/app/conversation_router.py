@@ -30,12 +30,49 @@ _FOLLOW_UP_PHRASES = {
     "what should i do",
 }
 
+_QUESTION_PREFIXES = {
+    "what",
+    "why",
+    "how",
+    "where",
+    "when",
+    "who",
+    "which",
+    "can",
+    "could",
+    "should",
+    "would",
+    "is",
+    "are",
+    "do",
+    "does",
+}
+
 _STATUS_PHRASES = {
     "status",
     "where are we",
     "what is happening",
     "is it done",
     "are you done",
+}
+
+_CONFIRMATION_PHRASES = {"yes", "ok", "okay", "confirm", "confirmed", "looks right", "this is correct"}
+_REJECTION_PHRASES = {
+    "no",
+    "not this site",
+    "wrong site",
+    "this is wrong",
+    "not the right site",
+    "that is not right",
+    "that is wrong",
+    "different site",
+}
+_START_OVER_PHRASES = {
+    "start again",
+    "start over",
+    "new site",
+    "reset",
+    "clear this",
 }
 
 
@@ -58,13 +95,20 @@ def handle_conversation_message(
         config=config,
     )
 
-    route = _classify_message(cleaned, memory)
+    intent = parse_site_intent(cleaned)
+    route = _classify_message(cleaned, memory, intent)
     if route == "status":
         return _status_response(session_id, memory, config)
     if route == "follow_up":
         return _memory_response(session_id, cleaned, memory, config)
+    if route == "confirm_by_chat":
+        return _confirm_by_chat_response(session_id, memory, config)
+    if route == "reject_location":
+        return _reject_location_response(session_id, cleaned, memory, config)
+    if route == "start_over_without_site":
+        return _start_over_response(session_id, cleaned, memory, config)
 
-    intent = parse_site_intent(cleaned)
+    previous_active_run_id = memory.get("activeRunId")
     result = create_durable_run(
         session_id=session_id,
         message=cleaned,
@@ -90,33 +134,93 @@ def handle_conversation_message(
         },
         config=config,
     )
+    result_payload = result.get("result") or {}
+    update_fields: dict[str, Any] = {
+        "activeRunId": result.get("runId"),
+        "latestRunStatus": result.get("status"),
+        "pendingUserAction": _pending_action(result),
+        "latestLocationResolution": (result.get("locationResolution") or result_payload.get("locationResolution")),
+        "latestReviewSummary": _latest_review_summary(result),
+        "latestRoute": route,
+    }
+    if route in {"location_correction", "start_over_with_site"}:
+        update_fields["previousRunId"] = previous_active_run_id
+        update_fields["correctionReason"] = route
     update_working_memory(
         session_id,
         config,
-        activeRunId=result.get("runId"),
-        latestRunStatus=result.get("status"),
-        pendingUserAction=_pending_action(result),
-        latestLocationResolution=(result.get("locationResolution") or result.get("result", {}).get("locationResolution")),
-        latestReviewSummary=_latest_review_summary(result),
+        **update_fields,
     )
     return {
         "action": "started_run",
-        "route": "new_or_guarded_run",
+        "route": route if route != "new_run" else "new_or_guarded_run",
         "assistantMessage": assistant_text,
         "run": result,
         "runtime": _runtime_contract(config, "lambda-adapter-active"),
     }
 
 
-def _classify_message(message: str, memory: dict[str, Any]) -> str:
+def _classify_message(message: str, memory: dict[str, Any], intent: dict[str, Any]) -> str:
     lower = message.lower().strip(" ?.!")
+    pending = memory.get("pendingUserAction")
+    has_location_evidence = bool(intent.get("hasLocationEvidence"))
+    has_site_signal = bool(intent.get("namedSiteHint") or has_location_evidence)
     if lower in _STATUS_PHRASES or any(lower.startswith(f"{phrase} ") for phrase in _STATUS_PHRASES):
         return "status"
-    if lower in _FOLLOW_UP_PHRASES or any(lower.startswith(f"{phrase} ") for phrase in _FOLLOW_UP_PHRASES):
+    if _starts_with_any(lower, _START_OVER_PHRASES):
+        return "start_over_with_site" if has_site_signal else "start_over_without_site"
+    if pending in {"confirm_or_correct_location", "provide_corrected_location"}:
+        if has_location_evidence:
+            return "location_correction"
+        if pending == "confirm_or_correct_location" and lower in _CONFIRMATION_PHRASES:
+            return "confirm_by_chat"
+        if lower in _REJECTION_PHRASES or any(phrase in lower for phrase in _REJECTION_PHRASES):
+            return "reject_location"
+        if _looks_like_question(lower) and not has_location_evidence:
+            return "follow_up"
+        if _starts_with_any(lower, _FOLLOW_UP_PHRASES):
+            return "follow_up"
+        if not has_site_signal and not intent.get("unsafeIntent"):
+            return "follow_up"
+    elif pending and lower in _CONFIRMATION_PHRASES:
         return "follow_up"
-    if memory.get("pendingUserAction") and lower in {"yes", "ok", "okay", "confirm", "confirmed"}:
+    if _starts_with_any(lower, _FOLLOW_UP_PHRASES):
+        return "follow_up"
+    if _looks_like_question(lower) and memory.get("activeRunId") and not has_site_signal and not intent.get("unsafeIntent"):
         return "follow_up"
     return "new_run"
+
+
+def _starts_with_any(lower: str, phrases: set[str]) -> bool:
+    return lower in phrases or any(lower.startswith(f"{phrase} ") for phrase in phrases)
+
+
+def _looks_like_question(lower: str) -> bool:
+    if lower.endswith("?"):
+        return True
+    first = lower.split(" ", 1)[0] if lower else ""
+    return first in _QUESTION_PREFIXES
+
+
+def _looks_like_correction(lower: str) -> bool:
+    return any(
+        marker in lower
+        for marker in [
+            "corrected",
+            "correction",
+            "actually",
+            "i meant",
+            "use ",
+            "try ",
+            "instead",
+            "the postcode is",
+            "the coordinate is",
+            "coordinates are",
+            "lat",
+            "latitude",
+            "longitude",
+        ]
+    )
 
 
 def _status_response(session_id: str, memory: dict[str, Any], config: RuntimeConfig) -> dict[str, Any]:
@@ -179,6 +283,87 @@ def _memory_response(session_id: str, message: str, memory: dict[str, Any], conf
     }
 
 
+def _confirm_by_chat_response(session_id: str, memory: dict[str, Any], config: RuntimeConfig) -> dict[str, Any]:
+    text = (
+        "I am still waiting for explicit location confirmation through the candidate card. "
+        "Use `Confirm this site` to start map, evidence, risk, and briefing tools, or provide a corrected postcode/coordinate if the candidate is wrong."
+    )
+    add_conversation_turn(
+        session_id,
+        role="assistant",
+        text=text,
+        metadata={"route": "confirm_by_chat", "runId": memory.get("activeRunId")},
+        config=config,
+    )
+    update_working_memory(session_id, config, pendingUserAction="confirm_or_correct_location", latestRoute="confirm_by_chat")
+    return {
+        "action": "answered_from_memory",
+        "route": "confirm_by_chat",
+        "assistantMessage": text,
+        "runtime": _runtime_contract(config, "lambda-adapter-active"),
+    }
+
+
+def _reject_location_response(
+    session_id: str,
+    message: str,
+    memory: dict[str, Any],
+    config: RuntimeConfig,
+) -> dict[str, Any]:
+    text = (
+        "Understood. I will not run the site-review tools for that candidate. "
+        "Please provide a corrected UK postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence for the intended site."
+    )
+    add_conversation_turn(
+        session_id,
+        role="assistant",
+        text=text,
+        metadata={"route": "reject_location", "rejectionPrompt": message[:120], "runId": memory.get("activeRunId")},
+        config=config,
+    )
+    update_working_memory(
+        session_id,
+        config,
+        pendingUserAction="provide_corrected_location",
+        latestRoute="reject_location",
+        rejectedRunId=memory.get("activeRunId"),
+    )
+    return {
+        "action": "answered_from_memory",
+        "route": "reject_location",
+        "assistantMessage": text,
+        "runtime": _runtime_contract(config, "lambda-adapter-active"),
+    }
+
+
+def _start_over_response(session_id: str, message: str, memory: dict[str, Any], config: RuntimeConfig) -> dict[str, Any]:
+    text = (
+        "I can start a fresh site review. Send the new site request with a UK postcode, latitude/longitude, or a clear named site plus supporting location detail."
+    )
+    add_conversation_turn(
+        session_id,
+        role="assistant",
+        text=text,
+        metadata={"route": "start_over_without_site", "prompt": message[:120], "previousRunId": memory.get("activeRunId")},
+        config=config,
+    )
+    update_working_memory(
+        session_id,
+        config,
+        pendingUserAction="provide_new_site_request",
+        latestRoute="start_over_without_site",
+        previousRunId=memory.get("activeRunId"),
+        activeRunId=None,
+        latestRunStatus=None,
+    )
+    return {
+        "action": "answered_from_memory",
+        "route": "start_over_without_site",
+        "assistantMessage": text,
+        "runtime": _runtime_contract(config, "lambda-adapter-active"),
+    }
+
+
 def _safe_read_run(run_id: str | None) -> dict[str, Any] | None:
     if not run_id:
         return None
@@ -202,7 +387,8 @@ def _assistant_text_from_run(run: dict[str, Any]) -> str:
 def _pending_action(run: dict[str, Any]) -> str | None:
     status = run.get("status")
     if status == "waiting_for_location_confirmation":
-        location_resolution = run.get("locationResolution") or run.get("result", {}).get("locationResolution") or {}
+        result_payload = run.get("result") or {}
+        location_resolution = run.get("locationResolution") or result_payload.get("locationResolution") or {}
         if location_resolution.get("locationCandidates"):
             return "confirm_or_correct_location"
         return "provide_location_detail"

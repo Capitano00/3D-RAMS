@@ -79,12 +79,19 @@ Important response fields:
 | Field | Meaning |
 | --- | --- |
 | `action` | `started_run` or `answered_from_memory`. |
-| `route` | Router decision, such as `new_or_guarded_run`, `follow_up`, or `status`. |
+| `route` | Router decision, such as `new_or_guarded_run`, `follow_up`, `status`, `confirm_by_chat`, `reject_location`, `location_correction`, `start_over_without_site`, or `start_over_with_site`. |
 | `assistantMessage` | Natural-language response. |
 | `run` | Durable run status object when a new run was created; absent when the message was answered from memory. |
 | `runtime` | AgentCore-ready runtime contract, adapter status, guard policy, memory mode, and Bedrock/AWS metadata. |
 
 The current implementation stores bounded recent turns and structured working memory in the session record. It must not store raw access codes, credentials, uploaded file contents, or private client material.
+
+When the session is waiting for location confirmation, the router is deliberately conservative:
+
+- `Confirm this site` in the UI is the path that starts map, evidence, risk, and briefing tools.
+- Chat-only replies such as `yes` are answered with guidance rather than silently running tools.
+- `Not this site` keeps the current run from progressing and asks for corrected location evidence.
+- Corrected postcode or latitude/longitude input starts a fresh location-resolution run and records the previous run id in working memory.
 
 ## Compatibility Chat Request
 
