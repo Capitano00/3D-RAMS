@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..bedrock_adapter import BedrockAdapterError, generate_bedrock_briefing
+from ..bedrock_adapter import BedrockAdapterError, bedrock_error_output, generate_bedrock_briefing
 from ..config import RuntimeConfig
 from .telemetry import trace_step
 
@@ -162,7 +162,8 @@ def apply_bedrock_briefing(
             planning_available=planning_text is not None,
         )
     except (BedrockAdapterError, Exception) as exc:
-        fallback_reason = f"Bedrock briefing failed; deterministic briefing used. Reason: {exc}"
+        error_output = bedrock_error_output(exc)
+        fallback_reason = str(error_output["fallbackReason"])
         return briefing, trace_step(
             "generate_bedrock_briefing",
             "fallback",
@@ -173,7 +174,7 @@ def apply_bedrock_briefing(
                 "awsRegion": config.aws_region,
                 "maxTokens": config.bedrock_max_tokens,
                 "temperature": config.bedrock_temperature,
-                "errorType": exc.__class__.__name__,
+                **error_output,
             },
             source_ids=["bedrock-briefing"],
             evidence_ids=[item["id"] for item in evidence],

@@ -164,6 +164,21 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertFalse(material_evidence[0]["citations"][0]["rawContentStored"])
         self.assertTrue(any(finding["id"].startswith("material-asio-material-site-access-plan") for finding in report["findings"]))
 
+    def test_bedrock_fallback_reason_reaches_structured_report_data_quality(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "ENABLE_BEDROCK": "true",
+                "BEDROCK_SIMULATE_FAILURE": "true",
+            },
+        ):
+            response = invoke_local({"input": {"fixturePack": "public-lambeth-thames", "useBedrock": True}})
+
+        report = response["output"]["structuredReport"]
+        self.assertIn("bedrock_simulated_failure", report["runtime"]["fallbackReason"])
+        self.assertFalse(report["runtime"]["bedrockUsed"])
+        self.assertIn("bedrock_simulated_failure", report["dataQuality"]["gaps"])
+
     def test_blocked_invocation_sets_structured_report_review_gate(self):
         response = invoke_local(
             {

@@ -273,11 +273,13 @@ def _correlate_trace(trace: list[dict[str, Any]], case_id: str) -> list[dict[str
 
 def _runtime_fallback_reason(planner_result: dict[str, Any], briefing_reason: str | None) -> str | None:
     reasons = []
-    planner_reason = (planner_result.get("fallback") or {}).get("reason")
-    for reason in (planner_reason, briefing_reason):
-        if reason and reason not in reasons:
-            reasons.append(str(reason))
-    return " ".join(reasons) if reasons else None
+    planner_fallback = planner_result.get("fallback") if isinstance(planner_result.get("fallback"), dict) else {}
+    planner_reason = planner_fallback.get("reason")
+    if planner_result.get("plannerStatus") == "fallback" and planner_reason:
+        reasons.append(str(planner_reason))
+    if briefing_reason:
+        reasons.append(str(briefing_reason))
+    return "; ".join(dict.fromkeys(reasons)) or None
 
 
 def _trace_steps(value: Any, source: str) -> list[dict[str, Any]]:

@@ -408,18 +408,20 @@ def _coordinate_pair(message: str) -> tuple[float, float] | None:
 
 
 def _fallback_reason(exc: Exception) -> str:
-    message = str(exc).lower()
+    message = f"{exc.__class__.__name__} {exc}".lower()
     if "json" in message:
         return "invalid_model_json"
     if "timeout" in message or "timed out" in message:
         return "bedrock_timeout"
-    if "access denied" in message or "not authorized" in message or "credential" in message:
+    if any(token in message for token in ("accessdenied", "access denied", "not authorized", "unauthorized", "forbidden", "credential")):
         return "bedrock_access_denied"
+    if any(token in message for token in ("throttl", "toomanyrequests", "rate exceeded", "servicequota")):
+        return "bedrock_throttled"
     if isinstance(exc, IntakeValidationError):
         return "schema_validation_failed"
     if isinstance(exc, TimeoutError):
         return "bedrock_timeout"
-    return "llm_intake_failed"
+    return "bedrock_unavailable"
 
 
 def _confirmation_summary(intake: dict[str, Any]) -> str:

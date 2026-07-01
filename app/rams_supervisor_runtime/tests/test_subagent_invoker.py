@@ -121,6 +121,11 @@ class OneShotHarnessClient:
         }
 
 
+class FailingHarnessClient:
+    def invoke_harness(self, **kwargs):
+        raise TimeoutError("bedrock-agentcore invoke_harness timeout")
+
+
 def harness_output(group: str, harness: str, data: dict[str, Any], **updates: Any) -> dict[str, Any]:
     payload = {
         "schemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
@@ -221,6 +226,17 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         fallback_step = result["trace"][-1]
         self.assertEqual(fallback_step["name"], "agentcore_harness_schema_fallback")
         self.assertTrue(any("planningText" in item for item in result["metadata"]["contractValidationIssues"]))
+
+    def test_invoke_harness_failure_uses_direct_fallback(self):
+        config = RuntimeConfig.from_env(request_bedrock=False)
+        with EnvPatch(RAMS_PLANNING_HARNESS_ARN="arn:aws:bedrock-agentcore:eu-west-2:123456789012:harness/rams_planning_harness-ABCDEFGHIJ"):
+            invoker = AgentCoreHarnessInvoker(config=config, client=FailingHarnessClient())
+            result = invoker.invoke_planning({}, fixture_pack={"name": "public-lambeth-thames"})
+
+        self.assertIn("planningText", result["data"])
+        fallback_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_failure_fallback")
+        self.assertEqual(fallback_step["status"], "fallback")
+        self.assertEqual(fallback_step["fallbackReason"], "bedrock_timeout")
 
 
 if __name__ == "__main__":

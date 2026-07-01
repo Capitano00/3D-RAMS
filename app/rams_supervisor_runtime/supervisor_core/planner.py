@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rams_agent_tools.bedrock_adapter import BedrockAdapterError, generate_bedrock_subagent_plan
+from rams_agent_tools.bedrock_adapter import BedrockAdapterError, bedrock_error_output, generate_bedrock_subagent_plan
 from rams_agent_tools.config import RuntimeConfig
 from rams_agent_tools.tools import SUPERVISOR_HARNESS_SUBAGENTS, tools_for_group, trace_step
 
@@ -21,13 +21,13 @@ def plan_subagent_workflow(
                 subagent_schemas=_subagent_schemas(),
             )
         except (BedrockAdapterError, Exception) as exc:
-            fallback_reason = f"Bedrock planner failed; deterministic Harness plan used. Reason: {exc}"
+            error_output = bedrock_error_output(exc)
             return _deterministic_result(
                 request_summary=request_summary,
                 status="fallback",
                 active_agent_mode="deterministic-planner-fallback",
-                fallback_reason=fallback_reason,
-                error_type=exc.__class__.__name__,
+                fallback_reason=str(error_output["fallbackReason"]),
+                error_output=error_output,
             )
 
         planner_status = "mocked" if metadata.get("mode") == "bedrock-mock" else "real"
@@ -78,7 +78,7 @@ def _deterministic_result(
     status: str,
     active_agent_mode: str,
     fallback_reason: str,
-    error_type: str | None = None,
+    error_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     plan = _normalise_plan(_default_plan())
     output: dict[str, Any] = {
@@ -88,8 +88,8 @@ def _deterministic_result(
         "requestedAgentMode": request_summary.get("agentMode"),
         "plan": plan,
     }
-    if error_type:
-        output["errorType"] = error_type
+    if error_output:
+        output.update(error_output)
     trace_status = "fallback" if status == "fallback" else "ok"
     return {
         "plan": plan,
