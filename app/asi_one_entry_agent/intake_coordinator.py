@@ -340,7 +340,8 @@ def _looks_like_confirmation(message: str) -> bool:
     normalized = message.strip().lower()
     return bool(
         normalized in {"yes", "yes please", "confirm", "confirmed", "launch", "go", "go ahead"}
-        or re.search(r"\b(confirm|confirmed|proceed|go ahead|launch)\b", normalized)
+        or re.search(r"^(please\s+)?(confirm|confirmed|proceed|go ahead|launch)\b", normalized)
+        or re.search(r"\b(confirm(ed)? and launch|please launch)\b", normalized)
     )
 
 

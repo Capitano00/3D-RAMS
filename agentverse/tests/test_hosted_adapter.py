@@ -41,6 +41,14 @@ class HostedAdapterPayloadTests(unittest.TestCase):
         self.assertEqual(payload["reportAccess"]["mode"], "asi_session")
         self.assertEqual(payload["reportAccess"]["sessionId"], "agentverse-session")
 
+    def test_ask_me_to_confirm_is_not_confirmation(self):
+        payload = self.hosted_adapter._entry_turn_payload(
+            "Ask me to confirm before launching.",
+            "agentverse-session",
+        )
+
+        self.assertFalse(payload["confirmedByUser"])
+
     def test_case_id_from_prompt(self):
         self.assertEqual(
             self.hosted_adapter._case_id_from_prompt("Show report /case/case_ec2310c77382 please"),

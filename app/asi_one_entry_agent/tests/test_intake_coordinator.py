@@ -81,6 +81,20 @@ class IntakeCoordinatorTests(unittest.TestCase):
         self.assertEqual(result["status"], "launch_ready")
         self.assertTrue(result["caseId"].startswith("case_"))
 
+    def test_ask_me_to_confirm_does_not_launch(self):
+        result = coordinate_intake(
+            {
+                "message": (
+                    "Location: 48 Quernmore Road. Area scope: 25m radius. "
+                    "Goal: confined workspace readiness review. Ask me to confirm before launching."
+                ),
+                "conversationId": "c-ask-confirm",
+            }
+        )
+
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertIsNone(result["caseId"])
+
     def test_confirmed_payload_preserves_report_access(self):
         payload = {
             "message": "I want to visit 8 Albert Embankment tomorrow for a survey for 2km",
