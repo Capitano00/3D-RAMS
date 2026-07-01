@@ -98,6 +98,10 @@ _TOOL_PROMISE_RE = re.compile(
     r"(?:ing)?\b",
     re.IGNORECASE,
 )
+_NAME_ONLY_LOCATION_REQUEST_RE = re.compile(
+    r"\b(?:name|title)\s+of\s+(?:the\s+)?(?:park|site|location|place)\b",
+    re.IGNORECASE,
+)
 
 
 def handle_conversation_message(
@@ -670,7 +674,7 @@ def _pending_action_copy(action: Any) -> str:
         "provide_safe_site_visit_request": "I can help with a non-certified pre-visit review pack. Please provide a real site and visit activity without asking me to certify RAMS, approve work, or provide emergency guidance.",
         "confirm_or_correct_location": "Please confirm the candidate location card, or send a corrected postcode or latitude/longitude before review tools run.",
         "provide_corrected_location": "Please provide a corrected UK postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence for the intended site.",
-        "provide_location_detail": "Please provide a trusted postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence before I prepare a site-specific pack.",
+        "provide_location_detail": "Please provide a trusted postcode, latitude/longitude, OS grid reference, map pin, or public source before I prepare a site-specific pack. A park or site name alone is only a clue unless the backend can resolve a reliable candidate.",
         "provide_new_site_request": "Send a new site request with a postcode or latitude/longitude and the planned visit activity.",
         "answer_clarifying_question": "Please answer the clarification question before I run map, evidence, risk, or briefing tools.",
         "wait_for_agent_run": "The backend is still running the current review workflow. You can ask for status if you want an update.",
@@ -703,6 +707,8 @@ def _sanitize_assistant_copy(
                 "I can only help with a non-certified pre-visit review pack for human review if you provide a safe site-visit request."
             )
         return scrubbed
+    if not tools_started and not (intent or {}).get("hasLocationEvidence") and _NAME_ONLY_LOCATION_REQUEST_RE.search(scrubbed):
+        return _no_tool_started_copy(route or "conversation", memory or {}, intent or {})
     if not tools_started and _TOOL_PROMISE_RE.search(scrubbed):
         return _no_tool_started_copy(route or "conversation", memory or {}, intent or {})
     return scrubbed
@@ -720,7 +726,7 @@ def _no_tool_started_copy(route: str, memory: dict[str, Any], intent: dict[str, 
         return (
             f"I can help with that site visit, but I have not started map, evidence, risk, or briefing tools yet. "
             f"Please provide a trusted UK postcode or latitude/longitude for {site_hint}{activity_hint}, "
-            "or a specific public source for the intended location."
+            "or a specific public source/map pin for the intended location. A name-only place is treated as a clue, not trusted site evidence."
         )
     if route == "greeting":
         return "Hello. Tell me the site postcode or latitude/longitude and the planned visit activity, and I can prepare a pre-visit review pack."

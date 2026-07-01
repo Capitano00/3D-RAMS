@@ -553,6 +553,70 @@ class DurableRunApiTests(unittest.TestCase):
             self.assertIn("toolsStarted", response["trace"][0]["output"])
             self.assertEqual(response["modelCalls"][0]["phase"], "conversation-orchestrator")
 
+    def test_conversation_does_not_ask_for_name_only_location_as_sufficient_evidence(self):
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            APP_ACCESS_TOKEN_HASH=None,
+            DURABLE_RUN_PROCESS_INLINE="true",
+        ), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            return_value=(
+                {
+                    "route": "conversation",
+                    "assistantMessage": "Could you provide the name of the park or a postcode/coordinates for the exact location?",
+                    "shouldStartRun": False,
+                    "pendingUserAction": "provide_location_detail",
+                    "reason": "Needs trusted location evidence.",
+                },
+                {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+            ),
+        ):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I need to visit a park in Brighton tomorrow",
+                    "useBedrock": True,
+                },
+            ).json()
+
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "conversation")
+        self.assertNotIn("name of the park", response["assistantMessage"].lower())
+        self.assertIn("A park or site name alone is only a clue", response["assistantMessage"])
+        self.assertFalse(response["observability"]["toolsStarted"])
+
+    def test_conversation_named_park_follow_up_becomes_location_evidence_needed_run(self):
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I need to visit a park in Brighton tomorrow",
+                    "useBedrock": False,
+                },
+            ).json()
+            second = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "Queens Park in Brighton",
+                    "useBedrock": False,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(first["run"]["status"], "waiting_for_location_evidence")
+        self.assertEqual(second["action"], "started_run")
+        self.assertEqual(second["run"]["status"], "waiting_for_location_evidence")
+        self.assertEqual(second["run"]["result"]["nextStage"], "provide_location_detail")
+        self.assertIn("Queens Park in Brighton", second["assistantMessage"])
+        self.assertNotEqual(second["route"], "follow_up")
+        self.assertEqual(len(session_state["runs"]), 2)
+        self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "provide_location_detail")
+
     def test_status_response_includes_observability_when_no_run_exists(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
             session = self._session()

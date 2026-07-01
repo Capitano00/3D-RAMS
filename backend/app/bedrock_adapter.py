@@ -323,6 +323,7 @@ def generate_bedrock_conversation_orchestration(
                 "If session_context.workingMemory.pendingUserAction is provide_corrected_location, interpret the new message as a correction attempt. A trusted postcode or coordinate should route location_correction; vague text should ask for clearer evidence and should_start_run must be false.",
                 "Only recommend new_run when the user is asking for a site visit/pre-visit review or correcting a location.",
                 "Vague location-discovery messages such as 'near a park in Brighton' must be intent=location_discovery, location_status=vague or needs_evidence, and must not invent a site name or coordinate.",
+                "Do not ask for a park/site name by itself as if it is trusted location evidence. A name-only place such as 'Queens Park in Brighton' is only a clue unless the backend can resolve a source-labelled candidate. Ask for postcode, latitude/longitude, OS grid reference, map pin, or a public source.",
                 "For name-only sites without postcode/coordinate, recommend new_run so the backend can create a gated clarification/provisional checklist.",
                 "For postcode or latitude/longitude, recommend new_run so the backend can create a location confirmation candidate.",
                 "For unsafe certification, approval, or emergency requests, do not start tools; explain the safety boundary.",

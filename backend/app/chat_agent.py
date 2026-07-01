@@ -146,10 +146,19 @@ def _parse_message_to_request(
     postcode_needs_confirmation = bool((postcode or outcode) and not known_lambeth)
     coordinate_needs_confirmation = bool(coordinate and not known_lambeth)
     location_evidence_needs_confirmation = coordinate_needs_confirmation or postcode_needs_confirmation
-    unresolved_named_site = bool(
-        (site_label or vague_location_hint) and not coordinate and not known_lambeth and (named_site_hint or vague_location_hint)
+    name_location_clue = bool(
+        site_label
+        and (
+            intent.get("placeHint")
+            or intent.get("areaHint")
+            or intent.get("nearestTown")
+            or intent.get("localAuthority")
+        )
     )
-    has_site_signal = coordinate is not None or postcode or outcode or known_lambeth or named_site_hint or vague_location_hint
+    unresolved_named_site = bool(
+        (site_label or vague_location_hint) and not coordinate and not known_lambeth and (name_location_clue or named_site_hint or vague_location_hint)
+    )
+    has_site_signal = coordinate is not None or postcode or outcode or known_lambeth or name_location_clue or named_site_hint or vague_location_hint
     trace_status = "warning" if location_evidence_needs_confirmation or unresolved_named_site or not has_site_signal else "ok"
     site_label = site_label or _location_hint_label(intent) or postcode or outcode or "User-supplied location"
     trace = [

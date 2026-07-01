@@ -68,6 +68,10 @@ _WEAK_SITE_LABELS = {
     "inspection",
     "maintenance",
     "delivery",
+    "pack",
+    "review pack",
+    "pre-visit pack",
+    "rams-style review pack",
     "this place",
     "this site",
     "the site",
@@ -282,6 +286,8 @@ def _clean_label(value: str) -> str:
 def _is_weak_site_label(value: str) -> bool:
     label = value.strip().lower()
     if not label:
+        return True
+    if any(term in label for term in ("pre-visit pack", "review pack", "rams-style review pack")):
         return True
     return label in _WEAK_SITE_LABELS
 
