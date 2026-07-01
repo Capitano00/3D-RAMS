@@ -33,6 +33,110 @@ function statusClass(value) {
   return displayValue(value, "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
+function shortId(value) {
+  const text = displayValue(value, "");
+  if (!text) return "none";
+  return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+}
+
+function latestConversationRoute(turns) {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const route = turns[index]?.metadata?.route;
+    if (route) return route;
+  }
+  return null;
+}
+
+function pendingActionCopy(action) {
+  const mapping = {
+    confirm_or_correct_location: "Confirm the candidate card or send a corrected postcode/coordinate.",
+    provide_corrected_location: "Send a corrected postcode, coordinate, OS grid reference, nearest road/town, or public evidence.",
+    provide_location_detail: "Provide a trusted postcode, latitude/longitude, or source evidence.",
+    provide_new_site_request: "Send a new site request with location evidence.",
+    answer_clarifying_question: "Answer the agent's clarification question before tools run.",
+    wait_for_agent_run: "The backend is running the current review workflow.",
+  };
+  return mapping[action] || "No user action is pending.";
+}
+
+function AgentStatePanel({ sessionState, runStatus, run }) {
+  const memory = sessionState?.workingMemory || {};
+  const turns = toList(sessionState?.conversationTurns);
+  const recentTurns = turns.slice(-5);
+  const route = memory.latestRoute || latestConversationRoute(turns) || "not routed yet";
+  const pendingAction = memory.pendingUserAction || (runStatus?.status === "waiting_for_location_confirmation" ? "confirm_or_correct_location" : null);
+  const latestEvaluation = run?.evaluation || run?.uiState?.evaluation || runStatus?.result?.evaluation || runStatus?.finalUiState?.evaluation || null;
+  const evaluationScores = latestEvaluation?.scores || {};
+  const latestRunSummary = memory.latestReviewSummary || {};
+
+  return (
+    <section className="agent-state-panel" aria-live="polite">
+      <div className="agent-state-header">
+        <div>
+          <p className="eyebrow">Agent state</p>
+          <h2>Memory, routing, and quality loop</h2>
+        </div>
+        <span className={`status ${statusClass(pendingAction || "ready")}`}>
+          {pendingAction ? "action pending" : "ready"}
+        </span>
+      </div>
+
+      <div className="agent-state-grid">
+        <article>
+          <span>Latest route</span>
+          <strong>{displayValue(route)}</strong>
+          <p>{pendingActionCopy(pendingAction)}</p>
+        </article>
+        <article>
+          <span>Active run</span>
+          <strong>{shortId(memory.activeRunId || runStatus?.runId || run?.runId)}</strong>
+          <p>
+            Status: {displayValue(memory.latestRunStatus || runStatus?.status || latestRunSummary.status, "idle")}
+          </p>
+        </article>
+        <article>
+          <span>Storage</span>
+          <strong>{displayValue(sessionState?.storageMode || run?.runtime?.sessionTraceMode || "memory")}</strong>
+          <p>Shows bounded chat turns and trace metadata for this test session; uploaded file contents are not shown here.</p>
+        </article>
+        <article>
+          <span>Quality gate</span>
+          <strong>{latestEvaluation ? (latestEvaluation.passed ? "passed" : "needs repair / limited") : "not run yet"}</strong>
+          <p>
+            Loop: {displayValue(latestEvaluation?.loop, "0")} / stop: {displayValue(latestEvaluation?.evaluationStopReason, "pending")}
+          </p>
+        </article>
+      </div>
+
+      {latestEvaluation && (
+        <div className="agent-evaluation-strip">
+          {["grounding", "relevance", "completeness", "safety"].map((key) => (
+            <div key={key}>
+              <span>{key}</span>
+              <strong>{displayValue(evaluationScores[key], "n/a")}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="agent-turns">
+        <h3>Recent bounded memory</h3>
+        {recentTurns.length ? (
+          recentTurns.map((turn, index) => (
+            <div className="agent-turn" key={`${turn.role}-${turn.createdAt || index}-${index}`}>
+              <span>{turn.role}</span>
+              <strong>{displayValue(turn.metadata?.route || (turn.metadata?.routeInput ? "user_input" : "memory"))}</strong>
+              <p>{displayValue(turn.text).slice(0, 220)}</p>
+            </div>
+          ))
+        ) : (
+          <p className="empty-copy">Session memory will appear after the first message.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function CandidateMapPreview({ candidate }) {
   const latitude = Number(candidate?.latitude);
   const longitude = Number(candidate?.longitude);
@@ -588,6 +692,7 @@ function App() {
   const [prompt, setPrompt] = useState(STARTER_PROMPT);
   const [run, setRun] = useState(null);
   const [runStatus, setRunStatus] = useState(null);
+  const [sessionState, setSessionState] = useState(null);
   const [uploads, setUploads] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -601,6 +706,15 @@ function App() {
   const reviewMode = ui.reviewMode || (runStatus && ["queued", "running"].includes(runStatus.status) ? "new run in progress" : null);
   const safetyTone = ui.safety?.allowed === false ? "blocked" : ui.safety?.level === "needs_input" ? "warning" : "allowed";
 
+  async function refreshSessionState(sessionId = session?.sessionId) {
+    if (!sessionId) return null;
+    const response = await fetch(`${API_BASE_URL}/api/session/${sessionId}`);
+    if (!response.ok) return null;
+    const nextSessionState = await response.json();
+    setSessionState(nextSessionState);
+    return nextSessionState;
+  }
+
   async function startSession(payload) {
     setLoading(true);
     setError("");
@@ -613,7 +727,16 @@ function App() {
       if (!response.ok) throw new Error(`Session start failed (${response.status})`);
       const nextSession = await response.json();
       setSession(nextSession);
+      setSessionState({
+        ...nextSession,
+        runs: [],
+        uploads: [],
+        conversationTurns: [],
+        workingMemory: {},
+        storageMode: nextSession.runtime?.sessionTraceMode || "memory",
+      });
       localStorage.setItem("3drams-session", JSON.stringify(nextSession));
+      await refreshSessionState(nextSession.sessionId);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -675,6 +798,7 @@ function App() {
       if (result.run) {
         localStorage.setItem("3drams-latest-run", result.run.runId);
         applyRunStatus(result.run);
+        await refreshSessionState(session.sessionId);
       } else {
         setMessages((current) => [
           ...current,
@@ -693,6 +817,7 @@ function App() {
             briefingMode: "memory-response",
           },
         }));
+        await refreshSessionState(session.sessionId);
         setLoading(false);
       }
     } catch (err) {
@@ -756,7 +881,9 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      applyRunStatus(await fetchRunStatus(runId));
+      const status = await fetchRunStatus(runId);
+      applyRunStatus(status);
+      await refreshSessionState(status.sessionId || session?.sessionId);
     } catch (err) {
       setError(err.message);
       setLoading(false);
@@ -769,7 +896,9 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/runs/${runStatus.runId}/cancel`, { method: "POST" });
       if (!response.ok) throw new Error(`Cancel failed (${response.status})`);
-      applyRunStatus(await response.json());
+      const status = await response.json();
+      applyRunStatus(status);
+      await refreshSessionState(status.sessionId || session?.sessionId);
     } catch (err) {
       setError(err.message);
     }
@@ -798,6 +927,7 @@ function App() {
       });
       if (!response.ok) throw new Error(`Location confirmation failed (${response.status})`);
       applyRunStatus(await response.json());
+      await refreshSessionState(session.sessionId);
     } catch (err) {
       setError(err.message);
       setLoading(false);
@@ -837,6 +967,7 @@ function App() {
       if (!response.ok) throw new Error(`Upload registration failed (${response.status})`);
       const upload = await response.json();
       setUploads((current) => [...current, upload]);
+      await refreshSessionState(session.sessionId);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -849,7 +980,9 @@ function App() {
     const cachedSession = localStorage.getItem("3drams-session");
     if (cachedSession) {
       try {
-        setSession(JSON.parse(cachedSession));
+        const parsedSession = JSON.parse(cachedSession);
+        setSession(parsedSession);
+        setSessionState(parsedSession);
         return;
       } catch {
         localStorage.removeItem("3drams-session");
@@ -862,10 +995,27 @@ function App() {
   }, [session]);
 
   useEffect(() => {
+    if (!session?.sessionId) return undefined;
+    let cancelled = false;
+    refreshSessionState(session.sessionId)
+      .then((nextSessionState) => {
+        if (!cancelled && nextSessionState) setSessionState(nextSessionState);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.sessionId]);
+
+  useEffect(() => {
     if (!runStatus?.runId || !["queued", "running"].includes(runStatus.status)) return undefined;
     const timer = window.setInterval(async () => {
       try {
-        applyRunStatus(await fetchRunStatus(runStatus.runId));
+        const status = await fetchRunStatus(runStatus.runId);
+        applyRunStatus(status);
+        if (!["queued", "running"].includes(status.status)) {
+          await refreshSessionState(status.sessionId || session?.sessionId);
+        }
       } catch (err) {
         setError(err.message);
         setLoading(false);
@@ -923,6 +1073,7 @@ function App() {
         confirmingLocation={confirmingLocation}
         run={run}
       />
+      <AgentStatePanel sessionState={sessionState} runStatus={runStatus} run={run} />
 
       <section className="product-grid">
         <ChatPanel

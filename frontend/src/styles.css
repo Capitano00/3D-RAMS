@@ -844,6 +844,105 @@ textarea {
   color: #4f5d65;
 }
 
+.agent-state-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  border: 1px solid #d5ddd9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(23, 32, 28, 0.04);
+}
+
+.agent-state-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-state-header h2 {
+  margin: 0;
+  font-size: 1.18rem;
+}
+
+.agent-state-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-state-grid article {
+  min-height: 112px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  border: 1px solid #e1e8e4;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 10px;
+}
+
+.agent-state-grid span,
+.agent-evaluation-strip span,
+.agent-turn span {
+  color: #5f706a;
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.agent-state-grid strong {
+  overflow-wrap: anywhere;
+  font-size: 0.96rem;
+}
+
+.agent-state-grid p,
+.agent-turn p {
+  margin: 0;
+  color: #526861;
+  font-size: 0.9rem;
+}
+
+.agent-evaluation-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-evaluation-strip div {
+  border: 1px solid #dbe6e0;
+  border-radius: 8px;
+  background: #eefaf6;
+  padding: 8px 10px;
+}
+
+.agent-evaluation-strip strong {
+  display: block;
+  margin-top: 3px;
+}
+
+.agent-turns {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-turns h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.agent-turn {
+  display: grid;
+  grid-template-columns: 94px 160px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border-left: 3px solid #0b6f65;
+  background: #f7faf8;
+  padding: 8px 10px;
+}
+
 .architecture-visualizer {
   margin-top: 14px;
 }
@@ -1014,6 +1113,8 @@ textarea {
   .architecture-grid,
   .aws-map-grid,
   .badge-grid,
+  .agent-state-grid,
+  .agent-evaluation-strip,
   .runtime-strip,
   .run-status-bar {
     grid-template-columns: 1fr;
@@ -1040,6 +1141,10 @@ textarea {
   .candidate-map-canvas,
   .candidate-map-frame {
     min-height: 300px;
+  }
+
+  .agent-turn {
+    grid-template-columns: 1fr;
   }
 }
 
