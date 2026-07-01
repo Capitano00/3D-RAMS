@@ -64,6 +64,27 @@ class IntakeCoordinatorTests(unittest.TestCase):
         self.assertEqual(confirmed["caseId"], result["caseId"])
         self.assertTrue(confirmed["confirmedByUser"])
 
+    def test_confirmed_model_confirmation_with_valid_intake_launches(self):
+        result = coordinate_intake(
+            {
+                "message": "Confirmed. Location: 48 Quernmore Road. Area scope: 25m radius. Goal: confined workspace readiness review.",
+                "conversationId": "c3-model-confirm",
+                "confirmedByUser": True,
+            },
+            model_json=lambda _: {
+                "status": "confirmation_required",
+                "intake": {
+                    "locationText": "48 Quernmore Road",
+                    "areaScope": {"type": "radius", "meters": 25},
+                    "userGoal": "confined workspace readiness review",
+                    "materials": [],
+                },
+            },
+        )
+
+        self.assertEqual(result["status"], "launch_ready")
+        self.assertTrue(result["caseId"].startswith("case_"))
+
     def test_confirmation_sentence_creates_case_id(self):
         payload = {
             "message": "Confirmed. Proceed with the review-required workflow.",
