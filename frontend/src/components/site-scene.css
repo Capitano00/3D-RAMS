@@ -47,11 +47,10 @@
   display: grid;
   justify-items: end;
   gap: 8px;
-  max-width: min(420px, calc(100% - 170px));
+  max-width: min(340px, calc(100% - 170px));
 }
 
-.site-scene-badges,
-.site-scene-layers {
+.site-scene-badges {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -76,6 +75,30 @@
 .site-scene-badge.terrain {
   border-color: #9cc9bc;
   color: #0d665c;
+}
+
+.site-scene-controls {
+  border: 1px solid #ccd8d2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 20px rgba(23, 32, 28, 0.08);
+}
+
+.site-scene-controls summary {
+  cursor: pointer;
+  padding: 7px 10px;
+  color: #455a54;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.site-scene-layers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(86px, 1fr));
+  gap: 6px;
+  padding: 0 8px 8px;
 }
 
 .site-scene-badge.unavailable,
@@ -294,6 +317,10 @@
   .site-scene-badges,
   .site-scene-layers {
     justify-content: flex-start;
+  }
+
+  .site-scene-layers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .site-scene-caption {

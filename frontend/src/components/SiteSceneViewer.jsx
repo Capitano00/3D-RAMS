@@ -207,7 +207,23 @@ function addReviewPolygon(viewer, center, terrainBacked) {
   });
 }
 
+function addSiteCenterMarker(viewer, center, location) {
+  viewer.entities.add({
+    name: location?.label || "Confirmed site centre",
+    position: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 32),
+    point: {
+      pixelSize: 16,
+      color: Cesium.Color.fromCssColorString("#0b6f65"),
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 4,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+}
+
 function addAnnotationMarkers(viewer, annotations) {
+  const showLabels = annotations.length > 0 && annotations.length <= 4;
   annotations.forEach((annotation) => {
     viewer.entities.add({
       name: annotation.title,
@@ -221,6 +237,7 @@ function addAnnotationMarkers(viewer, annotations) {
       },
       label: {
         text: annotation.title,
+        show: showLabels,
         font: "12px sans-serif",
         fillColor: Cesium.Color.fromCssColorString("#111827"),
         showBackground: true,
@@ -228,9 +245,29 @@ function addAnnotationMarkers(viewer, annotations) {
         pixelOffset: new Cesium.Cartesian2(0, -22),
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 900),
+        scaleByDistance: new Cesium.NearFarScalar(250, 1, 1400, 0.65),
       },
     });
   });
+}
+
+function focusCameraOnSite(viewer, center, scene) {
+  const headingDegrees = numericValue(scene?.camera?.headingDegrees) ?? 0;
+  const pitchDegrees = numericValue(scene?.camera?.pitchDegrees) ?? -58;
+  const requestedRangeMeters = numericValue(scene?.camera?.rangeMeters) ?? 950;
+  const rangeMeters = Math.min(Math.max(requestedRangeMeters, 650), 1200);
+  const target = Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 0);
+
+  viewer.camera.lookAt(
+    target,
+    new Cesium.HeadingPitchRange(
+      Cesium.Math.toRadians(headingDegrees),
+      Cesium.Math.toRadians(pitchDegrees),
+      rangeMeters,
+    ),
+  );
+  viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
 }
 
 function SyntheticScene({ center, annotations, location, status, reason }) {
@@ -363,6 +400,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
 
         if (disposed) return;
         addReviewPolygon(viewer, center, Boolean(terrainProvider));
+        addSiteCenterMarker(viewer, center, location);
         addMapFeatureEntities(viewer, validMapFeatures, layerState);
         addAnnotationMarkers(viewer, validAnnotations);
         setProviderState((current) => ({
@@ -371,14 +409,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
           liveFeatures: validMapFeatures.length > 0,
         }));
 
-        viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, scene?.camera?.heightMeters || 1500),
-          orientation: {
-            heading: Cesium.Math.toRadians(scene?.camera?.headingDegrees || 0),
-            pitch: Cesium.Math.toRadians(scene?.camera?.pitchDegrees || -48),
-          },
-          duration: 0,
-        });
+        focusCameraOnSite(viewer, center, scene);
 
         setRenderStatus(isLiveScene ? "live terrain-backed scene" : "terrain-backed scene");
       } catch (err) {
@@ -395,7 +426,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
       disposed = true;
       if (viewer && !viewer.isDestroyed()) viewer.destroy();
     };
-  }, [scene, center, validAnnotations, validMapFeatures, ionToken, layerState, isLiveScene]);
+  }, [scene, center, validAnnotations, validMapFeatures, ionToken, layerState, isLiveScene, location]);
 
   if (!scene) {
     const hasLocationCandidates = toList(locationResolution?.locationCandidates).length > 0;
@@ -507,25 +538,33 @@ function SceneMetaPanel({ scene, liveFeatureStatus, mapFeatures, providerState, 
     safety?.allowed === false ? "safety blocked" : null,
     status === "partial" ? "partial" : null,
   ].filter(Boolean);
+  const visibleBadges = badges.slice(0, 3);
+  const hiddenBadgeCount = Math.max(0, badges.length - visibleBadges.length);
   return (
     <div className="site-scene-meta">
       <div className="site-scene-badges">
-        {badges.map((badge) => (
+        {visibleBadges.map((badge) => (
           <span className={`site-scene-badge ${safeStatusClass(badge)}`} key={badge}>{badge}</span>
         ))}
+        {hiddenBadgeCount > 0 && (
+          <span className="site-scene-badge">+{hiddenBadgeCount} source(s)</span>
+        )}
       </div>
-      <div className="site-scene-layers" aria-label="Map feature layers">
-        {Object.entries(layerState).map(([layer, enabled]) => (
-          <label key={layer}>
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={() => setLayerState((current) => ({ ...current, [layer]: !current[layer] }))}
-            />
-            {layer}
-          </label>
-        ))}
-      </div>
+      <details className="site-scene-controls">
+        <summary>Layers</summary>
+        <div className="site-scene-layers" aria-label="Map feature layers">
+          {Object.entries(layerState).map(([layer, enabled]) => (
+            <label key={layer}>
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={() => setLayerState((current) => ({ ...current, [layer]: !current[layer] }))}
+              />
+              {layer}
+            </label>
+          ))}
+        </div>
+      </details>
     </div>
   );
 }
