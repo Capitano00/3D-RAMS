@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -16,6 +19,7 @@ AGENTCORE_RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
 AWS_REGION = os.environ.get("AWS_REGION", "eu-west-2")
 ADAPTER_VERSION = "agentcore-agentverse-adapter-v2"
 _PENDING_INTAKES = {}
+CASE_REF_RE = re.compile(r"(?:^|\s)/case/(case_[A-Za-z0-9_-]+)\b")
 
 agent = Agent()
 chat = Protocol(spec=chat_protocol_spec)
@@ -40,20 +44,8 @@ def _session_id(sender: str) -> str:
 def invoke_agentcore(prompt: str, sender: str) -> str:
     session_id = _session_id(sender)
     user_id = f"agentverse-{sender[-48:]}"
-    payload = {
-        "entryTurn": True,
-        "caller": "agentverse",
-        "conversationId": session_id,
-        "entryAgentId": "@3d-rams",
-        "confirmedByUser": _looks_like_confirmation(prompt),
-        "message": prompt,
-        "runtimeOptions": {
-            "fixturePack": "public-lambeth-thames",
-            "useBedrock": True,
-            "includePlanningFixture": True,
-            "simulateMapFailure": False,
-        },
-    }
+    case_id = _case_id_from_prompt(prompt)
+    payload = _report_lookup_payload(case_id, session_id) if case_id else _entry_turn_payload(prompt, session_id)
     if payload["confirmedByUser"] and session_id in _PENDING_INTAKES:
         payload["intake"] = _PENDING_INTAKES[session_id]
 
@@ -67,6 +59,54 @@ def invoke_agentcore(prompt: str, sender: str) -> str:
     )
     _remember_pending_intake(session_id, response_text)
     return extract_text_body(response_text) or response_text
+
+
+def _entry_turn_payload(prompt: str, session_id: str) -> dict:
+    return {
+        "entryTurn": True,
+        "caller": "agentverse",
+        "conversationId": session_id,
+        "entryAgentId": "@3d-rams",
+        "confirmedByUser": _looks_like_confirmation(prompt),
+        "message": prompt,
+        "reportAccess": _report_access("", session_id),
+        "runtimeOptions": {
+            "fixturePack": "public-lambeth-thames",
+            "useBedrock": True,
+            "includePlanningFixture": True,
+            "simulateMapFailure": False,
+        },
+    }
+
+
+def _report_lookup_payload(case_id: str, session_id: str) -> dict:
+    return {
+        "operation": "getReport",
+        "caller": "agentverse",
+        "conversationId": session_id,
+        "entryAgentId": "@3d-rams",
+        "caseId": case_id,
+        "confirmedByUser": False,
+        "reportAccess": _report_access(case_id, session_id),
+    }
+
+
+def _report_access(case_id: str, session_id: str) -> dict:
+    access = {
+        "schemaVersion": "3d-rams.report-access.v1",
+        "mode": "asi_session",
+        "source": "AGENTVERSE",
+        "sessionId": session_id,
+    }
+    if case_id:
+        access["caseId"] = case_id
+        access["authorizedCaseIds"] = [case_id]
+    return access
+
+
+def _case_id_from_prompt(prompt: str) -> str | None:
+    match = CASE_REF_RE.search(prompt)
+    return match.group(1) if match else None
 
 
 def _looks_like_confirmation(prompt: str) -> bool:
