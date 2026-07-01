@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -12,8 +12,8 @@ import {
   ShieldCheck,
   Square,
 } from "lucide-react";
-import * as Cesium from "cesium";
-import "cesium/Build/Cesium/Widgets/widgets.css";
+import RunProgressPanel from "./components/RunProgressPanel.jsx";
+import SiteSceneViewer from "./components/SiteSceneViewer.jsx";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 const STARTER_PROMPT =
@@ -23,146 +23,14 @@ function toList(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function SceneViewer({ scene, annotations, location }) {
-  const containerRef = useRef(null);
-  const [renderError, setRenderError] = useState("");
-  const [renderStatus, setRenderStatus] = useState("waiting for confirmed location");
+function displayValue(value, fallback = "not available") {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  return String(value);
+}
 
-  useEffect(() => {
-    setRenderError("");
-    setRenderStatus(scene?.center ? "rendering 3D scene" : "waiting for confirmed location");
-    if (!containerRef.current || !scene?.center) return undefined;
-
-    Cesium.Ion.defaultAccessToken = "";
-    let viewer;
-    try {
-      viewer = new Cesium.Viewer(containerRef.current, {
-        animation: false,
-        timeline: false,
-        baseLayer: false,
-        geocoder: false,
-        homeButton: false,
-        sceneModePicker: false,
-        baseLayerPicker: false,
-        navigationHelpButton: false,
-        fullscreenButton: false,
-        infoBox: false,
-        selectionIndicator: false,
-      });
-
-      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#e6ece9");
-      viewer.scene.skyAtmosphere.show = false;
-      viewer.scene.fog.enabled = false;
-
-      const center = scene.center;
-      viewer.entities.add({
-        name: "Review area",
-        polygon: {
-          hierarchy: Cesium.Cartesian3.fromDegreesArray([
-            center.longitude - 0.006,
-            center.latitude - 0.004,
-            center.longitude + 0.006,
-            center.latitude - 0.004,
-            center.longitude + 0.006,
-            center.latitude + 0.004,
-            center.longitude - 0.006,
-            center.latitude + 0.004,
-          ]),
-          height: 0,
-          material: Cesium.Color.fromCssColorString("#7fb9a7").withAlpha(0.36),
-          outline: true,
-          outlineColor: Cesium.Color.fromCssColorString("#0b6f65"),
-        },
-      });
-
-      toList(annotations).forEach((annotation) => {
-        viewer.entities.add({
-          name: annotation.title,
-          position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
-          point: {
-            pixelSize: annotation.confidence === "low" ? 12 : 10,
-            color: Cesium.Color.fromCssColorString(annotation.confidence === "low" ? "#d97706" : "#1d4ed8"),
-            outlineColor: Cesium.Color.WHITE,
-            outlineWidth: 2,
-          },
-          label: {
-            text: annotation.title,
-            font: "12px sans-serif",
-            fillColor: Cesium.Color.fromCssColorString("#111827"),
-            showBackground: true,
-            backgroundColor: Cesium.Color.WHITE.withAlpha(0.84),
-            pixelOffset: new Cesium.Cartesian2(0, -22),
-          },
-        });
-      });
-
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 1500),
-        orientation: {
-          heading: Cesium.Math.toRadians(scene.camera?.headingDegrees || 0),
-          pitch: Cesium.Math.toRadians(scene.camera?.pitchDegrees || -48),
-        },
-        duration: 0,
-      });
-      setRenderStatus("3D scene rendered");
-    } catch (err) {
-      setRenderError(err?.message || "3D scene renderer failed.");
-      setRenderStatus("3D scene unavailable");
-      if (viewer && !viewer.isDestroyed()) viewer.destroy();
-      viewer = null;
-    }
-
-    return () => {
-      if (viewer && !viewer.isDestroyed()) viewer.destroy();
-    };
-  }, [scene, annotations]);
-
-  if (!scene) {
-    return (
-      <div className="empty-map">
-        <MapPinned size={24} />
-        <strong>waiting for confirmed location</strong>
-        <span>Confirm a candidate site or provide a coordinate, postcode, nearest town, or supported fixture before the map tools run.</span>
-      </div>
-    );
-  }
-
-  if (renderError) {
-    return (
-      <div className="scene-fallback">
-        <div className="map-status unavailable">3D scene unavailable</div>
-        <MapPinned size={28} />
-        <h3>{location?.label || "Selected site"}</h3>
-        <p>{renderError}</p>
-        {scene.center && (
-          <dl>
-            <div>
-              <dt>Coordinate</dt>
-              <dd>{scene.center.latitude}, {scene.center.longitude}</dd>
-            </div>
-            <div>
-              <dt>Risk markers</dt>
-              <dd>{toList(annotations).length}</dd>
-            </div>
-          </dl>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="scene-shell">
-      <div className={`map-status ${renderStatus === "3D scene rendered" ? "rendered" : "pending"}`}>{renderStatus}</div>
-      <div ref={containerRef} className="scene-viewer" />
-      <div className="map-caption">
-        <strong>{location?.label || "Selected site"}</strong>
-        <span>{toList(annotations).length} mapped risk marker(s)</span>
-        {(location?.confidence || location?.dataMode) && (
-          <small>{[location.confidence, location.dataMode].filter(Boolean).join(" - ")}</small>
-        )}
-      </div>
-    </div>
-  );
+function statusClass(value) {
+  return displayValue(value, "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
 function CandidateMapPreview({ candidate }) {
@@ -365,7 +233,7 @@ function RiskCards({ hazards, briefing, reviewMode }) {
   );
 }
 
-function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, loading }) {
+function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, loading, confirmingLocation }) {
   if (!resolution?.siteName && !toList(resolution?.locationCandidates).length) return null;
   const candidates = toList(resolution.locationCandidates);
   const primaryCandidate = candidates[0];
@@ -423,7 +291,7 @@ function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, 
               <small>{candidate.source || "source pending"} - {candidate.dataMode || "source-labelled"}</small>
               <div className="candidate-actions">
                 <button type="button" onClick={() => onConfirm(candidate.candidateId)} disabled={loading}>
-                  Confirm this site
+                  {confirmingLocation ? "Starting site review..." : "Confirm this site"}
                 </button>
                 <button className="secondary" type="button" onClick={onReject} disabled={loading}>
                   Not this site
@@ -515,11 +383,193 @@ function EvidenceAndTrace({ evidence, trace, safety, runtime, runStatus }) {
           <h3>Tool Timeline</h3>
           {visibleTrace.map((step, index) => (
             <article className="compact-row trace" key={`${step.name}-${index}`}>
-              <strong>{String(index + 1).padStart(2, "0")} · {step.name}</strong>
-              <span>{step.summary}</span>
-              <small>{step.status}</small>
+              <strong>{String(index + 1).padStart(2, "0")} - {step.name || step.currentStep || step.phase || "step"}</strong>
+              <span>{step.summary || step.message || "Checkpoint recorded."}</span>
+              <small>{step.status || "pending"}</small>
             </article>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ArchitectureVisualizer({ architecture, ui, runtime, runStatus }) {
+  const overview = architecture?.runOverview || {
+    siteName: ui?.location?.label,
+    goal: runStatus?.request?.message || "chat-first review pack",
+    coordinate: ui?.location
+      ? [ui.location.latitude, ui.location.longitude].filter((value) => value !== undefined).join(", ")
+      : "pending confirmed location",
+    fixturePack: runtime?.fixturePack || runtime?.fixturePackMode,
+    briefingMode: runtime?.briefingMode,
+    safetyLevel: ui?.safety?.level,
+  };
+  const trace = toList(architecture?.currentTrace).length
+    ? toList(architecture.currentTrace)
+    : toList(ui?.trace);
+  const sources = toList(architecture?.sources).length
+    ? toList(architecture.sources)
+    : toList(ui?.sources);
+  const evidenceFlow = toList(architecture?.evidenceFlow).length
+    ? toList(architecture.evidenceFlow)
+    : toList(ui?.evidence).map((item) => ({
+        id: item.id,
+        title: item.title,
+        status: item.status,
+        feeds: ["briefing", "trace"],
+      }));
+  const safetyGate = architecture?.safetyGate || ui?.safety || {};
+  const awsPath = toList(architecture?.awsPath);
+  const realVsMocked = toList(architecture?.realVsMocked);
+  const visualRuntime = architecture?.runtime || runtime || {};
+
+  if (!architecture && !trace.length && !sources.length && !runStatus) return null;
+
+  return (
+    <section className="panel architecture-visualizer">
+      <div className="panel-heading">
+        <GitBranch size={18} />
+        <h2>Architecture + Workflow Visualizer</h2>
+      </div>
+
+      <div className="architecture-overview">
+        <article>
+          <span>Site</span>
+          <strong>{displayValue(overview.siteName, "pending")}</strong>
+        </article>
+        <article>
+          <span>Coordinate</span>
+          <strong>{displayValue(overview.coordinate, "pending")}</strong>
+        </article>
+        <article>
+          <span>Run</span>
+          <strong>{displayValue(runStatus?.status, "ready")}</strong>
+        </article>
+        <article>
+          <span>Mode</span>
+          <strong>{displayValue(visualRuntime.activeAgentMode || visualRuntime.agentMode, "not run")}</strong>
+        </article>
+        <article>
+          <span>Briefing</span>
+          <strong>{displayValue(overview.briefingMode || visualRuntime.briefingMode, "not run")}</strong>
+        </article>
+        <article>
+          <span>Safety</span>
+          <strong>{displayValue(overview.safetyLevel || safetyGate.level, "not run")}</strong>
+        </article>
+      </div>
+
+      <div className="architecture-grid">
+        <div className="architecture-section wide">
+          <div className="section-title">
+            <Bot size={16} />
+            <h3>Tool Loop</h3>
+          </div>
+          <div className="tool-flow">
+            {trace.slice(0, 10).map((step, index) => (
+              <article key={step.id || `${step.name || step.currentStep}-${index}`}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <strong>{step.name || step.currentStep || step.phase || "step"}</strong>
+                <em className={`status ${statusClass(step.status)}`}>{displayValue(step.status, "pending")}</em>
+                <small>{step.durationMs !== undefined ? `${step.durationMs} ms` : displayValue(step.summary || step.message, "checkpoint")}</small>
+                {(step.fallbackReason || toList(step.evidenceIds).length > 0) && (
+                  <p>
+                    {[step.fallbackReason, toList(step.evidenceIds).join(", ")]
+                      .filter(Boolean)
+                      .join(" | ")}
+                  </p>
+                )}
+              </article>
+            ))}
+            {!trace.length && <p className="empty-copy">Tool trace appears after the run starts.</p>}
+          </div>
+        </div>
+
+        <div className="architecture-section">
+          <div className="section-title">
+            <FileUp size={16} />
+            <h3>Sources</h3>
+          </div>
+          <div className="source-list">
+            {sources.slice(0, 8).map((source) => (
+              <article key={source.id || source.label || source.title}>
+                <strong>{source.label || source.title || source.id}</strong>
+                <span>{source.origin || source.source || source.kind || "source register"}</span>
+                <em className={`status ${statusClass(source.status || source.dataMode)}`}>
+                  {displayValue(source.status || source.dataMode, "registered")}
+                </em>
+              </article>
+            ))}
+            {!sources.length && <p className="empty-copy">Source register appears after location confirmation.</p>}
+          </div>
+        </div>
+
+        <div className="architecture-section">
+          <div className="section-title">
+            <ShieldCheck size={16} />
+            <h3>Evidence + Safety</h3>
+          </div>
+          <div className="evidence-flow-list">
+            {evidenceFlow.slice(0, 6).map((item) => (
+              <article key={item.id || item.title}>
+                <strong>{item.title || item.id}</strong>
+                <span>feeds {toList(item.feeds).join(", ") || "review pack"}</span>
+                <em className={`status ${statusClass(item.status)}`}>{displayValue(item.status, "evidence")}</em>
+              </article>
+            ))}
+            {!evidenceFlow.length && <p className="empty-copy">Evidence links appear once tools complete.</p>}
+          </div>
+          <div className="safety-gate-card">
+            <strong>{displayValue(safetyGate.level, "safety not run")}</strong>
+            <span>{displayValue(safetyGate.message, "Safety gate runs before output is trusted.")}</span>
+            {toList(safetyGate.triggeredRules).length > 0 && (
+              <small>{toList(safetyGate.triggeredRules).join(", ")}</small>
+            )}
+          </div>
+        </div>
+
+        <div className="architecture-section wide">
+          <div className="section-title">
+            <Cloud size={16} />
+            <h3>AWS Path</h3>
+          </div>
+          <div className="aws-map-grid">
+            {awsPath.map((item) => (
+              <article key={`${item.current}-${item.hosted || item.future}`}>
+                <strong>{item.current}</strong>
+                <span>{item.hosted || item.future}</span>
+              </article>
+            ))}
+            {!awsPath.length && (
+              <>
+                <article>
+                  <strong>Trace response</strong>
+                  <span>Hosted path maps structured run events to CloudWatch when configured</span>
+                </article>
+                <article>
+                  <strong>Evidence register</strong>
+                  <span>Hosted path maps upload metadata and evidence packs to private S3 when configured</span>
+                </article>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="architecture-section wide">
+          <div className="section-title">
+            <AlertTriangle size={16} />
+            <h3>Real Vs Mocked</h3>
+          </div>
+          <div className="badge-grid">
+            {realVsMocked.map((item) => (
+              <article key={item.component}>
+                <strong>{item.component}</strong>
+                <em className={`status ${statusClass(item.status)}`}>{item.status}</em>
+              </article>
+            ))}
+            {!realVsMocked.length && <p className="empty-copy">Real-vs-mocked status is included with completed run architecture.</p>}
+          </div>
         </div>
       </div>
     </section>
@@ -541,6 +591,7 @@ function App() {
   const [uploads, setUploads] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirmingLocation, setConfirmingLocation] = useState(false);
   const completedRunsRef = useRef(new Set());
 
   const ui = run?.uiState || {};
@@ -699,8 +750,19 @@ function App() {
 
   async function confirmLocation(candidateId) {
     if (!runStatus?.runId) return;
+    const confirmedCandidate = toList(locationResolution?.locationCandidates).find((candidate) => candidate.candidateId === candidateId);
+    const candidateLabel = confirmedCandidate?.name || "the selected site";
     setLoading(true);
+    setConfirmingLocation(true);
     setError("");
+    setMessages((current) => [
+      ...current,
+      {
+        id: `confirm-${Date.now()}`,
+        role: "assistant",
+        text: `Confirmation submitted for ${candidateLabel}. I am starting the site review and will show planning, evidence, risk reasoning, and safety checks as the backend accepts and returns them.`,
+      },
+    ]);
     try {
       const response = await fetch(`${API_BASE_URL}/api/runs/${runStatus.runId}/confirm-location`, {
         method: "POST",
@@ -712,6 +774,8 @@ function App() {
     } catch (err) {
       setError(err.message);
       setLoading(false);
+    } finally {
+      setConfirmingLocation(false);
     }
   }
 
@@ -826,6 +890,12 @@ function App() {
         onResume={resumeLatestRun}
         canResume={Boolean(localStorage.getItem("3drams-latest-run"))}
       />
+      <RunProgressPanel
+        runStatus={runStatus}
+        loading={loading}
+        confirmingLocation={confirmingLocation}
+        run={run}
+      />
 
       <section className="product-grid">
         <ChatPanel
@@ -844,7 +914,7 @@ function App() {
             <MapPinned size={18} />
             <h2>3D Site Risk Scene</h2>
           </div>
-          <SceneViewer scene={ui.scene} annotations={ui.annotations} location={ui.location} />
+          <SiteSceneViewer scene={ui.scene} annotations={ui.annotations} location={ui.location} />
         </section>
       </section>
 
@@ -854,12 +924,15 @@ function App() {
         onReject={rejectLocationCandidate}
         onManual={enterCoordinatesManually}
         loading={loading}
+        confirmingLocation={confirmingLocation}
       />
 
       <section className="insight-grid">
         <RiskCards hazards={ui.hazards} briefing={ui.briefing} reviewMode={reviewMode} />
         <EvidenceAndTrace evidence={ui.evidence} trace={ui.trace} safety={ui.safety} runtime={runtime} runStatus={runStatus} />
       </section>
+
+      <ArchitectureVisualizer architecture={ui.architecture} ui={ui} runtime={runtime} runStatus={runStatus} />
     </main>
   );
 }

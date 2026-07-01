@@ -1,0 +1,210 @@
+.site-scene-shell {
+  position: relative;
+  min-height: 676px;
+  overflow: hidden;
+  background: #dfe8e4;
+}
+
+.site-scene-viewer {
+  width: 100%;
+  height: 676px;
+  background: #dfe8e4;
+}
+
+.site-scene-status {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  max-width: calc(100% - 28px);
+  border: 1px solid #ccd8d2;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #455a54;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  box-shadow: 0 8px 20px rgba(23, 32, 28, 0.08);
+}
+
+.site-scene-status.terrain {
+  border-color: #9cc9bc;
+  color: #0d665c;
+}
+
+.site-scene-status.synthetic,
+.site-scene-status.unavailable {
+  border-color: #e0b76f;
+  color: #8a5600;
+}
+
+.site-scene-caption {
+  position: absolute;
+  z-index: 3;
+  left: 14px;
+  bottom: 14px;
+  display: grid;
+  gap: 2px;
+  max-width: min(520px, calc(100% - 28px));
+  border: 1px solid #d7e1dc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 20px rgba(23, 32, 28, 0.08);
+}
+
+.site-scene-caption span {
+  color: #5d6e68;
+  font-size: 0.82rem;
+}
+
+.site-scene-caption small {
+  color: #64746e;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.site-scene-empty,
+.site-scene-fallback {
+  min-height: 676px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: #61726d;
+  font-weight: 800;
+  text-align: center;
+}
+
+.site-scene-empty span,
+.site-scene-fallback p {
+  max-width: 440px;
+  margin: 0;
+  font-weight: 700;
+}
+
+.site-scene-fallback {
+  align-content: center;
+  justify-items: center;
+  background:
+    linear-gradient(90deg, rgba(11, 111, 101, 0.09) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(11, 111, 101, 0.09) 1px, transparent 1px),
+    #e2ebe7;
+  background-size: 32px 32px;
+  color: #33463f;
+}
+
+.site-scene-fallback .site-scene-status {
+  position: static;
+}
+
+.site-scene-fallback h3 {
+  margin: 0;
+}
+
+.site-scene-synthetic {
+  background:
+    linear-gradient(145deg, rgba(11, 111, 101, 0.08), rgba(39, 53, 73, 0.05)),
+    #e2ebe7;
+}
+
+.site-scene-synthetic-surface {
+  position: absolute;
+  inset: 78px 34px 112px;
+  overflow: hidden;
+  border: 1px solid #c1d2ca;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(11, 111, 101, 0.12) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(11, 111, 101, 0.12) 1px, transparent 1px),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.6), rgba(155, 186, 172, 0.3)),
+    #dfe8e4;
+  background-size: 36px 36px, 36px 36px, auto, auto;
+  transform: perspective(820px) rotateX(58deg);
+  transform-origin: center bottom;
+  box-shadow: 0 24px 60px rgba(23, 32, 28, 0.14);
+}
+
+.site-scene-review-polygon {
+  position: absolute;
+  inset: 28% 25%;
+  border: 2px solid #0b6f65;
+  background: rgba(59, 169, 156, 0.2);
+}
+
+.site-scene-center-pin,
+.site-scene-marker {
+  position: absolute;
+  z-index: 2;
+  width: 13px;
+  height: 13px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #0b6f65;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 4px 12px rgba(23, 32, 28, 0.2);
+}
+
+.site-scene-center-pin {
+  left: 50%;
+  top: 50%;
+  background: #273549;
+}
+
+.site-scene-marker {
+  background: #b45309;
+}
+
+.site-scene-marker span {
+  position: absolute;
+  left: 16px;
+  top: -8px;
+  width: max-content;
+  max-width: 190px;
+  border: 1px solid #d9e2de;
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #23342f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  transform: rotateX(-58deg);
+  transform-origin: left center;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .site-scene-shell,
+  .site-scene-viewer,
+  .site-scene-empty,
+  .site-scene-fallback {
+    min-height: 440px;
+    height: 440px;
+  }
+
+  .site-scene-synthetic-surface {
+    inset: 72px 18px 104px;
+  }
+
+  .site-scene-status {
+    right: 12px;
+    left: 12px;
+    max-width: none;
+    border-radius: 8px;
+  }
+
+  .site-scene-caption {
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+
+  .site-scene-marker span {
+    max-width: 132px;
+  }
+}
