@@ -1,6 +1,8 @@
 import os
 import sys
 import unittest
+from decimal import Decimal
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -561,6 +563,57 @@ class ApiContractTests(unittest.TestCase):
         result = response.json()
         self.assertEqual(session["runtime"]["sessionTraceMode"], "memory-fallback")
         self.assertEqual(result["runtime"]["sessionTraceMode"], "memory-fallback")
+
+    def test_session_store_converts_coordinate_floats_for_dynamodb_trace(self):
+        from app.config import RuntimeConfig
+        from app import session_store
+        from app.session_store import create_session, get_session, update_working_memory
+
+        captured = {"getItemCalls": 0}
+
+        class FakeTable:
+            def put_item(self, *, Item):
+                captured["item"] = Item
+
+            def get_item(self, *, Key):
+                captured["getItemCalls"] += 1
+                return {"Item": captured["item"]}
+
+        fake_boto3 = SimpleNamespace(resource=lambda *args, **kwargs: SimpleNamespace(Table=lambda name: FakeTable()))
+
+        with EnvPatch(
+            APP_ACCESS_TOKEN_HASH=None,
+            DYNAMODB_SESSION_TABLE="fake-sessions",
+            AWS_EC2_METADATA_DISABLED="true",
+        ), patch.dict(sys.modules, {"boto3": fake_boto3}):
+            config = RuntimeConfig.from_env(request_bedrock=False)
+            session = create_session(tester_alias="qa", access_label="team-test", config=config)
+            memory = update_working_memory(
+                session["sessionId"],
+                config,
+                confirmedLocation={
+                    "name": "Coordinate 54.9712, -2.1013",
+                    "latitude": 54.9712,
+                    "longitude": -2.1013,
+                    "source": "user-supplied-coordinate",
+                },
+            )
+            self.assertEqual(session["storageMode"], "dynamodb")
+            self.assertEqual(memory["confirmedLocation"]["latitude"], 54.9712)
+            saved_location = captured["item"]["workingMemory"]["confirmedLocation"]
+            self.assertIsInstance(saved_location["latitude"], Decimal)
+            self.assertIsInstance(saved_location["longitude"], Decimal)
+            self.assertEqual(saved_location["latitude"], Decimal("54.9712"))
+            self.assertEqual(saved_location["longitude"], Decimal("-2.1013"))
+            session_store._SESSIONS.pop(session["sessionId"], None)
+            cold_session = get_session(session["sessionId"], config=config)
+            cold_location = cold_session["workingMemory"]["confirmedLocation"]
+
+        self.assertEqual(captured["getItemCalls"], 1)
+        self.assertIsInstance(cold_location["latitude"], float)
+        self.assertIsInstance(cold_location["longitude"], float)
+        self.assertEqual(cold_location["latitude"], 54.9712)
+        self.assertEqual(cold_location["longitude"], -2.1013)
 
     def test_upload_url_returns_local_mock_when_s3_is_unconfigured(self):
         with EnvPatch(APP_ACCESS_TOKEN_HASH=None, S3_UPLOAD_BUCKET=None):

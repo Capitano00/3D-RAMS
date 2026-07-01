@@ -493,7 +493,7 @@ export function SiteSceneViewer({ scene, annotations, location, mapFeatures, liv
 function SceneMetaPanel({ scene, liveFeatureStatus, mapFeatures, providerState, safety, layerState, setLayerState }) {
   const status = liveFeatureStatus?.status || scene?.mode || "not-run";
   const badges = [
-    scene?.mode,
+    sceneModeBadge(scene?.mode),
     providerState.terrain ? "live terrain" : "terrain pending",
     providerState.imagery ? "live imagery" : "imagery pending",
     providerState.buildings ? "live OSM buildings" : "buildings pending",
@@ -522,6 +522,13 @@ function SceneMetaPanel({ scene, liveFeatureStatus, mapFeatures, providerState, 
       </div>
     </div>
   );
+}
+
+function sceneModeBadge(mode) {
+  if (!mode) return null;
+  if (mode === "synthetic-fallback") return "synthetic risk overlay";
+  if (mode === "cached-public-fixture") return "cached public overlay";
+  return mode;
 }
 
 export { SiteSceneViewer as SceneViewer };

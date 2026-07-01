@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
@@ -295,10 +296,20 @@ def _write_dynamodb_session(session: dict[str, Any], config: RuntimeConfig) -> b
 
         resource = boto3.resource("dynamodb", region_name=config.aws_region)
         table = resource.Table(config.dynamodb_session_table)
-        table.put_item(Item=session)
+        table.put_item(Item=_to_dynamodb_item(session))
         return True
     except Exception:
         return False
+
+
+def _to_dynamodb_item(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _to_dynamodb_item(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_dynamodb_item(item) for item in value]
+    if isinstance(value, float):
+        return Decimal(str(value))
+    return value
 
 
 def _read_dynamodb_session(session_id: str, config: RuntimeConfig) -> dict[str, Any] | None:
@@ -311,9 +322,19 @@ def _read_dynamodb_session(session_id: str, config: RuntimeConfig) -> dict[str, 
         table = resource.Table(config.dynamodb_session_table)
         response = table.get_item(Key={"sessionId": session_id})
         item = response.get("Item")
-        return item if isinstance(item, dict) else None
+        return _from_dynamodb_item(item) if isinstance(item, dict) else None
     except Exception:
         return None
+
+
+def _from_dynamodb_item(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _from_dynamodb_item(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_from_dynamodb_item(item) for item in value]
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    return value
 
 
 def _now_iso() -> str:
