@@ -32,20 +32,20 @@ Read the full problem statement in [docs/problem-statement.md](docs/problem-stat
 
 ![3D-RAMS query-to-brief architecture flow](docs/assets/architecture/query-to-brief-flow.svg)
 
-This rendered diagram is the README-scale view of the hosted durable-run workflow in [docs/architecture.md](docs/architecture.md). The detailed architecture document remains the source of truth for the full Mermaid diagrams, trust boundaries, real-vs-mocked register, safety gate, AgentCore-ready conversation boundary, and AWS path.
-The current implementation adds bounded conversation memory and guarded routing in front of that durable run path; managed AgentCore Runtime/Memory activation remains a later reviewed AWS gate.
+This rendered diagram is the README-scale view of the hosted chat-to-brief workflow in [docs/architecture.md](docs/architecture.md). Every normal chat turn enters `/api/conversation/message`, records bounded session memory, and can use a server-side Bedrock conversation orchestrator first when enabled. The backend still validates the suggested route against deterministic safety, site-signal, pending-action, and location-confirmation gates before any durable run or tool execution starts.
+Conversational replies such as greetings, help, follow-ups, and status answers return directly from the backend and do not create fake runs. Managed AgentCore Runtime/Memory activation remains a later reviewed AWS gate.
 
 ## Demo Workflow
 
 1. User starts a test session with a shared access code.
-2. User asks for a site visit review pack in natural language.
-3. Agent extracts structured site intent: clean site name, coordinate/postcode clues, site type, activity, date, and unsafe certification/approval intent.
-4. Named-site-only prompts enter a location-resolution stage before review generation.
-5. If candidates exist, the UI asks the user to confirm a candidate location; if not, it asks for postcode, coordinate, nearest town/road, or local authority and may show a clearly provisional checklist.
-6. Only after a confirmed location does the agent register uploaded evidence metadata and run allowlisted location, context, map, risk, briefing, and safety tools.
-7. Backend optionally calls Amazon Bedrock server-side when enabled.
-8. UI updates chat, 3D scene, risk cards, evidence, Agent state, trace, and safety boundary.
-9. Session/run metadata is shaped for DynamoDB evaluation tracing.
+2. User sends a natural-language message through the hosted chat UI to `POST /api/conversation/message`.
+3. Backend records bounded session memory in DynamoDB-backed hosted mode, then optionally asks a server-side Bedrock conversation orchestrator to classify or answer the turn first.
+4. Backend validates the suggested route against deterministic safety, site-signal, pending-action, and location-confirmation gates.
+5. Greetings, help, follow-ups, and status questions answer conversationally and do not create fake runs.
+6. New site requests enter the guarded durable-run path only after validation.
+7. Postcode or coordinate candidates require explicit user confirmation before map, evidence, risk, or briefing tools run.
+8. Confirmed-location runs execute the planner, reasoner, compiler, evaluator, allowlisted tools, evidence register, risk cards, 3D scene, briefing, and final safety gate.
+9. Bedrock failure or unavailability falls back to deterministic guarded routing; unsafe certification, approval-to-work, or emergency requests remain blocked or constrained to the human-review safety boundary.
 
 ## Real vs Mocked
 

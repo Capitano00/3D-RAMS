@@ -16,6 +16,16 @@ _MAX_TURNS = 12
 _MAX_TURN_TEXT = 1200
 _MAX_LLM_CONTEXT_TURNS = 6
 _MAX_LLM_CONTEXT_STRING = 160
+_PENDING_USER_ACTIONS = {
+    "provide_site_location_and_activity",
+    "provide_safe_site_visit_request",
+    "confirm_or_correct_location",
+    "provide_corrected_location",
+    "provide_location_detail",
+    "provide_new_site_request",
+    "answer_clarifying_question",
+    "wait_for_agent_run",
+}
 _SENSITIVE_CONTEXT_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -157,7 +167,7 @@ def llm_session_context(session: dict[str, Any]) -> dict[str, Any]:
         "privacyBoundary": "No raw turn text, access codes, upload URLs, raw files, session ids, or run ids are included.",
         "recentTurns": recent_turns,
         "workingMemory": {
-            "pendingUserAction": memory.get("pendingUserAction"),
+            "pendingUserAction": _safe_pending_user_action(memory.get("pendingUserAction")),
             "latestRunStatus": memory.get("latestRunStatus"),
             "latestSafetyLevel": memory.get("latestSafetyLevel"),
             "latestBriefingMode": memory.get("latestBriefingMode"),
@@ -260,6 +270,11 @@ def _review_summary(review: Any) -> dict[str, Any] | None:
         "headline": _safe_context_string(review.get("headline")),
         "generationMode": _safe_context_string(review.get("generationMode"), max_length=60),
     }
+
+
+def _safe_pending_user_action(value: Any) -> str | None:
+    action = str(value) if value is not None else ""
+    return action if action in _PENDING_USER_ACTIONS else None
 
 
 def _safe_context_string(value: Any, *, max_length: int = _MAX_LLM_CONTEXT_STRING) -> str | None:

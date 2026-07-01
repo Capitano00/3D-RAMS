@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import HTTPException
@@ -322,6 +323,7 @@ def _orchestrated_conversation_response(
         (orchestration or {}).get("assistantMessage")
         or _deterministic_conversation_copy(route, memory)
     )
+    text = _sanitize_assistant_copy(text)
     pending_action = (orchestration or {}).get("pendingUserAction")
     add_conversation_turn(
         session_id,
@@ -334,7 +336,7 @@ def _orchestrated_conversation_response(
         config=config,
     )
     update_fields: dict[str, Any] = {"latestRoute": route}
-    if pending_action:
+    if _is_known_pending_action(pending_action):
         update_fields["pendingUserAction"] = pending_action
     update_working_memory(session_id, config, **update_fields)
     return {
@@ -360,7 +362,7 @@ def _deterministic_conversation_copy(route: str, memory: dict[str, Any]) -> str:
             "such as survey, inspection, delivery, or maintenance."
         )
     if memory.get("pendingUserAction"):
-        return f"I am waiting for: {memory['pendingUserAction']}."
+        return _pending_action_copy(memory["pendingUserAction"])
     return "Tell me the site postcode or latitude/longitude, plus the planned visit activity, and I can prepare a pre-visit review pack for human review."
 
 
@@ -444,15 +446,16 @@ def _memory_response(
     latest = memory.get("latestAssistantMessage")
     pending = memory.get("pendingUserAction")
     if orchestration and orchestration.get("assistantMessage"):
-        text = orchestration["assistantMessage"]
+        text = _sanitize_assistant_copy(orchestration["assistantMessage"])
     elif latest:
+        latest_safe = _sanitize_assistant_copy(latest)
         text = (
             "I was referring to the previous step in this same session: "
-            f"{latest} "
+            f"{latest_safe} "
             "If that is unclear, provide a corrected postcode/coordinate or ask me about a specific panel such as location, evidence, risk, trace, or safety."
         )
     elif pending:
-        text = f"I am waiting for: {pending}."
+        text = _pending_action_copy(pending)
     else:
         text = "I do not have enough prior context in memory yet. Please send the site location and planned visit activity."
     add_conversation_turn(
@@ -471,6 +474,50 @@ def _memory_response(
         "route": "follow_up",
         "assistantMessage": text,
         "runtime": _runtime_contract(config, "lambda-adapter-active"),
+    }
+
+
+def _pending_action_copy(action: Any) -> str:
+    mapping = {
+        "provide_site_location_and_activity": "Please provide a trusted site location, such as a UK postcode or latitude/longitude, plus the planned visit activity.",
+        "provide_safe_site_visit_request": "I can help with a non-certified pre-visit review pack. Please provide a real site and visit activity without asking me to certify RAMS, approve work, or provide emergency guidance.",
+        "confirm_or_correct_location": "Please confirm the candidate location card, or send a corrected postcode or latitude/longitude before review tools run.",
+        "provide_corrected_location": "Please provide a corrected UK postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence for the intended site.",
+        "provide_location_detail": "Please provide a trusted postcode, latitude/longitude, OS grid reference, nearest road/town, or public evidence before I prepare a site-specific pack.",
+        "provide_new_site_request": "Send a new site request with a postcode or latitude/longitude and the planned visit activity.",
+        "answer_clarifying_question": "Please answer the clarification question before I run map, evidence, risk, or briefing tools.",
+        "wait_for_agent_run": "The backend is still running the current review workflow. You can ask for status if you want an update.",
+    }
+    return mapping.get(
+        str(action),
+        "I can help with site-visit preparation. Please provide a UK postcode or latitude/longitude and the planned visit activity.",
+    )
+
+
+def _sanitize_assistant_copy(text: str) -> str:
+    scrubbed = str(text)
+    for action in _known_pending_actions():
+        if action in scrubbed:
+            scrubbed = scrubbed.replace(action, _pending_action_copy(action))
+    if re.search(r"\b(?:provide|confirm|answer|wait|start|reject)_[a-z0-9_]+\b", scrubbed):
+        return "I can help with site-visit preparation. Please provide a UK postcode or latitude/longitude and the planned visit activity."
+    return scrubbed
+
+
+def _is_known_pending_action(action: Any) -> bool:
+    return str(action) in _known_pending_actions()
+
+
+def _known_pending_actions() -> set[str]:
+    return {
+        "provide_site_location_and_activity",
+        "provide_safe_site_visit_request",
+        "confirm_or_correct_location",
+        "provide_corrected_location",
+        "provide_location_detail",
+        "provide_new_site_request",
+        "answer_clarifying_question",
+        "wait_for_agent_run",
     }
 
 

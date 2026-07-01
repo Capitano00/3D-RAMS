@@ -517,9 +517,26 @@ def _normalise_conversation_orchestration(parsed: dict[str, Any]) -> dict[str, A
         "route": route,
         "assistantMessage": assistant_message,
         "shouldStartRun": should_start_run,
-        "pendingUserAction": _text(parsed.get("pending_user_action"), "") or None,
+        "pendingUserAction": _normalise_pending_user_action(parsed.get("pending_user_action")),
         "reason": _text(parsed.get("reason"), "Conversation orchestrator classified the message."),
     }
+
+
+_PENDING_USER_ACTIONS = {
+    "provide_site_location_and_activity",
+    "provide_safe_site_visit_request",
+    "confirm_or_correct_location",
+    "provide_corrected_location",
+    "provide_location_detail",
+    "provide_new_site_request",
+    "answer_clarifying_question",
+    "wait_for_agent_run",
+}
+
+
+def _normalise_pending_user_action(value: Any) -> str | None:
+    action = _text(value, "").strip().lower().replace("-", "_").replace(" ", "_")
+    return action if action in _PENDING_USER_ACTIONS else None
 
 
 def _mock_bedrock_briefing(

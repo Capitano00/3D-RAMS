@@ -20,27 +20,35 @@ The milestone now has four public-safe runtime interpretations:
 flowchart LR
     User["Browser user"] --> UI["Amplify React chat UI"]
     UI --> APIGW["API Gateway HTTP API"]
-    APIGW --> Lambda["Lambda FastAPI backend"]
-    Lambda --> Session["Shared-code session + tester alias"]
-    Lambda --> Agent["FieldBrief Agent Orchestrator"]
-    Agent --> Intent["Intent and safety parser"]
-    Intent --> LocationGate{"Location evidence trusted?"}
-    LocationGate -->|"confirmed or coordinate/postcode"| Tools["Allowlisted tools"]
-    LocationGate -->|"name-only"| Provisional["Provisional checklist pending location"]
-    Tools --> Location["Location resolver"]
-    Tools --> Planning["Planning/context adapter"]
-    Tools --> Weather["Weather adapter"]
-    Tools --> Upload["S3 PDF/image metadata"]
-    Agent --> Bedrock["Amazon Bedrock Claude 3.7 Sonnet"]
-    Lambda --> TraceStore["DynamoDB session trace"]
+    APIGW --> Lambda["Lambda FastAPI POST /api/conversation/message"]
+    Lambda --> Session["Shared-code session + bounded memory"]
+    Session --> Orchestrator{"Bedrock conversation orchestrator enabled?"}
+    Orchestrator -->|"yes"| Bedrock["Amazon Bedrock conversation pass"]
+    Orchestrator -->|"no"| Deterministic["Deterministic route classification"]
+    Bedrock --> Validate["Backend route validation"]
+    Deterministic --> Validate
+    Validate --> SafetyGate{"Safety, site signal,\npending action, location gates"}
+    SafetyGate -->|"greeting / help / follow-up / status"| Conversation["Answer from memory/context only"]
+    SafetyGate -->|"unsafe approval / certification / emergency"| Block["Block or constrain response"]
+    SafetyGate -->|"new site task"| RunGate["Create guarded durable run"]
+    RunGate --> LocationGate{"Confirmed location?"}
+    LocationGate -->|"postcode or coordinate candidate"| Confirm["User confirms candidate before tools"]
+    Confirm --> RunGate
+    LocationGate -->|"confirmed location"| Workflow["Planner -> tools -> reasoner -> compiler -> evaluator -> safety gate"]
+    Workflow --> Evidence["Evidence register + risk cards + 3D scene + briefing"]
+    Bedrock -. "failure or invalid response" .-> DeterministicFallback["Deterministic guarded fallback"]
+    DeterministicFallback --> Validate
+    Lambda --> TraceStore["DynamoDB session/run trace"]
     Lambda --> Logs["CloudWatch structured logs"]
-    Lambda --> UIState["Chat, 3D scene, evidence, trace, safety, review mode"]
+    Conversation --> UIState["Chat, 3D scene, evidence, trace, safety, review mode"]
+    Block --> UIState
+    Evidence --> UIState
     UIState --> UI
 ```
 
 ## AgentCore-Ready Conversation And Memory Boundary
 
-The active hosted route keeps a thin Lambda/FastAPI adapter in front of the agent so access-code checks, CORS, upload presigns, and response shaping stay outside the model path. The selected rebuild path is AgentCore-compatible: the router, memory contract, tool loop, evaluator, and safety gate are explicit boundaries that can move behind AgentCore Runtime after the AWS feasibility gate passes.
+The active hosted route keeps a thin Lambda/FastAPI adapter in front of the agent so access-code checks, CORS, upload presigns, bounded session memory, and response shaping stay outside the model path. The selected rebuild path is AgentCore-compatible: the conversation orchestrator, deterministic validation gates, memory contract, tool loop, evaluator, and safety gate are explicit boundaries that can move behind AgentCore Runtime after the AWS feasibility gate passes.
 
 ```mermaid
 flowchart LR
@@ -205,12 +213,12 @@ V3.1 adds a pre-tool intent and location-evidence gate. The parser extracts clea
 
 The frontend now explains the run in this order:
 
-1. model plan;
-2. allowlisted tool calls;
-3. tool results and evidence;
-4. synthesis;
-5. safety gate;
-6. deterministic fallback.
+1. conversation route or conversational answer;
+2. deterministic validation gates;
+3. durable run start only when required;
+4. allowlisted tool calls and evidence;
+5. synthesis and review-pack compilation;
+6. safety gate and deterministic fallback.
 
 The UI is intentionally defensive. If backend fields such as `agentMode`, `llmPlan`, `llmToolCalls`, `modelCalls`, `tokenUsage`, or `fallback` are absent, the visualizer falls back to `runtime` and `trace` data instead of breaking.
 

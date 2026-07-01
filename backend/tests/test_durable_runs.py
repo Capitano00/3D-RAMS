@@ -336,6 +336,91 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(session_state["runs"], [])
         self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "provide_site_location_and_activity")
 
+    def test_conversation_ignores_unknown_bedrock_pending_action_code(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            return_value=(
+                {
+                    "route": "conversation",
+                    "assistantMessage": "I am waiting for: provide_information.",
+                    "shouldStartRun": False,
+                    "pendingUserAction": "provide_information",
+                    "reason": "Generic information request.",
+                },
+                {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+            ),
+        ):
+            session = self._session()
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I'm not feeling well",
+                    "useBedrock": True,
+                },
+            ).json()
+            session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
+
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "conversation")
+        self.assertEqual(session_state["runs"], [])
+        self.assertIsNone(session_state["workingMemory"]["pendingUserAction"])
+        self.assertNotIn("provide_information", response["assistantMessage"])
+        self.assertIn("site-visit preparation", response["assistantMessage"])
+
+    def test_conversation_stale_unknown_pending_action_is_removed_from_llm_context(self):
+        from app.config import RuntimeConfig
+        from app.session_store import llm_session_context, update_working_memory
+
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_MOCK_RESPONSE="true",
+            APP_ACCESS_TOKEN_HASH=None,
+            DURABLE_RUN_PROCESS_INLINE="true",
+        ):
+            session = self._session()
+            update_working_memory(session["sessionId"], RuntimeConfig.from_env(request_bedrock=False), pendingUserAction="provide_information")
+            session_state_before = self.client.get(f"/api/session/{session['sessionId']}").json()
+            context = llm_session_context(session_state_before)
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "What do you mean",
+                    "useBedrock": True,
+                },
+            ).json()
+
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "follow_up")
+        self.assertIsNone(context["workingMemory"]["pendingUserAction"])
+        self.assertNotIn("provide_information", response["assistantMessage"])
+
+    def test_conversation_stale_latest_assistant_message_is_sanitized_in_follow_up(self):
+        from app.config import RuntimeConfig
+        from app.session_store import update_working_memory
+
+        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+            session = self._session()
+            update_working_memory(
+                session["sessionId"],
+                RuntimeConfig.from_env(request_bedrock=False),
+                latestAssistantMessage="I am waiting for: provide_information.",
+            )
+            response = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "What do you mean",
+                    "useBedrock": False,
+                },
+            ).json()
+
+        self.assertEqual(response["action"], "answered_from_memory")
+        self.assertEqual(response["route"], "follow_up")
+        self.assertNotIn("provide_information", response["assistantMessage"])
+        self.assertIn("site-visit preparation", response["assistantMessage"])
+
     def test_conversation_site_request_uses_bedrock_orchestrator_then_starts_guarded_run(self):
         with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
             "app.conversation_router.generate_bedrock_conversation_orchestration",
