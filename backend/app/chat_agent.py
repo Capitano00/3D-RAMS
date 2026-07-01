@@ -214,11 +214,11 @@ def _parse_message_to_request(
             ]
         else:
             clarification = [
-                f"I found the site name '{site_label}', but I need a confirmed location before generating a review pack.",
+                f"I captured the location clue '{site_label}', but I need trusted location evidence before generating a site-specific review pack.",
                 _targeted_location_question(intent),
             ]
         if not location_resolution["locationCandidates"]:
-            clarification.append("No reliable cached/public candidate was found for this site name. I can only show provisional, non-site-specific risk prompts until location evidence is provided.")
+            clarification.append("No reliable cached/public candidate was found for this location clue. I can only show provisional, non-site-specific risk prompts until location evidence is provided.")
         return {}, trace, clarification, location_resolution, None
 
     request: dict[str, Any] = {

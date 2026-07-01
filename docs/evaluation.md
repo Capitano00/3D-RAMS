@@ -88,6 +88,14 @@ This keeps the evaluation stable and cheap. It also proves that the app remains 
 - Bedrock is optional for the MVP and not required for teammate testing.
 - The safety gate blocks certified RAMS, work approval, and emergency-style claims.
 
+## Evaluation Memory
+
+The durable run path also records a lightweight evaluation-memory summary for each completed, blocked, or stopped run. This uses the existing session/run metadata first; no separate AgentCore memory or evaluation DynamoDB table is required for the current MVP.
+
+The summary stores product-quality metadata only: safe run id, hashed session reference, timestamp, input mode, inferred site type, run status, confirmation-gate labels, bounded quality scores, safety pass/fail, failure tags, user-confusion tags, data mode, and recommended follow-up action/test. It must not store raw sensitive prompts, uploaded file contents, access codes, private documents, or client data.
+
+Evaluation memory is for recurring product-learning patterns such as `location_evidence_needed`, `safety_blocked`, `coordinate_solar_label_regression`, and `follow_up_confusion_regression`. It is not certified safety evidence, RAMS evidence, emergency guidance, legal approval, or approval-to-work evidence.
+
 ## What This Does Not Prove
 
 - It does not prove production AWS deployment.

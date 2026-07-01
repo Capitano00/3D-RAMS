@@ -65,6 +65,7 @@ const STAGES = [
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const WAITING_STATUSES = new Set([
   "waiting_for_location_confirmation",
+  "waiting_for_location_evidence",
   "waiting_for_clarification",
   "waiting_for_approval",
 ]);
@@ -165,6 +166,7 @@ function deriveActiveIndex(runStatus, steps, confirmingLocation) {
     return currentIndex >= 0 ? currentIndex : Math.max(lastReachedStageIndex(steps), 0);
   }
   if (runStatus.status === "waiting_for_location_confirmation") return 0;
+  if (runStatus.status === "waiting_for_location_evidence") return -1;
   const currentIndex = stageIndexForName(runStatus.currentStep);
   if (currentIndex >= 0) return currentIndex;
   return lastReachedStageIndex(steps);
@@ -192,6 +194,7 @@ function statusCopy(status, confirmingLocation, loading) {
   if (loading && !status) return "Starting";
   if (!status) return "Ready";
   if (status === "waiting_for_location_confirmation") return "Waiting for site confirmation";
+  if (status === "waiting_for_location_evidence") return "Location evidence needed";
   if (status === "waiting_for_clarification") return "Waiting for clarification";
   if (status === "waiting_for_approval") return "Waiting for approval";
   return humanize(status);
@@ -223,6 +226,9 @@ function currentSummary(runStatus, steps, confirmingLocation) {
   if (current?.summary) return current.summary;
   if (runStatus.status === "waiting_for_location_confirmation") {
     return "Review tools are paused until a human confirms the site.";
+  }
+  if (runStatus.status === "waiting_for_location_evidence") {
+    return "Review tools have not started because the agent needs a trusted postcode, latitude/longitude, or exact source-backed location.";
   }
   if (runStatus.status === "queued") return "Run is queued with the backend.";
   if (runStatus.status === "cancelled") return "Run was cancelled before a complete review pack was available.";

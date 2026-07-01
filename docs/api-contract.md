@@ -154,10 +154,13 @@ Important run-status fields:
 | `safetyResult` | Final safety gate result when available. |
 | `fallbackReason` | Reason the deterministic/default path was used. |
 | `errorSummary` | Safe error summary for failed runs. |
+| `evaluationSummary` | Product-quality evaluation memory for this run: input mode, site type, confirmation labels, safe scores, tags, data mode, and recommended next test. This is not certified safety evidence. |
 
 Hazard and location objects may include `dataMode` values such as `cached-public-fixture`, `synthetic-fixture`, `source-labelled-location`, `source-labelled-coordinate`, or `provisional-from-user-description`. The UI should display these labels so testers can distinguish source evidence from prompt-derived risk prompts.
 
 The current branch implementation uses a local memory run store. Future AWS deployment should use a separate DynamoDB run table plus SQS worker Lambda after review.
+
+Evaluation memory is stored with existing session/run metadata in the current MVP. The public session debug payload exposes `workingMemory.latestEvaluationSummary` so the frontend can show recurring product-quality patterns without storing raw prompts, uploaded file contents, access codes, secrets, or private site data.
 
 ## Location Confirmation
 

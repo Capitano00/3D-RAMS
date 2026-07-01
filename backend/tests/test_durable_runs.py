@@ -70,11 +70,20 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(created["result"]["evaluationStopReason"], "passed")
         self.assertTrue(created["result"]["evaluation"]["passed"])
         self.assertEqual(created["runtime"]["evaluationLoopCount"], 1)
+        summary = created["evaluationSummary"]
+        self.assertEqual(summary["inputMode"], "fixture")
+        self.assertEqual(summary["siteType"], "urban")
+        self.assertEqual(summary["runStatus"], "completed")
+        self.assertTrue(summary["locationResolved"])
+        self.assertTrue(summary["safetyPassed"])
+        self.assertEqual(summary["recommendedNextTest"], "repeat_happy_path_regression")
+        self.assertNotIn(session["sessionId"], str(summary))
 
         read_back = self.client.get(f"/api/runs/{created['runId']}")
         self.assertEqual(read_back.status_code, 200)
         self.assertEqual(read_back.json()["runId"], created["runId"])
         self.assertEqual(read_back.json()["status"], "completed")
+        self.assertEqual(read_back.json()["result"]["evaluationSummary"]["runId"], created["runId"])
 
     def test_durable_run_waits_for_clarification_without_site_signal(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
@@ -98,9 +107,10 @@ class DurableRunApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 202)
         result = response.json()
-        self.assertEqual(result["status"], "waiting_for_location_confirmation")
+        self.assertEqual(result["status"], "waiting_for_location_evidence")
         self.assertTrue(result["result"]["needsClarification"])
         self.assertFalse(result["result"]["needsLocationConfirmation"])
+        self.assertTrue(result["result"]["needsLocationEvidence"])
         self.assertEqual(result["result"]["nextStage"], "provide_location_detail")
         self.assertEqual(result["result"]["locationCandidates"], [])
         self.assertIn("Bilsbrae Solar Farm", result["result"]["assistantMessage"])
@@ -123,9 +133,10 @@ class DurableRunApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 202)
         result = response.json()
-        self.assertEqual(result["status"], "waiting_for_location_confirmation")
+        self.assertEqual(result["status"], "waiting_for_location_evidence")
         self.assertTrue(result["result"]["needsClarification"])
         self.assertFalse(result["result"]["needsLocationConfirmation"])
+        self.assertTrue(result["result"]["needsLocationEvidence"])
         self.assertEqual(result["result"]["nextStage"], "provide_location_detail")
         self.assertEqual(result["result"]["locationCandidates"], [])
         location_resolution = result["result"]["uiState"]["locationResolution"]
@@ -133,6 +144,8 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(location_resolution["intent"]["placeHint"], "park")
         self.assertEqual(location_resolution["intent"]["areaHint"], "Brighton")
         self.assertNotIn("can you help me find it", location_resolution["siteName"])
+        self.assertIn("location clue", " ".join(result["result"]["clarifyingQuestions"]))
+        self.assertNotIn("site name", " ".join(result["result"]["clarifyingQuestions"]))
         self.assertIsNone(result["result"]["scene"])
         self.assertEqual(result["result"]["evidence"], [])
         parse_step = next(step for step in result["result"]["trace"] if step["name"] == "chat_parse_user_request")
@@ -156,8 +169,9 @@ class DurableRunApiTests(unittest.TestCase):
         geoapify_get.assert_not_called()
         self.assertEqual(response.status_code, 202)
         result = response.json()
-        self.assertEqual(result["status"], "waiting_for_location_confirmation")
+        self.assertEqual(result["status"], "waiting_for_location_evidence")
         self.assertFalse(result["result"]["needsLocationConfirmation"])
+        self.assertTrue(result["result"]["needsLocationEvidence"])
         self.assertEqual(result["result"]["nextStage"], "provide_location_detail")
         self.assertEqual(result["result"]["locationCandidates"], [])
         resolver_step = next(step for step in result["result"]["trace"] if step["name"] == "resolve_location_candidates")
@@ -174,14 +188,22 @@ class DurableRunApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 202)
         result = response.json()
-        self.assertEqual(result["status"], "waiting_for_location_confirmation")
+        self.assertEqual(result["status"], "waiting_for_location_evidence")
         self.assertEqual(result["modelCallsUsed"], 0)
+        self.assertTrue(result["result"]["needsLocationEvidence"])
         self.assertIsNone(result["result"]["scene"])
         self.assertEqual(result["result"]["evidence"], [])
         self.assertEqual(result["result"]["uiState"]["reviewMode"], "provisional checklist pending location")
         hazards = result["result"]["uiState"]["hazards"]
         self.assertTrue(any(hazard["title"] == "PV electrical isolation and inverter interface" for hazard in hazards))
         self.assertIn("near Hexham", " ".join(result["result"]["clarifyingQuestions"]))
+        summary = result["evaluationSummary"]
+        self.assertEqual(summary["inputMode"], "name_only")
+        self.assertEqual(summary["siteType"], "solar")
+        self.assertFalse(summary["locationResolved"])
+        self.assertIn("location_evidence_needed", summary["failureTags"])
+        self.assertIn("site_name_without_location_evidence", summary["userConfusionTags"])
+        self.assertEqual(summary["recommendedNextTest"], "name_only_location_evidence_regression")
 
     def test_durable_run_coordinate_site_profiles_are_activity_specific(self):
         solar_response = Mock()
@@ -259,6 +281,12 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertIn("PV electrical isolation and inverter boundary", solar_titles)
         self.assertIn("Excavation edge and unstable ground", quarry_titles)
         self.assertNotEqual(solar_titles, quarry_titles)
+        self.assertEqual(solar["evaluationSummary"]["inputMode"], "coordinate")
+        self.assertEqual(quarry["evaluationSummary"]["inputMode"], "coordinate")
+        self.assertEqual(solar["evaluationSummary"]["siteType"], "solar")
+        self.assertEqual(quarry["evaluationSummary"]["siteType"], "quarry")
+        self.assertEqual(solar["evaluationSummary"]["recommendedNextTest"], "coordinate_solar_label_regression")
+        self.assertEqual(quarry["evaluationSummary"]["recommendedNextTest"], "coordinate_quarry_label_regression")
 
     def test_durable_run_standalone_unsafe_request_blocks_before_location_parse(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
@@ -272,6 +300,11 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(result["modelCallsUsed"], 0)
         self.assertEqual(result["safetyResult"]["level"], "blocked")
         self.assertFalse(result["result"]["needsClarification"])
+        summary = result["evaluationSummary"]
+        self.assertEqual(summary["inputMode"], "unsafe")
+        self.assertFalse(summary["safetyPassed"])
+        self.assertIn("safety_blocked", summary["failureTags"])
+        self.assertEqual(summary["recommendedNextTest"], "unsafe_request_block_regression")
 
     def test_durable_run_confirms_cached_location_candidate_before_review_workflow(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
@@ -335,6 +368,9 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(session_state["runs"][0]["runId"], first["run"]["runId"])
         self.assertEqual(session_state["workingMemory"]["activeRunId"], first["run"]["runId"])
         self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "confirm_or_correct_location")
+        self.assertIn("follow_up_confusion", follow_up["evaluationSummary"]["userConfusionTags"])
+        self.assertIn("follow_up_confusion", session_state["workingMemory"]["latestEvaluationSummary"]["userConfusionTags"])
+        self.assertEqual(session_state["workingMemory"]["latestEvaluationSummary"]["recommendedNextTest"], "follow_up_confusion_regression")
 
     def test_conversation_greeting_does_not_become_fake_site_run_without_bedrock(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):

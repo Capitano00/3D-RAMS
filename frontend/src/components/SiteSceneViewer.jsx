@@ -261,7 +261,7 @@ function SyntheticScene({ center, annotations, location, status, reason }) {
   );
 }
 
-export function SiteSceneViewer({ scene, annotations, location, mapFeatures, liveFeatureStatus, safety }) {
+export function SiteSceneViewer({ scene, annotations, location, locationResolution, runStatus, mapFeatures, liveFeatureStatus, safety }) {
   const containerRef = useRef(null);
   const [renderError, setRenderError] = useState("");
   const [renderStatus, setRenderStatus] = useState("waiting for confirmed location");
@@ -398,11 +398,17 @@ export function SiteSceneViewer({ scene, annotations, location, mapFeatures, liv
   }, [scene, center, validAnnotations, validMapFeatures, ionToken, layerState, isLiveScene]);
 
   if (!scene) {
+    const hasLocationCandidates = toList(locationResolution?.locationCandidates).length > 0;
+    const needsLocationEvidence = runStatus?.status === "waiting_for_location_evidence" || (locationResolution && !hasLocationCandidates);
     return (
       <div className="site-scene-empty">
         <MapPinned size={24} />
-        <strong>waiting for confirmed location</strong>
-        <span>Confirm a candidate site or provide a coordinate, postcode, nearest town, or supported fixture before map tools run.</span>
+        <strong>{needsLocationEvidence ? "location needed" : "waiting for confirmed location"}</strong>
+        <span>
+          {needsLocationEvidence
+            ? "No map can be shown until you provide a trusted postcode, latitude/longitude, exact source-backed site, or map-pin equivalent."
+            : "Confirm a candidate site before map, evidence, risk, and briefing tools run."}
+        </span>
       </div>
     );
   }

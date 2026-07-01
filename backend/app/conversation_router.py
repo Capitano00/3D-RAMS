@@ -8,7 +8,8 @@ from fastapi import HTTPException
 from .bedrock_adapter import BedrockAdapterError, generate_bedrock_conversation_orchestration
 from .config import RuntimeConfig
 from .durable_runner import create_durable_run, read_durable_run
-from .session_store import add_conversation_turn, get_session, llm_session_context, update_working_memory
+from .evaluation_memory import add_user_confusion_tag
+from .session_store import add_conversation_turn, get_session, llm_session_context, update_latest_evaluation_summary, update_working_memory
 from .site_intent import parse_site_intent
 from .tools import trace_step
 
@@ -19,6 +20,7 @@ _TERMINAL_STATUSES = {
     "cancelled",
     "waiting_for_clarification",
     "waiting_for_location_confirmation",
+    "waiting_for_location_evidence",
     "waiting_for_approval",
 }
 
@@ -483,6 +485,8 @@ def _status_response(session_id: str, memory: dict[str, Any], intent: dict[str, 
         text = f"The current run is {status} at `{current_step}`."
         if status == "waiting_for_location_confirmation":
             text += " I am waiting for you to confirm or correct the candidate location before review tools run."
+        elif status == "waiting_for_location_evidence":
+            text += " I need trusted location evidence such as a postcode or latitude/longitude before review tools run."
         elif status == "waiting_for_clarification":
             text += " I need the missing site or visit detail before I can run tools."
         elif status == "completed":
@@ -579,12 +583,16 @@ def _memory_response(
         },
         config=config,
     )
+    latest_evaluation_summary = add_user_confusion_tag(memory.get("latestEvaluationSummary"), "follow_up_confusion")
+    if latest_evaluation_summary:
+        update_latest_evaluation_summary(session_id, latest_evaluation_summary, config)
     return {
         "action": "answered_from_memory",
         "route": "follow_up",
         "assistantMessage": text,
         "conversationState": conversation_state,
         "observability": observability,
+        "evaluationSummary": latest_evaluation_summary,
         "trace": _conversation_trace("follow_up", orchestration, intent, memory, observability),
         "modelCalls": _conversation_model_calls(orchestration),
         "runtime": _runtime_contract(config, "lambda-adapter-active"),
@@ -958,6 +966,8 @@ def _pending_action(run: dict[str, Any]) -> str | None:
         location_resolution = run.get("locationResolution") or result_payload.get("locationResolution") or {}
         if location_resolution.get("locationCandidates"):
             return "confirm_or_correct_location"
+        return "provide_location_detail"
+    if status == "waiting_for_location_evidence":
         return "provide_location_detail"
     if status == "waiting_for_clarification":
         return "answer_clarifying_question"

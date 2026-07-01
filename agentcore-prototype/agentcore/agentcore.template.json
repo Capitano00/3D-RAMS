@@ -4,16 +4,27 @@
   "notes": [
     "Use AgentCore CLI to generate the authoritative agentcore.json before deploy.",
     "Keep memory disabled for the first runtime proof.",
-    "Do not switch the hosted teammate URL until the AgentCore endpoint passes smoke and quality review."
+    "Do not switch the hosted teammate URL until the AgentCore endpoint passes smoke and quality review.",
+    "This checked-in file is a public-safe template, not a deployed AgentCore project config."
   ],
+  "cliCreateReference": "agentcore create --name FieldBriefAgent --framework Strands --protocol HTTP --model-provider Bedrock --memory none --build CodeZip",
   "agents": [
     {
       "name": "fieldbrief-agent",
-      "framework": "custom-python",
+      "framework": "custom-python-http-contract",
+      "protocol": "HTTP",
       "modelProvider": "Bedrock",
       "build": "CodeZip",
       "memory": "none",
-      "entrypoint": "app/fieldbrief_agent/main.py"
+      "entrypoint": "app/fieldbrief_agent/main.py",
+      "paths": {
+        "invoke": "/invocations",
+        "health": "/ping"
+      },
+      "localPrototypeActions": [
+        "conversation_message",
+        "confirm_location"
+      ]
     }
   ],
   "requiredRuntimeControls": {

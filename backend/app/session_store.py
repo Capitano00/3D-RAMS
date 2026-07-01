@@ -89,6 +89,20 @@ def add_run(session_id: str, run_summary: dict[str, Any], config: RuntimeConfig)
     memory["latestRunStatus"] = run_summary.get("status") or memory.get("latestRunStatus")
     memory["latestSafetyLevel"] = run_summary.get("safetyLevel") or memory.get("latestSafetyLevel")
     memory["latestBriefingMode"] = run_summary.get("briefingMode") or memory.get("latestBriefingMode")
+    if run_summary.get("evaluationSummary"):
+        memory["latestEvaluationSummary"] = run_summary["evaluationSummary"]
+    session["updatedAt"] = _now_iso()
+    _persist_session(session, config)
+
+
+def update_latest_evaluation_summary(session_id: str, summary: dict[str, Any], config: RuntimeConfig) -> None:
+    session = get_session(session_id, config)
+    memory = session.setdefault("workingMemory", _default_working_memory())
+    memory["latestEvaluationSummary"] = summary
+    for run_summary in reversed(session.get("runs", [])):
+        if run_summary.get("runId") == summary.get("runId"):
+            run_summary["evaluationSummary"] = summary
+            break
     session["updatedAt"] = _now_iso()
     _persist_session(session, config)
 
@@ -175,6 +189,7 @@ def llm_session_context(session: dict[str, Any]) -> dict[str, Any]:
             "confirmedLocation": _location_summary(confirmed_location),
             "latestLocationResolution": _location_resolution_summary(latest_location_resolution),
             "latestReviewSummary": _review_summary(memory.get("latestReviewSummary")),
+            "latestEvaluationSummary": _evaluation_summary(memory.get("latestEvaluationSummary")),
         },
     }
 
@@ -201,6 +216,7 @@ def _default_working_memory() -> dict[str, Any]:
         "latestReviewSummary": None,
         "latestSafetyLevel": None,
         "latestBriefingMode": None,
+        "latestEvaluationSummary": None,
     }
 
 
@@ -269,6 +285,29 @@ def _review_summary(review: Any) -> dict[str, Any] | None:
         "status": _safe_context_string(review.get("status"), max_length=60),
         "headline": _safe_context_string(review.get("headline")),
         "generationMode": _safe_context_string(review.get("generationMode"), max_length=60),
+    }
+
+
+def _evaluation_summary(summary: Any) -> dict[str, Any] | None:
+    if not isinstance(summary, dict) or not summary:
+        return None
+    return {
+        "inputMode": _safe_context_string(summary.get("inputMode"), max_length=40),
+        "siteType": _safe_context_string(summary.get("siteType"), max_length=40),
+        "runStatus": _safe_context_string(summary.get("runStatus"), max_length=60),
+        "locationResolved": summary.get("locationResolved"),
+        "confirmationRequired": summary.get("confirmationRequired"),
+        "confirmationCompleted": summary.get("confirmationCompleted"),
+        "toolsStartedBeforeConfirmation": summary.get("toolsStartedBeforeConfirmation"),
+        "groundingScore": summary.get("groundingScore"),
+        "relevanceScore": summary.get("relevanceScore"),
+        "completenessScore": summary.get("completenessScore"),
+        "safetyPassed": summary.get("safetyPassed"),
+        "failureTags": [_safe_context_string(item, max_length=60) for item in summary.get("failureTags", [])],
+        "userConfusionTags": [_safe_context_string(item, max_length=60) for item in summary.get("userConfusionTags", [])],
+        "dataMode": _safe_context_string(summary.get("dataMode"), max_length=40),
+        "recommendedNextAction": _safe_context_string(summary.get("recommendedNextAction")),
+        "recommendedNextTest": _safe_context_string(summary.get("recommendedNextTest"), max_length=80),
     }
 
 

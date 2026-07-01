@@ -64,8 +64,19 @@ function AgentStatePanel({ sessionState, runStatus, run, conversationDebug }) {
   const turns = toList(sessionState?.conversationTurns);
   const recentTurns = turns.slice(-5);
   const route = memory.latestRoute || latestConversationRoute(turns) || "not routed yet";
-  const pendingAction = memory.pendingUserAction || (runStatus?.status === "waiting_for_location_confirmation" ? "confirm_or_correct_location" : null);
+  const pendingAction =
+    memory.pendingUserAction
+    || (runStatus?.status === "waiting_for_location_confirmation" ? "confirm_or_correct_location" : null)
+    || (runStatus?.status === "waiting_for_location_evidence" ? "provide_location_detail" : null);
   const latestEvaluation = run?.evaluation || run?.uiState?.evaluation || runStatus?.result?.evaluation || runStatus?.finalUiState?.evaluation || null;
+  const latestEvaluationSummary =
+    memory.latestEvaluationSummary
+    || runStatus?.evaluationSummary
+    || runStatus?.result?.evaluationSummary
+    || runStatus?.finalUiState?.evaluationSummary
+    || run?.evaluationSummary
+    || run?.uiState?.evaluationSummary
+    || null;
   const evaluationScores = latestEvaluation?.scores || {};
   const latestRunSummary = memory.latestReviewSummary || {};
 
@@ -116,6 +127,28 @@ function AgentStatePanel({ sessionState, runStatus, run, conversationDebug }) {
               <strong>{displayValue(evaluationScores[key], "n/a")}</strong>
             </div>
           ))}
+        </div>
+      )}
+
+      {latestEvaluationSummary && (
+        <div className="conversation-observability">
+          <div>
+            <span>Evaluation memory</span>
+            <strong>{displayValue(latestEvaluationSummary.inputMode)} / {displayValue(latestEvaluationSummary.siteType)}</strong>
+            <p>{displayValue(latestEvaluationSummary.recommendedNextAction)}</p>
+          </div>
+          <div>
+            <span>Run labels</span>
+            <strong>{displayValue(latestEvaluationSummary.runStatus)}</strong>
+            <p>
+              data: {displayValue(latestEvaluationSummary.dataMode)} / confirmation: {latestEvaluationSummary.confirmationCompleted ? "completed" : latestEvaluationSummary.confirmationRequired ? "needed" : "not needed"}
+            </p>
+          </div>
+          <div>
+            <span>Next test</span>
+            <strong>{displayValue(latestEvaluationSummary.recommendedNextTest)}</strong>
+            <p>{toList(latestEvaluationSummary.failureTags).concat(toList(latestEvaluationSummary.userConfusionTags)).slice(0, 4).join(", ") || "No recurring quality tag yet."}</p>
+          </div>
         </div>
       )}
 
@@ -443,7 +476,7 @@ function LocationConfirmationPanel({ resolution, onConfirm, onReject, onManual, 
             </article>
             <article>
               <strong>Alternative</strong>
-              <span>Give a specific park/site name, nearest road, or public source.</span>
+              <span>Give an exact site/park name plus nearest road, or provide a public source.</span>
             </article>
           </div>
         </div>
@@ -484,7 +517,7 @@ function locationNeededResolutionFromConversation(conversationState) {
     nextStage: "provide_location_detail",
     resolverMode: "conversation-location-needed",
     minimumEvidenceMet: false,
-    message: "No reliable candidate is available yet. Ask for postcode, latitude/longitude, a specific site name, nearest road, or public evidence.",
+    message: "No reliable candidate is available yet. Ask for postcode, latitude/longitude, exact site or park name with nearest road, or public evidence.",
     provisionalRisks: [],
   };
 }
@@ -887,6 +920,8 @@ function App() {
         const runPhase =
           result.run.status === "waiting_for_location_confirmation"
             ? "waiting_for_location_confirmation"
+            : result.run.status === "waiting_for_location_evidence"
+              ? "waiting_for_location_evidence"
             : runToolsStarted
               ? "durable_run_tools_started"
               : "durable_run_started";
@@ -1007,7 +1042,17 @@ function App() {
       tokenUsage: null,
     };
     setRun(result);
-    if (["completed", "failed", "cancelled", "waiting_for_clarification", "waiting_for_location_confirmation"].includes(status.status) && !completedRunsRef.current.has(status.runId)) {
+    if (
+      [
+        "completed",
+        "failed",
+        "cancelled",
+        "waiting_for_clarification",
+        "waiting_for_location_confirmation",
+        "waiting_for_location_evidence",
+      ].includes(status.status)
+      && !completedRunsRef.current.has(status.runId)
+    ) {
       completedRunsRef.current.add(status.runId);
       setMessages((current) => [
         ...current,
@@ -1250,6 +1295,8 @@ function App() {
             scene={ui.scene}
             annotations={ui.annotations}
             location={ui.location}
+            locationResolution={locationResolution}
+            runStatus={runStatus}
             mapFeatures={ui.mapFeatures}
             liveFeatureStatus={ui.liveFeatureStatus}
             safety={ui.safety}

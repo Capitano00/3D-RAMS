@@ -15,6 +15,7 @@ RunStatus = Literal[
     "running",
     "waiting_for_clarification",
     "waiting_for_location_confirmation",
+    "waiting_for_location_evidence",
     "waiting_for_approval",
     "completed",
     "failed",
@@ -162,7 +163,13 @@ def request_cancel(run_id: str) -> dict[str, Any]:
             errorSummary=None,
             fallbackReason="Run cancelled before worker execution.",
         )
-    if run["status"] in {"running", "waiting_for_clarification", "waiting_for_location_confirmation", "waiting_for_approval"}:
+    if run["status"] in {
+        "running",
+        "waiting_for_clarification",
+        "waiting_for_location_confirmation",
+        "waiting_for_location_evidence",
+        "waiting_for_approval",
+    }:
         return update_run(run_id, cancelRequested=True)
     return public_run(run)
 

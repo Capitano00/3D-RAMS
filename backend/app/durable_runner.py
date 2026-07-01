@@ -14,6 +14,7 @@ from .bedrock_adapter import (
 )
 from .chat_agent import _agent_runtime_state, _compose_assistant_message, _parse_message_to_request, _upload_trace
 from .config import RuntimeConfig
+from .evaluation_memory import build_evaluation_summary
 from .fixtures import load_fixture_pack
 from .location_resolver import confirmed_location_to_request, public_candidate_by_id
 from .run_store import (
@@ -31,7 +32,15 @@ from .tool_registry import ToolExecutionError, default_tool_sequence, execute_to
 from .tools import architecture_snapshot, normalize_request, source_register, trace_step
 
 
-TERMINAL_STATUSES = {"completed", "failed", "cancelled", "waiting_for_clarification", "waiting_for_location_confirmation", "waiting_for_approval"}
+TERMINAL_STATUSES = {
+    "completed",
+    "failed",
+    "cancelled",
+    "waiting_for_clarification",
+    "waiting_for_location_confirmation",
+    "waiting_for_location_evidence",
+    "waiting_for_approval",
+}
 
 _TOOL_ALIASES = {
     "fetch_geospatial_features": "load_geospatial_features",
@@ -235,11 +244,11 @@ def execute_durable_run(run_id: str, config: RuntimeConfig) -> None:
         _checkpoint(run_id, "compiler", "running", "Compiling the final review pack from checkpointed state.", deadline=deadline)
         _compile_output(run_id, context, config, started, deadline=deadline)
     except _RunCancelled:
-        _finish_cancelled(run_id, "Run cancelled during worker execution.")
+        _finish_cancelled(run_id, "Run cancelled during worker execution.", config)
     except _RunTimedOut as exc:
-        _finish_failed(run_id, exc)
+        _finish_failed(run_id, exc, config)
     except (BedrockAdapterError, ToolExecutionError, Exception) as exc:
-        _finish_failed(run_id, exc)
+        _finish_failed(run_id, exc, config)
 
 
 def _plan_tools(
@@ -1030,7 +1039,7 @@ def _finish_location_confirmation(
             f"I could not find a reliable cached/public location candidate for {site_name}. "
             "Please provide a postcode, OS grid reference, latitude/longitude, nearest road/town, or local authority."
         )
-        status = "waiting_for_location_confirmation"
+        status = "waiting_for_location_evidence"
     safety = {"allowed": True, "level": "needs_input", "message": "No site-specific briefing generated until the site location is confirmed."}
     provisional_risks = location_resolution.get("provisionalRisks", [])
     ui_state = {
@@ -1061,6 +1070,7 @@ def _finish_location_confirmation(
         "assistantMessage": assistant_message,
         "needsClarification": True,
         "needsLocationConfirmation": bool(candidates),
+        "needsLocationEvidence": not bool(candidates),
         "locationCandidates": candidates,
         "confirmedLocation": None,
         "nextStage": location_resolution.get("nextStage"),
@@ -1170,12 +1180,13 @@ def _finish_safety_blocked(
     _record_session_run_summary(run_id, result, config)
 
 
-def _finish_cancelled(run_id: str, reason: str) -> None:
+def _finish_cancelled(run_id: str, reason: str, config: RuntimeConfig) -> None:
     append_step(run_id, name="cancel_run", status="cancelled", summary=reason, output={})
     update_run(run_id, status="cancelled", currentStep="cancelled", fallbackReason=reason)
+    _record_session_run_summary(run_id, {}, config)
 
 
-def _finish_failed(run_id: str, exc: Exception) -> None:
+def _finish_failed(run_id: str, exc: Exception, config: RuntimeConfig) -> None:
     append_step(
         run_id,
         name="run_failed",
@@ -1190,6 +1201,7 @@ def _finish_failed(run_id: str, exc: Exception) -> None:
         errorSummary={"type": exc.__class__.__name__, "message": str(exc)[:500]},
         fallbackReason="Use the existing /api/chat path or rerun after the failed tool/model issue is resolved.",
     )
+    _record_session_run_summary(run_id, {}, config)
 
 
 def _checkpoint(
@@ -1492,6 +1504,16 @@ def _token_usage_payload(run: dict[str, Any]) -> dict[str, Any] | None:
 
 def _record_session_run_summary(run_id: str, result: dict[str, Any], config: RuntimeConfig) -> None:
     run = get_run_record(run_id)
+    evaluation_summary = build_evaluation_summary(run, result)
+    run["evaluationSummary"] = evaluation_summary
+    if isinstance(run.get("result"), dict):
+        run["result"]["evaluationSummary"] = evaluation_summary
+    if isinstance(run.get("partialUiState"), dict):
+        run["partialUiState"]["evaluationSummary"] = evaluation_summary
+    if isinstance(run.get("finalUiState"), dict):
+        run["finalUiState"]["evaluationSummary"] = evaluation_summary
+    if isinstance(result, dict) and result:
+        result["evaluationSummary"] = evaluation_summary
     try:
         add_run(
             run["sessionId"],
@@ -1504,6 +1526,7 @@ def _record_session_run_summary(run_id: str, result: dict[str, Any], config: Run
                 "latencyMs": result.get("runtime", {}).get("latencyMs"),
                 "modelCallCount": run.get("modelCallsUsed", 0),
                 "fallbackStatus": result.get("fallback", {}).get("status"),
+                "evaluationSummary": evaluation_summary,
             },
             config,
         )
