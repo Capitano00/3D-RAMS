@@ -1,125 +1,65 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Bot,
+  Clock3,
   Cloud,
+  Compass,
   FileUp,
   GitBranch,
   KeyRound,
+  Layers,
   MapPinned,
+  Route,
+  Search,
   Send,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
-import * as Cesium from "cesium";
-import "cesium/Build/Cesium/Widgets/widgets.css";
+import SceneViewer from "./components/SceneViewer";
+import ImpactSummary from "./components/ImpactSummary";
+import MissionBrief from "./components/MissionBrief";
+import ResearchCoverageGrid from "./components/ResearchCoverageGrid";
+import SafetyBoundaryRail from "./components/SafetyBoundaryRail";
+import { AGENT_WORKFLOW_STEPS, OPERATIONAL_SOURCE_GROUPS } from "./data/operationalSources";
+import {
+  countEvidenceItems,
+  countFallbackItems,
+  countHazards,
+  countLowConfidenceItems,
+  countTraceSteps,
+  estimateResearchCoverage,
+} from "./lib/resultMetrics";
+import {
+  getAnnotations,
+  getBriefing,
+  getEvidence,
+  getHazards,
+  getLocation,
+  getRuntime,
+  getSafety,
+  getScene,
+  getTrace,
+  toList,
+} from "./lib/uiState";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 const STARTER_PROMPT =
-  "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.";
+  "I want to visit 8 Albert Embankment tomorrow for a survey. Please prepare a pre-visit review pack covering access, weather, nearby infrastructure, utilities, terrain/context, surrounding risks, evidence, and safety limitations.";
 
-function toList(value) {
-  return Array.isArray(value) ? value : [];
-}
+const RISK_GROUPS = [
+  { id: "immediate", label: "Immediate review" },
+  { id: "environmental", label: "Environmental / contextual" },
+  { id: "infrastructure", label: "Infrastructure / utility" },
+  { id: "verification", label: "Low-confidence / needs verification" },
+];
 
-function SceneViewer({ scene, annotations, location }) {
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!containerRef.current || !scene?.center) return undefined;
-
-    Cesium.Ion.defaultAccessToken = "";
-    const viewer = new Cesium.Viewer(containerRef.current, {
-      animation: false,
-      timeline: false,
-      baseLayer: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      baseLayerPicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false,
-      infoBox: false,
-      selectionIndicator: false,
-    });
-
-    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#e6ece9");
-    viewer.scene.skyAtmosphere.show = false;
-    viewer.scene.fog.enabled = false;
-
-    const center = scene.center;
-    viewer.entities.add({
-      name: "Review area",
-      polygon: {
-        hierarchy: Cesium.Cartesian3.fromDegreesArray([
-          center.longitude - 0.006,
-          center.latitude - 0.004,
-          center.longitude + 0.006,
-          center.latitude - 0.004,
-          center.longitude + 0.006,
-          center.latitude + 0.004,
-          center.longitude - 0.006,
-          center.latitude + 0.004,
-        ]),
-        height: 0,
-        material: Cesium.Color.fromCssColorString("#7fb9a7").withAlpha(0.36),
-        outline: true,
-        outlineColor: Cesium.Color.fromCssColorString("#0b6f65"),
-      },
-    });
-
-    toList(annotations).forEach((annotation) => {
-      viewer.entities.add({
-        name: annotation.title,
-        position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
-        point: {
-          pixelSize: annotation.confidence === "low" ? 12 : 10,
-          color: Cesium.Color.fromCssColorString(annotation.confidence === "low" ? "#d97706" : "#1d4ed8"),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2,
-        },
-        label: {
-          text: annotation.title,
-          font: "12px sans-serif",
-          fillColor: Cesium.Color.fromCssColorString("#111827"),
-          showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.84),
-          pixelOffset: new Cesium.Cartesian2(0, -22),
-        },
-      });
-    });
-
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 1500),
-      orientation: {
-        heading: Cesium.Math.toRadians(scene.camera?.headingDegrees || 0),
-        pitch: Cesium.Math.toRadians(scene.camera?.pitchDegrees || -48),
-      },
-      duration: 0,
-    });
-
-    return () => {
-      if (!viewer.isDestroyed()) viewer.destroy();
-    };
-  }, [scene, annotations]);
-
-  if (!scene) {
-    return (
-      <div className="empty-map">
-        <MapPinned size={24} />
-        <span>Map updates after the agent resolves a site.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="scene-shell">
-      <div ref={containerRef} className="scene-viewer" />
-      <div className="map-caption">
-        <strong>{location?.label || "Selected site"}</strong>
-        <span>{toList(annotations).length} mapped risk marker(s)</span>
-      </div>
-    </div>
-  );
+function classifyHazard(hazard) {
+  const text = `${hazard?.title || ""} ${hazard?.reason || ""} ${hazard?.summary || ""}`.toLowerCase();
+  if (hazard?.confidence === "low" || text.includes("low confidence") || text.includes("verify")) return "verification";
+  if (/(ohl|overhead|line|cable|utility|utilities|power|rail|bridge|road|infrastructure)/.test(text)) return "infrastructure";
+  if (/(weather|flood|water|river|terrain|slope|ground|environment|context)/.test(text)) return "environmental";
+  return "immediate";
 }
 
 function AccessPanel({ onStart, loading }) {
@@ -174,7 +114,15 @@ function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMo
     <section className="agent-chat panel">
       <div className="panel-heading">
         <Bot size={18} />
-        <h2>FieldBrief Agent</h2>
+        <div>
+          <h2>FieldBrief Agent</h2>
+          <p>Ask in normal language. The agent may clarify, then returns a review pack with evidence and trace.</p>
+        </div>
+      </div>
+      <div className="chat-guidance" aria-label="Chat workflow">
+        <span>User request</span>
+        <span>Clarifying questions</span>
+        <span>3D review pack</span>
       </div>
       <div className="message-list">
         {messages.map((message) => (
@@ -199,7 +147,12 @@ function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMo
         <span>{uploads.length ? `${uploads.length} evidence file(s) registered` : "Uploads use S3 when hosted; local mode registers metadata only."}</span>
       </div>
       <form className="composer" onSubmit={onSend}>
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        <textarea
+          aria-label="Site visit request"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="Describe the site visit, activity, date, and any known constraints."
+        />
         <button disabled={loading || !prompt.trim()}>
           <Send size={16} />
           {loading ? "Running" : "Send"}
@@ -211,20 +164,42 @@ function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMo
 
 function RiskCards({ hazards, briefing }) {
   const items = toList(hazards).slice(0, 6);
+  const grouped = RISK_GROUPS.map((group) => ({
+    ...group,
+    hazards: items.filter((hazard) => classifyHazard(hazard) === group.id),
+  }));
+
   return (
     <section className="panel">
       <div className="panel-heading">
         <AlertTriangle size={18} />
-        <h2>Risk Review</h2>
+        <div>
+          <h2>Risk Review</h2>
+          <p>Candidate findings grouped for human verification before dispatch.</p>
+        </div>
       </div>
       <div className="risk-grid">
         {items.length ? (
-          items.map((hazard) => (
-            <article key={hazard.id || hazard.title}>
-              <strong>{hazard.title}</strong>
-              <em className={`status ${hazard.confidence || "warning"}`}>{hazard.confidence || "review"}</em>
-              <p>{hazard.reason || hazard.summary || "Review this item before the site visit."}</p>
-            </article>
+          grouped.map((group) => (
+            <section className="risk-group" key={group.id}>
+              <div className="risk-group-heading">
+                <h3>{group.label}</h3>
+                <span>{group.hazards.length}</span>
+              </div>
+              <div className="risk-group-list">
+                {group.hazards.length ? (
+                  group.hazards.map((hazard) => (
+                    <article key={hazard.id || hazard.title}>
+                      <strong>{hazard.title}</strong>
+                      <em className={`status ${hazard.confidence || "warning"}`}>{hazard.confidence || "review"}</em>
+                      <p>{hazard.reason || hazard.summary || "Review this item before the site visit."}</p>
+                    </article>
+                  ))
+                ) : (
+                  <p className="empty-copy">No items currently grouped here.</p>
+                )}
+              </div>
+            </section>
           ))
         ) : (
           <p className="empty-copy">Risk cards appear after the agent runs tools.</p>
@@ -268,13 +243,18 @@ function EvidenceAndTrace({ evidence, trace, safety, runtime }) {
       <div className="evidence-trace-grid">
         <div>
           <h3>Evidence Register</h3>
-          {toList(evidence).map((item) => (
-            <article className="compact-row" key={item.id}>
-              <strong>{item.title}</strong>
-              <span>{item.source}</span>
-              <small>{item.status}</small>
-            </article>
-          ))}
+          {toList(evidence).length ? (
+            toList(evidence).map((item) => (
+              <article className="compact-row" key={item.id || item.title}>
+                <strong>{item.title}</strong>
+                <span>{item.source || "Source pending"}</span>
+                <p>{item.why_it_matters || item.summary || "Evidence item available for human review."}</p>
+                <small>{item.status || item.confidence || "review"}</small>
+              </article>
+            ))
+          ) : (
+            <p className="empty-copy">Evidence items appear after the agent completes a site run.</p>
+          )}
         </div>
         <div>
           <h3>Tool Timeline</h3>
@@ -291,13 +271,118 @@ function EvidenceAndTrace({ evidence, trace, safety, runtime }) {
   );
 }
 
+function WorkflowBridge({ location, metrics, runtime, uploads }) {
+  const resolvedLabel = location?.label || "Waiting for resolved site";
+  const generatedItems = metrics.evidence + metrics.trace + metrics.hazards;
+
+  return (
+    <section className="workflow-bridge" aria-label="ASI intake to enterprise review workflow">
+      <article className="bridge-card bridge-card-primary">
+        <div className="bridge-heading">
+          <Sparkles size={18} />
+          <span>Fetch / ASI:One entry</span>
+        </div>
+        <h2>Ask with a coordinate, place name, address, or incomplete site prompt.</h2>
+        <p>
+          The agent resolves what it can, asks only for missing critical details, then generates a
+          small-area pre-visit review pack for human checking.
+        </p>
+        <div className="prompt-example">
+          I need to visit 8 Albert Embankment and land to the rear tomorrow. What should I know before going?
+        </div>
+      </article>
+
+      <article className="bridge-card">
+        <div className="bridge-heading">
+          <Search size={18} />
+          <span>Ambiguity handling</span>
+        </div>
+        <div className="bridge-steps">
+          <span>Coordinate or place parsing</span>
+          <span>Clarifying questions when site/activity is vague</span>
+          <span>Fallback and low-confidence labels stay visible</span>
+        </div>
+      </article>
+
+      <article className="bridge-card">
+        <div className="bridge-heading">
+          <Layers size={18} />
+          <span>3D region model</span>
+        </div>
+        <div className="bridge-steps">
+          <span>Resolved area: {resolvedLabel}</span>
+          <span>Boundary highlighted against unrelated surroundings</span>
+          <span>Water, access, infrastructure, utility, and hazard layers</span>
+        </div>
+      </article>
+
+      <article className="bridge-card efficiency-card">
+        <div className="bridge-heading">
+          <Clock3 size={18} />
+          <span>Conduct efficiency proof</span>
+        </div>
+        <strong>{generatedItems || "No"} review artefact(s) generated</strong>
+        <p>
+          One agent run turns scattered map, weather, planning, utility, flood, evidence, and trace work
+          into a single inspectable pack. Stopwatch baseline can be added for the final demo.
+        </p>
+        <div className="efficiency-metrics">
+          <span>{metrics.coveredDomains}/{metrics.totalDomains} domains</span>
+          <span>{uploads.length} upload(s)</span>
+          <span>{runtime?.modelCallCount || runtime?.modelCalls?.length || 0} model call(s)</span>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function OperationalDataPlan() {
+  return (
+    <section className="operational-plan panel" aria-label="Operational data and agent workflow">
+      <div className="panel-heading">
+        <Layers size={18} />
+        <div>
+          <h2>Operational Data Sources + Agent Workflow</h2>
+          <p>Real integrations where available; cached/fallback states remain labelled for audit and human review.</p>
+        </div>
+      </div>
+      <div className="workflow-steps">
+        {AGENT_WORKFLOW_STEPS.map((step, index) => (
+          <article key={step.id}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{step.label}</strong>
+            <p>{step.description}</p>
+          </article>
+        ))}
+      </div>
+      <div className="source-matrix">
+        {OPERATIONAL_SOURCE_GROUPS.map((group) => (
+          <article className={`source-card ${group.status}`} key={group.id}>
+            <div>
+              <strong>{group.label}</strong>
+              <em>{group.status.replace("-", " ")}</em>
+            </div>
+            <span>{group.agent}</span>
+            <p>{group.output}</p>
+            <ul>
+              {group.sources.map((source) => (
+                <li key={source}>{source}</li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [messages, setMessages] = useState([
     {
       id: "welcome",
       role: "assistant",
-      text: "Tell me where you are going and what kind of site visit you are planning. I will ask for missing critical details, run tools, and return a RAMS-style review pack for human review.",
+      text: "Tell me where you are going and what kind of site visit you are planning. I will ask for missing critical details, run tools, and return a structured pre-visit review pack for human review.",
     },
   ]);
   const [prompt, setPrompt] = useState(STARTER_PROMPT);
@@ -306,10 +391,34 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const ui = run?.uiState || {};
+  const rawUi = run?.uiState || {};
+  const ui = {
+    location: getLocation(rawUi),
+    scene: getScene(rawUi),
+    annotations: getAnnotations(rawUi),
+    hazards: getHazards(rawUi),
+    evidence: getEvidence(rawUi),
+    trace: getTrace(rawUi),
+    briefing: getBriefing(rawUi),
+    safety: getSafety(rawUi),
+  };
   const accessLabel = session?.accessLabel || "not started";
-  const runtime = run?.runtime || {};
+  const runtime = getRuntime(run);
+  const researchCoverage = useMemo(() => estimateResearchCoverage(rawUi), [rawUi]);
+  const resultMetrics = useMemo(
+    () => ({
+      evidence: countEvidenceItems(ui.evidence),
+      trace: countTraceSteps(ui.trace),
+      hazards: countHazards(ui.hazards),
+      lowConfidence: countLowConfidenceItems(ui.hazards, ui.evidence, ui.trace),
+      fallbackLowConfidence: countLowConfidenceItems(ui.hazards, ui.evidence, ui.trace) + countFallbackItems(ui.evidence, ui.trace),
+      coveredDomains: researchCoverage.filter((domain) => ["ready", "partial", "fallback", "blocked"].includes(domain.status)).length,
+      totalDomains: researchCoverage.length,
+    }),
+    [researchCoverage, ui.evidence, ui.hazards, ui.trace],
+  );
   const safetyTone = ui.safety?.allowed === false ? "blocked" : ui.safety?.level === "needs_input" ? "warning" : "allowed";
+  const fallbackLabel = resultMetrics.fallbackLowConfidence ? `${resultMetrics.fallbackLowConfidence} fallback/verify` : "no fallback flagged";
 
   async function startSession(payload) {
     setLoading(true);
@@ -413,29 +522,40 @@ function App() {
     <main className="app-shell product-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">3D-RAMS Hosted Agent</p>
+          <p className="eyebrow">3D-RAMS</p>
           <h1>Pre-Visit FieldBrief Agent</h1>
           <p className="topbar-summary">
-            Ask for a site visit review pack in normal language. The agent runs server-side tools and returns map, evidence, trace, and safety output.
+            Generate an inspectable 3D site research pack from one natural-language request.
           </p>
+          <p className="command-value">Save time. Reduce blind spots. Support safer site decisions.</p>
         </div>
         <div className="status-stack">
           <div className="safety-pill pending">
             <KeyRound size={16} />
-            {accessLabel}
+            <span>Session</span>
+            <strong>{accessLabel}</strong>
           </div>
           <div className={`safety-pill ${safetyTone}`}>
             <ShieldCheck size={16} />
-            {ui.safety?.level || "ready"}
+            <span>Safety</span>
+            <strong>{ui.safety?.level || "ready"}</strong>
           </div>
           <div className="safety-pill pending">
             <Cloud size={16} />
-            {runtime.sessionTraceMode || "memory"}
+            <span>Agent</span>
+            <strong>{runtime.activeAgentMode || runtime.sessionTraceMode || "memory"}</strong>
+          </div>
+          <div className={`safety-pill ${resultMetrics.fallbackLowConfidence ? "warning" : "allowed"}`}>
+            <AlertTriangle size={16} />
+            <span>Fallback</span>
+            <strong>{fallbackLabel}</strong>
           </div>
         </div>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+
+      <WorkflowBridge location={ui.location} metrics={resultMetrics} runtime={runtime} uploads={uploads} />
 
       <section className="product-grid">
         <ChatPanel
@@ -450,13 +570,33 @@ function App() {
         <section className="panel map-panel">
           <div className="panel-heading">
             <MapPinned size={18} />
-            <h2>3D Site Risk Scene</h2>
+            <div>
+              <h2>3D Site Risk Scene</h2>
+              <p>Zoomed small-area model with boundary, water/access/utility layers, annotations, confidence, and fallback status.</p>
+            </div>
+          </div>
+          <div className="region-model-strip" aria-label="3D region model layers">
+            <span><Compass size={14} /> Boundary locked</span>
+            <span><Route size={14} /> Access context</span>
+            <span><Layers size={14} /> Water / utility / hazard layers</span>
           </div>
           <SceneViewer scene={ui.scene} annotations={ui.annotations} location={ui.location} />
         </section>
       </section>
 
-      <section className="insight-grid">
+      <section className="review-overview" aria-label="Review pack overview">
+        <ImpactSummary metrics={resultMetrics} />
+        <SafetyBoundaryRail />
+      </section>
+
+      <OperationalDataPlan />
+
+      <section className="result-grid">
+        <MissionBrief location={ui.location} briefing={ui.briefing} goal={run?.request?.goal} />
+        <ResearchCoverageGrid coverage={researchCoverage} />
+      </section>
+
+      <section className="legacy-detail-grid" aria-label="Risk, evidence, trace, and safety detail">
         <RiskCards hazards={ui.hazards} briefing={ui.briefing} />
         <EvidenceAndTrace evidence={ui.evidence} trace={ui.trace} safety={ui.safety} runtime={runtime} />
       </section>
