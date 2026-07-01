@@ -1,7 +1,9 @@
 param(
     [string]$ApiBaseUrl,
     [string]$PrivateFile = "deploy\hosted-mvp-private.local.json",
-    [switch]$IncludeUnsafe
+    [switch]$IncludeUnsafe,
+    [switch]$IncludeIds,
+    [switch]$MemoryOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,9 +19,60 @@ if (-not (Test-Path $privatePath)) { throw "Private access-code file not found: 
 $accessCode = (Get-Content $privatePath -Raw | ConvertFrom-Json).accessCode
 $base = $ApiBaseUrl.TrimEnd("/")
 
+function Format-SmokeId {
+    param($Value)
+    if ($IncludeIds) { return $Value }
+    if ($null -eq $Value -or $Value -eq "") { return $Value }
+    return "<redacted>"
+}
+
 function Invoke-JsonPost {
     param([string]$Path, $Body)
     Invoke-RestMethod -Method Post -Uri "$base$Path" -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 8)
+}
+
+function Invoke-MemoryRegressionSmoke {
+    $memorySession = Invoke-JsonPost "/api/session/start" @{ accessCode = $accessCode; testerAlias = "hosted-memory-smoke" }
+    $memoryFirst = Invoke-JsonPost "/api/conversation/message" @{
+        sessionId = $memorySession.sessionId
+        message = "I want to visit Greenacre Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack."
+        uploadedFileIds = @()
+        useBedrock = $false
+    }
+    $memoryFollow = Invoke-JsonPost "/api/conversation/message" @{
+        sessionId = $memorySession.sessionId
+        message = "What do you mean"
+        uploadedFileIds = @()
+        useBedrock = $false
+    }
+    $memoryState = $null
+    for ($i = 0; $i -lt 8; $i++) {
+        $memoryState = Invoke-RestMethod -Method Get -Uri "$base/api/session/$($memorySession.sessionId)"
+        if (@($memoryState.runs).Count -ge 1 -and $memoryState.workingMemory.pendingUserAction -eq "confirm_or_correct_location") { break }
+        Start-Sleep -Seconds 1
+    }
+    $memoryRunCount = @($memoryState.runs).Count
+    $memoryPendingAction = $memoryState.workingMemory.pendingUserAction
+    if ($memoryFirst.action -ne "started_run") { throw "Memory regression first message should start one guarded run." }
+    if ($memoryFirst.run.status -ne "waiting_for_location_confirmation") { throw "Memory regression expected location-confirmation state." }
+    if ($memoryFirst.run.modelCallsUsed -ne 0) { throw "Memory regression should not spend model calls before confirmation." }
+    if ($memoryFollow.action -ne "answered_from_memory") { throw "Follow-up should answer from memory." }
+    if ($memoryFollow.route -ne "follow_up") { throw "Follow-up should route as follow_up." }
+    if ($memoryFollow.assistantMessage -match "review pack for What do you mean") { throw "Follow-up regressed into fake site request." }
+    if ($memoryRunCount -ne 1) { throw "Follow-up should not start a second run; got $memoryRunCount." }
+    if ($memoryPendingAction -ne "confirm_or_correct_location") { throw "Unexpected pending action after follow-up: $memoryPendingAction." }
+    return [pscustomobject]@{
+        sessionId = Format-SmokeId $memorySession.sessionId
+        sessionTraceMode = $memorySession.runtime.sessionTraceMode
+        firstAction = $memoryFirst.action
+        firstRunStatus = $memoryFirst.run.status
+        firstModelCallsUsed = $memoryFirst.run.modelCallsUsed
+        followAction = $memoryFollow.action
+        followRoute = $memoryFollow.route
+        followAvoidsFakeSite = -not ($memoryFollow.assistantMessage -match "review pack for What do you mean")
+        runCount = $memoryRunCount
+        pendingAction = $memoryPendingAction
+    }
 }
 
 try {
@@ -28,6 +81,8 @@ try {
     Write-Warning "PowerShell HTTP smoke failed at health check; falling back to Python hosted smoke. $($_.Exception.Message)"
     $pythonArgs = @("deploy\smoke-hosted.py", "--api-base-url", $base, "--private-file", $PrivateFile)
     if ($IncludeUnsafe) { $pythonArgs += "--include-unsafe" }
+    if ($IncludeIds) { $pythonArgs += "--include-ids" }
+    if ($MemoryOnly) { $pythonArgs += "--memory-only" }
     python @pythonArgs
     exit $LASTEXITCODE
 }
@@ -39,8 +94,23 @@ try {
 } catch {
     $unauthorizedStatus = [int]$_.Exception.Response.StatusCode
 }
+if ($unauthorizedStatus -ne 401) {
+    throw "Wrong access code expected 401, got $unauthorizedStatus."
+}
+
+if ($MemoryOnly) {
+    $memoryRegression = Invoke-MemoryRegressionSmoke
+    [pscustomobject]@{
+        apiBaseUrl = $base
+        health = $health.status
+        unauthorizedStatus = $unauthorizedStatus
+        memoryRegression = $memoryRegression
+    } | ConvertTo-Json -Depth 8
+    exit 0
+}
 
 $session = Invoke-JsonPost "/api/session/start" @{ accessCode = $accessCode; testerAlias = "hosted-smoke" }
+$memoryRegression = Invoke-MemoryRegressionSmoke
 
 $upload = Invoke-JsonPost "/api/upload-url" @{
     sessionId = $session.sessionId
@@ -231,8 +301,9 @@ if ($IncludeUnsafe) {
     apiBaseUrl = $base
     health = $health.status
     unauthorizedStatus = $unauthorizedStatus
-    sessionId = $session.sessionId
+    sessionId = Format-SmokeId $session.sessionId
     sessionTraceMode = $session.runtime.sessionTraceMode
+    memoryRegression = $memoryRegression
     uploadStatus = $upload.status
     uploadStorageMode = $upload.storageMode
     chatNeedsClarification = $chat.needsClarification
@@ -242,7 +313,7 @@ if ($IncludeUnsafe) {
     modelCallCount = @($chat.modelCalls).Count
     evidenceCount = @($chat.evidence).Count
     traceSteps = @($chat.trace).Count
-    durableRunId = $durableRunId
+    durableRunId = Format-SmokeId $durableRunId
     durableRunStatus = $durableRun.status
     durableRunCurrentStep = $durableRun.currentStep
     durableRunModelCallsUsed = $durableRun.modelCallsUsed
@@ -250,14 +321,14 @@ if ($IncludeUnsafe) {
     durableRunSafety = $durableRun.safetyResult.level
     durableRunAgentMode = $durableRun.runtime.activeAgentMode
     durableRunTraceSteps = @($durableRun.result.trace).Count
-    bilsbraeRunId = $bilsbraeRunId
+    bilsbraeRunId = Format-SmokeId $bilsbraeRunId
     bilsbraeStatus = $bilsbraeRun.status
     bilsbraeNeedsClarification = $bilsbraeRun.result.needsClarification
     bilsbraeNeedsLocationConfirmation = $bilsbraeRun.result.needsLocationConfirmation
     bilsbraeNextStage = $bilsbraeRun.result.nextStage
     bilsbraeModelCallsUsed = $bilsbraeRun.modelCallsUsed
     bilsbraeMessage = $bilsbraeRun.result.assistantMessage
-    greenacreRunId = $greenacreRun.runId
+    greenacreRunId = Format-SmokeId $greenacreRun.runId
     greenacreCandidateCount = @($greenacreRun.result.locationCandidates).Count
     greenacreConfirmedStatus = $greenacreConfirm.status
     greenacreConfirmedLocation = $greenacreConfirm.result.uiState.location.label

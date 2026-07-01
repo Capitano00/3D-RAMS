@@ -24,6 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-base-url", default="")
     parser.add_argument("--private-file", default="deploy/hosted-mvp-private.local.json")
     parser.add_argument("--include-unsafe", action="store_true")
+    parser.add_argument("--include-ids", action="store_true", help="Print live session/run ids. Defaults to redacted output.")
+    parser.add_argument("--memory-only", action="store_true", help="Run only the low-cost hosted conversation-memory regression.")
     return parser.parse_args()
 
 
@@ -60,9 +62,75 @@ def wait_for_run(base: str, run: dict[str, Any], attempts: int) -> dict[str, Any
     return run
 
 
+def wait_for_session_memory(base: str, session_id: str, attempts: int = 8) -> dict[str, Any]:
+    state: dict[str, Any] = {}
+    for _ in range(attempts):
+        state = get(base, f"/api/session/{session_id}")
+        memory = state.get("workingMemory") or {}
+        if len(state.get("runs") or []) >= 1 and memory.get("pendingUserAction") == "confirm_or_correct_location":
+            return state
+        time.sleep(1)
+    return state
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def visible_id(value: Any, include_ids: bool) -> Any:
+    if include_ids:
+        return value
+    return "<redacted>" if value else value
+
+
+def run_memory_regression(base: str, access_code: str) -> dict[str, Any]:
+    session = post(base, "/api/session/start", {"accessCode": access_code, "testerAlias": "hosted-memory-smoke"})
+    session_id = session["sessionId"]
+    first = post(
+        base,
+        "/api/conversation/message",
+        {
+            "sessionId": session_id,
+            "message": "I want to visit Greenacre Solar Farm tomorrow for a survey. Please prepare a pre-visit RAMS-style review pack.",
+            "uploadedFileIds": [],
+            "useBedrock": False,
+        },
+    )
+    follow_up = post(
+        base,
+        "/api/conversation/message",
+        {
+            "sessionId": session_id,
+            "message": "What do you mean",
+            "uploadedFileIds": [],
+            "useBedrock": False,
+        },
+    )
+    state = wait_for_session_memory(base, session_id)
+    follow_text = follow_up.get("assistantMessage", "")
+    run_count = len(state.get("runs") or [])
+    pending_action = (state.get("workingMemory") or {}).get("pendingUserAction")
+    require(first.get("action") == "started_run", "Memory regression first message should start one guarded run.")
+    require(first.get("run", {}).get("status") == "waiting_for_location_confirmation", "Memory regression expected location-confirmation state.")
+    require(first.get("run", {}).get("modelCallsUsed") == 0, "Memory regression should not spend model calls before confirmation.")
+    require(follow_up.get("action") == "answered_from_memory", "Follow-up should answer from memory.")
+    require(follow_up.get("route") == "follow_up", "Follow-up should route as follow_up.")
+    require("review pack for What do you mean" not in follow_text, "Follow-up regressed into fake site request.")
+    require(run_count == 1, f"Follow-up should not start a second run; got {run_count}.")
+    require(pending_action == "confirm_or_correct_location", f"Unexpected pending action after follow-up: {pending_action}.")
+    return {
+        "sessionId": session_id,
+        "sessionTraceMode": session.get("runtime", {}).get("sessionTraceMode") or session.get("sessionTraceMode"),
+        "firstAction": first.get("action"),
+        "firstRunStatus": first.get("run", {}).get("status"),
+        "firstModelCallsUsed": first.get("run", {}).get("modelCallsUsed"),
+        "followAction": follow_up.get("action"),
+        "followRoute": follow_up.get("route"),
+        "followAvoidsFakeSite": "review pack for What do you mean" not in follow_text,
+        "runCount": run_count,
+        "pendingAction": pending_action,
+    }
 
 
 def main() -> int:
@@ -84,8 +152,25 @@ def main() -> int:
         unauthorized_status = exc.code
     require(unauthorized_status == 401, f"Wrong access code expected 401, got {unauthorized_status}.")
 
+    if args.memory_only:
+        memory_regression = run_memory_regression(base, access_code)
+        memory_regression["sessionId"] = visible_id(memory_regression.get("sessionId"), args.include_ids)
+        print(
+            json.dumps(
+                {
+                    "apiBaseUrl": base,
+                    "health": health["status"],
+                    "unauthorizedStatus": unauthorized_status,
+                    "memoryRegression": memory_regression,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
     session = post(base, "/api/session/start", {"accessCode": access_code, "testerAlias": "hosted-smoke"})
     session_id = session["sessionId"]
+    memory_regression = run_memory_regression(base, access_code)
 
     upload = post(
         base,
@@ -273,8 +358,12 @@ def main() -> int:
         "apiBaseUrl": base,
         "health": health["status"],
         "unauthorizedStatus": unauthorized_status,
-        "sessionId": session_id,
+        "sessionId": visible_id(session_id, args.include_ids),
         "sessionTraceMode": session.get("runtime", {}).get("sessionTraceMode") or session.get("sessionTraceMode"),
+        "memoryRegression": {
+            **memory_regression,
+            "sessionId": visible_id(memory_regression.get("sessionId"), args.include_ids),
+        },
         "uploadStatus": upload.get("status"),
         "uploadStorageMode": upload.get("storageMode"),
         "chatNeedsClarification": chat.get("needsClarification"),
@@ -284,7 +373,7 @@ def main() -> int:
         "modelCallCount": len(chat.get("modelCalls") or []),
         "evidenceCount": len(chat.get("evidence") or []),
         "traceSteps": len(chat.get("trace") or []),
-        "durableRunId": durable_run.get("runId"),
+        "durableRunId": visible_id(durable_run.get("runId"), args.include_ids),
         "durableRunStatus": durable_run.get("status"),
         "durableRunCurrentStep": durable_run.get("currentStep"),
         "durableRunModelCallsUsed": durable_run.get("modelCallsUsed"),
@@ -292,14 +381,14 @@ def main() -> int:
         "durableRunSafety": (durable_run.get("safetyResult") or {}).get("level"),
         "durableRunAgentMode": durable_run.get("runtime", {}).get("activeAgentMode"),
         "durableRunTraceSteps": len((durable_run.get("result") or {}).get("trace") or []),
-        "bilsbraeRunId": bilsbrae_run.get("runId"),
+        "bilsbraeRunId": visible_id(bilsbrae_run.get("runId"), args.include_ids),
         "bilsbraeStatus": bilsbrae_run.get("status"),
         "bilsbraeNeedsClarification": bilsbrae_run["result"].get("needsClarification"),
         "bilsbraeNeedsLocationConfirmation": bilsbrae_run["result"].get("needsLocationConfirmation"),
         "bilsbraeNextStage": bilsbrae_run["result"].get("nextStage"),
         "bilsbraeModelCallsUsed": bilsbrae_run.get("modelCallsUsed"),
         "bilsbraeMessage": bilsbrae_run["result"].get("assistantMessage"),
-        "greenacreRunId": greenacre_run.get("runId"),
+        "greenacreRunId": visible_id(greenacre_run.get("runId"), args.include_ids),
         "greenacreCandidateCount": len(greenacre_run["result"].get("locationCandidates") or []),
         "greenacreConfirmedStatus": greenacre_confirm.get("status"),
         "greenacreConfirmedLocation": greenacre_confirm["result"]["uiState"]["location"]["label"],
