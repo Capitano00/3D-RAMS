@@ -319,6 +319,8 @@ def generate_bedrock_conversation_orchestration(
             "routing_rules": [
                 "Greeting or small-talk messages should be answered conversationally and should_start_run must be false.",
                 "Questions about a previous agent message should use session_context and should_start_run must be false.",
+                "If session_context.workingMemory.pendingUserAction is confirm_or_correct_location, interpret the new message relative to the pending candidate. Positive confirmation should route confirm_by_chat, rejection or disagreement should route reject_location, a corrected postcode or coordinate should route location_correction, and a question should route follow_up.",
+                "If session_context.workingMemory.pendingUserAction is provide_corrected_location, interpret the new message as a correction attempt. A trusted postcode or coordinate should route location_correction; vague text should ask for clearer evidence and should_start_run must be false.",
                 "Only recommend new_run when the user is asking for a site visit/pre-visit review or correcting a location.",
                 "Vague location-discovery messages such as 'near a park in Brighton' must be intent=location_discovery, location_status=vague or needs_evidence, and must not invent a site name or coordinate.",
                 "For name-only sites without postcode/coordinate, recommend new_run so the backend can create a gated clarification/provisional checklist.",

@@ -59,17 +59,10 @@ _STATUS_PHRASES = {
     "are you done",
 }
 
-_CONFIRMATION_PHRASES = {"yes", "ok", "okay", "confirm", "confirmed", "looks right", "this is correct"}
-_REJECTION_PHRASES = {
-    "no",
-    "not this site",
-    "wrong site",
-    "this is wrong",
-    "not the right site",
-    "that is not right",
-    "that is wrong",
-    "different site",
-}
+# Deterministic fallback only. Bedrock classifies semantic confirmation,
+# rejection, and correction against the current conversation state.
+_FALLBACK_CONFIRMATION_REPLIES = {"yes", "confirm"}
+_FALLBACK_REJECTION_REPLIES = {"no", "wrong"}
 _START_OVER_PHRASES = {
     "start again",
     "start over",
@@ -216,9 +209,9 @@ def _classify_message(message: str, memory: dict[str, Any], intent: dict[str, An
     if pending in {"confirm_or_correct_location", "provide_corrected_location"}:
         if has_location_evidence:
             return "location_correction"
-        if pending == "confirm_or_correct_location" and lower in _CONFIRMATION_PHRASES:
+        if pending == "confirm_or_correct_location" and lower in _FALLBACK_CONFIRMATION_REPLIES:
             return "confirm_by_chat"
-        if lower in _REJECTION_PHRASES or any(phrase in lower for phrase in _REJECTION_PHRASES):
+        if lower in _FALLBACK_REJECTION_REPLIES:
             return "reject_location"
         if _looks_like_question(lower) and not has_location_evidence:
             return "follow_up"
@@ -226,7 +219,7 @@ def _classify_message(message: str, memory: dict[str, Any], intent: dict[str, An
             return "follow_up"
         if not has_site_signal and not intent.get("unsafeIntent"):
             return "follow_up"
-    elif pending and lower in _CONFIRMATION_PHRASES:
+    elif pending and lower in _FALLBACK_CONFIRMATION_REPLIES:
         return "follow_up"
     if _starts_with_any(lower, _FOLLOW_UP_PHRASES):
         return "follow_up"
@@ -295,20 +288,24 @@ def _validated_route(
     conversation_state = _conversation_state(orchestration, intent, route, tools_started=False)
     state_intent = conversation_state.get("intent")
 
+    if orchestration.get("failed"):
+        return deterministic_route
+    if pending in {"confirm_or_correct_location", "provide_corrected_location"}:
+        return _validated_pending_location_route(
+            route=route,
+            state_intent=state_intent,
+            pending=pending,
+            has_location_evidence=has_location_evidence,
+            has_site_signal=has_site_signal,
+            unsafe_intent=bool(intent.get("unsafeIntent")),
+        )
     if deterministic_route in {
         "status",
-        "confirm_by_chat",
-        "reject_location",
         "location_correction",
         "start_over_without_site",
         "start_over_with_site",
     }:
         return deterministic_route
-    if pending in {"confirm_or_correct_location", "provide_corrected_location"}:
-        if route in {"greeting", "help", "conversation", "follow_up"} and not has_location_evidence:
-            return "follow_up"
-        if not has_site_signal and not intent.get("unsafeIntent"):
-            return "follow_up"
     if intent.get("unsafeIntent"):
         if orchestration.get("shouldStartRun") is False:
             return "conversation"
@@ -337,6 +334,34 @@ def _validated_route(
     if route in {"conversation", "greeting", "help", "follow_up", "status"}:
         return route
     return deterministic_route
+
+
+def _validated_pending_location_route(
+    *,
+    route: str,
+    state_intent: str | None,
+    pending: str,
+    has_location_evidence: bool,
+    has_site_signal: bool,
+    unsafe_intent: bool,
+) -> str:
+    if unsafe_intent:
+        return "conversation"
+    if has_location_evidence:
+        return "location_correction"
+    if route == "start_over_without_site":
+        return "start_over_without_site"
+    if route == "status":
+        return "status"
+    if route == "confirm_by_chat" or state_intent == "location_confirmation":
+        return "confirm_by_chat" if pending == "confirm_or_correct_location" else "follow_up"
+    if route == "reject_location" or state_intent == "location_correction":
+        return "reject_location"
+    if route in {"location_correction", "start_over_with_site", "new_run"}:
+        return "location_correction" if has_site_signal else "reject_location"
+    if route in {"conversation", "greeting", "help", "follow_up"}:
+        return "follow_up"
+    return "follow_up"
 
 
 def _has_site_signal(intent: dict[str, Any]) -> bool:

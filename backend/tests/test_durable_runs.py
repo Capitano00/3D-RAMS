@@ -710,15 +710,55 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(result["run"]["status"], "queued")
         self.assertIn("queued", result["assistantMessage"])
 
-    def test_conversation_rejects_candidate_without_starting_fake_run(self):
-        with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
+    def test_conversation_rejects_candidate_through_llm_state_router(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            side_effect=[
+                (
+                    {
+                        "route": "new_run",
+                        "assistantMessage": "I will create a gated candidate before tools run.",
+                        "shouldStartRun": True,
+                        "pendingUserAction": None,
+                        "reason": "Site visit request.",
+                        "conversationState": {
+                            "intent": "ready_for_review",
+                            "locationStatus": "needs_evidence",
+                            "knownDetails": {"siteName": "Greenacre Solar Farm"},
+                            "missingDetails": ["confirmed location"],
+                            "allowedNextAction": "start_guarded_run",
+                            "shouldStartRun": True,
+                        },
+                    },
+                    {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+                ),
+                (
+                    {
+                        "route": "reject_location",
+                        "assistantMessage": "I will not use that candidate. Please provide the corrected postcode or latitude/longitude.",
+                        "shouldStartRun": False,
+                        "pendingUserAction": "provide_corrected_location",
+                        "reason": "The user rejected the pending location candidate.",
+                        "conversationState": {
+                            "intent": "location_correction",
+                            "locationStatus": "candidate_pending",
+                            "knownDetails": {},
+                            "missingDetails": ["corrected postcode or coordinate"],
+                            "allowedNextAction": "reject_location",
+                            "shouldStartRun": False,
+                        },
+                    },
+                    {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+                ),
+            ],
+        ) as orchestrator:
             session = self._session()
             first = self.client.post(
                 "/api/conversation/message",
                 json={
                     "sessionId": session["sessionId"],
                     "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
-                    "useBedrock": False,
+                    "useBedrock": True,
                 },
             ).json()
             rejection = self.client.post(
@@ -726,11 +766,12 @@ class DurableRunApiTests(unittest.TestCase):
                 json={
                     "sessionId": session["sessionId"],
                     "message": "Nope",
-                    "useBedrock": False,
+                    "useBedrock": True,
                 },
             ).json()
             session_state = self.client.get(f"/api/session/{session['sessionId']}").json()
 
+        self.assertEqual(orchestrator.call_count, 2)
         self.assertEqual(first["run"]["status"], "waiting_for_location_confirmation")
         self.assertEqual(rejection["action"], "answered_from_memory")
         self.assertEqual(rejection["route"], "reject_location")
@@ -739,6 +780,71 @@ class DurableRunApiTests(unittest.TestCase):
         self.assertEqual(len(session_state["runs"]), 1)
         self.assertEqual(session_state["workingMemory"]["pendingUserAction"], "provide_corrected_location")
         self.assertEqual(session_state["workingMemory"]["rejectedRunId"], first["run"]["runId"])
+
+    def test_conversation_semantic_rejection_is_not_phrase_list_dependent(self):
+        with EnvPatch(ENABLE_BEDROCK="true", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"), patch(
+            "app.conversation_router.generate_bedrock_conversation_orchestration",
+            side_effect=[
+                (
+                    {
+                        "route": "new_run",
+                        "assistantMessage": "I will create a gated candidate before tools run.",
+                        "shouldStartRun": True,
+                        "pendingUserAction": None,
+                        "reason": "Site visit request.",
+                        "conversationState": {
+                            "intent": "ready_for_review",
+                            "locationStatus": "needs_evidence",
+                            "knownDetails": {"siteName": "Greenacre Solar Farm"},
+                            "missingDetails": ["confirmed location"],
+                            "allowedNextAction": "start_guarded_run",
+                            "shouldStartRun": True,
+                        },
+                    },
+                    {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+                ),
+                (
+                    {
+                        "route": "reject_location",
+                        "assistantMessage": "That candidate will not be used. Please provide corrected location evidence.",
+                        "shouldStartRun": False,
+                        "pendingUserAction": "provide_corrected_location",
+                        "reason": "The user semantically rejected the candidate.",
+                        "conversationState": {
+                            "intent": "location_correction",
+                            "locationStatus": "candidate_pending",
+                            "knownDetails": {},
+                            "missingDetails": ["corrected location evidence"],
+                            "allowedNextAction": "reject_location",
+                            "shouldStartRun": False,
+                        },
+                    },
+                    {"provider": "bedrock", "phase": "conversation-orchestrator", "modelCallCount": 1},
+                ),
+            ],
+        ):
+            session = self._session()
+            first = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "I want to visit Greenacre Solar Farm tomorrow for a survey.",
+                    "useBedrock": True,
+                },
+            ).json()
+            rejection = self.client.post(
+                "/api/conversation/message",
+                json={
+                    "sessionId": session["sessionId"],
+                    "message": "That is not where I meant to go",
+                    "useBedrock": True,
+                },
+            ).json()
+
+        self.assertEqual(first["run"]["status"], "waiting_for_location_confirmation")
+        self.assertEqual(rejection["action"], "answered_from_memory")
+        self.assertEqual(rejection["route"], "reject_location")
+        self.assertNotIn("review pack for That is not where I meant to go", rejection["assistantMessage"])
 
     def test_conversation_chat_confirm_guides_to_confirm_button(self):
         with EnvPatch(ENABLE_BEDROCK="false", APP_ACCESS_TOKEN_HASH=None, DURABLE_RUN_PROCESS_INLINE="true"):
@@ -892,7 +998,7 @@ class DurableRunApiTests(unittest.TestCase):
                 "/api/conversation/message",
                 json={
                     "sessionId": session["sessionId"],
-                    "message": "Not this site",
+                    "message": "no",
                     "useBedrock": False,
                 },
             ).json()
