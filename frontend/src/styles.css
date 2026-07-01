@@ -977,7 +977,18 @@ textarea {
 
 .location-needed {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  margin: 0 14px 14px;
+}
+
+.location-needed .empty-copy {
+  margin: 0;
+  border: 1px solid #dce7e2;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fbfcfb;
+  color: #40564f;
+  line-height: 1.45;
 }
 
 .location-needed-actions {
@@ -987,10 +998,11 @@ textarea {
 }
 
 .location-needed-actions article {
+  min-height: 92px;
   border: 1px solid #dce6e1;
   border-radius: 8px;
   background: #f7faf8;
-  padding: 10px;
+  padding: 12px;
 }
 
 .location-needed-actions strong {
