@@ -288,7 +288,7 @@ def _text_from_json(payload: dict[str, Any]) -> str:
         return str(output["assistantMessage"])
     if summary.get("headline"):
         return str(summary["headline"])
-    if output.get("workflowMode") == "report_lookup":
+    if entry_agent.get("mode") == "cloud-report-lookup":
         return _report_lookup_message(output)
     if output:
         return json.dumps(output, ensure_ascii=False)

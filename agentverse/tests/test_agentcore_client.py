@@ -20,7 +20,8 @@ class AgentCoreClientTextTests(unittest.TestCase):
             "output": {
                 "caseId": "case_lookup_001",
                 "reportStatus": "review_passed",
-                "workflowMode": "report_lookup",
+                "workflowMode": "cached_public_fixture",
+                "entryAgent": {"mode": "cloud-report-lookup"},
                 "structuredReport": {
                     "executiveSummary": {
                         "priorityChecks": ["Access route interface"],
