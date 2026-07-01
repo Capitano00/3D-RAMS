@@ -209,6 +209,9 @@ def _validate_confirmed_intake(value: Any) -> dict[str, Any]:
     area_scope = value.get("areaScope")
     if not isinstance(area_scope, dict) or area_scope.get("meters") is None:
         raise IntakeValidationError("intake.areaScope.meters is required.")
+    meters = int(float(area_scope["meters"]))
+    if meters <= 0:
+        raise IntakeValidationError("intake.areaScope.meters must be greater than zero.")
     user_goal = _optional_text(value.get("userGoal"))
     if not user_goal:
         raise IntakeValidationError("intake.userGoal is required.")
@@ -218,7 +221,7 @@ def _validate_confirmed_intake(value: Any) -> dict[str, Any]:
     normalized = {
         "locationText": location_text,
         "locationCandidate": location_candidate,
-        "areaScope": {"type": str(area_scope.get("type") or "radius"), "meters": int(float(area_scope["meters"]))},
+        "areaScope": {"type": str(area_scope.get("type") or "radius"), "meters": meters},
         "userGoal": user_goal,
         "userNotes": _optional_text(value.get("userNotes")) or "",
         "materials": materials,

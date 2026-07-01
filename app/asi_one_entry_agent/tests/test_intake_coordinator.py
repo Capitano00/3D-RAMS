@@ -136,6 +136,27 @@ class IntakeCoordinatorTests(unittest.TestCase):
         self.assertEqual(result["intakeMode"], "fallback")
         self.assertTrue(result["caseId"].startswith("case_"))
 
+    def test_zero_area_from_model_falls_back_to_area_clarification(self):
+        result = coordinate_intake(
+            {
+                "message": "Inspect 48 Quernmore Road for confined workspace readiness",
+                "conversationId": "c-zero-area",
+            },
+            model_json=lambda _: {
+                "status": "confirmation_required",
+                "intake": {
+                    "locationText": "48 Quernmore Road",
+                    "areaScope": {"type": "radius", "meters": 0},
+                    "userGoal": "confined workspace readiness review",
+                    "materials": [],
+                },
+            },
+            fallback_to_deterministic=True,
+        )
+
+        self.assertEqual(result["status"], "clarification_required")
+        self.assertIn("area", result["clarifyingQuestions"][0])
+
     def test_invalid_model_json_can_fallback_to_deterministic_intake(self):
         result = coordinate_intake(
             {"message": "8 Albert Embankment survey for 2km", "conversationId": "c4"},
