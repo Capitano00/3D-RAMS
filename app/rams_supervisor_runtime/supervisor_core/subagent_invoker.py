@@ -110,6 +110,9 @@ class SubagentInvoker(Protocol):
 class DirectSubagentInvoker:
     execution_mode = "direct-local-harness-adapter"
 
+    def __init__(self, *, config: RuntimeConfig | None = None) -> None:
+        self.config = config
+
     def invoke_geospatial(
         self,
         request: dict[str, Any],
@@ -173,6 +176,7 @@ class DirectSubagentInvoker:
             request.get("materials"),
             case_id=case_id,
             upstream_context=upstream_context,
+            config=self.config,
         )
         trace = _trace_list(material_ingestion.get("trace"))
         accepted = int(material_ingestion.get("accepted") or 0)
@@ -363,6 +367,7 @@ class AgentCoreHarnessInvoker:
                 "materials": request.get("materials"),
                 "caseId": case_id,
                 "upstream": upstream_context or {},
+                "useBedrock": bool(request.get("useBedrock")),
                 "requiredDataKeys": DOMAIN_DATA_KEYS["material_subagent"],
             },
         )
@@ -567,7 +572,7 @@ class AgentCoreHarnessInvoker:
 
     def _direct_fallback(self, group: str, payload: dict[str, Any]) -> dict[str, Any]:
         fixture_pack = _load_tool_fixture_pack(payload.get("fixturePack"))
-        direct = DirectSubagentInvoker()
+        direct = DirectSubagentInvoker(config=self.config)
 
         if group == "geospatial_subagent":
             return direct.invoke_geospatial(_dict(payload.get("request")), fixture_pack=fixture_pack)
@@ -578,7 +583,7 @@ class AgentCoreHarnessInvoker:
             )
         if group == "material_subagent":
             return direct.invoke_material(
-                {"materials": payload.get("materials")},
+                {"materials": payload.get("materials"), "useBedrock": bool(payload.get("useBedrock"))},
                 case_id=str(payload.get("caseId")) if payload.get("caseId") else None,
                 upstream_context=_dict(payload.get("upstream")),
             )
@@ -612,7 +617,7 @@ class AgentCoreHarnessInvoker:
 def build_subagent_invoker(config: RuntimeConfig) -> SubagentInvoker:
     mode = os.getenv("RAMS_SUBAGENT_EXECUTION_MODE", "direct").strip().lower()
     if mode in {"direct", "local", "fixture", "fixture_first"}:
-        return DirectSubagentInvoker()
+        return DirectSubagentInvoker(config=config)
     if mode in {"agentcore_harness", "harness", "aws"}:
         return AgentCoreHarnessInvoker(config=config)
     raise RuntimeError(f"Unsupported RAMS_SUBAGENT_EXECUTION_MODE '{mode}'.")
@@ -801,10 +806,12 @@ def _execute_inline_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
         )
         return {"openWeb": open_web, "trace": [step]}
     if name == "ingest_material_references":
+        config = RuntimeConfig.from_env(request_bedrock=bool(payload.get("useBedrock")))
         result = ingest_material_references(
             payload.get("materials"),
             case_id=str(payload.get("caseId")) if payload.get("caseId") else None,
             upstream_context=_dict(payload.get("upstream")),
+            config=config,
         )
         return result
     if name == "create_annotations":
@@ -948,6 +955,7 @@ def _public_material_ingestion(material_ingestion: dict[str, Any]) -> dict[str, 
         "acceptedReferences",
         "skipped",
         "citations",
+        "extractions",
         "sourceIds",
         "evidenceIds",
     }
