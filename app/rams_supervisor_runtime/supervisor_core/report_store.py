@@ -11,6 +11,7 @@ from .report_access import (
     authorize_report_lookup,
     build_report_access_binding,
 )
+from .runtime_observability import runtime_observability
 
 
 class DynamoTable(Protocol):
@@ -174,6 +175,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
     location = run.get("location") if isinstance(run.get("location"), dict) else {}
     briefing = run.get("briefing") if isinstance(run.get("briefing"), dict) else {}
     material_ingestion = run.get("materialIngestion") if isinstance(run.get("materialIngestion"), dict) else {}
+    observability = _runtime_observability(run, report)
 
     item = {
         "schemaVersion": "3d-rams.report-store.v1",
@@ -203,6 +205,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
         "materialEvidenceSummary": _material_evidence_summary(run, report),
         "citationMetadata": _citation_metadata(run, report),
         "traceSummary": _trace_summary(run),
+        "runtimeObservability": observability,
         "retention": _retention_metadata(),
         "redaction": {
             "rawPrivateMaterialPersisted": False,
@@ -218,6 +221,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
         "runSummary": {
             "runId": _text(run.get("runId")),
             "runtime": run.get("runtime") if isinstance(run.get("runtime"), dict) else {},
+            "runtimeObservability": observability,
             "location": location,
             "briefingHeadline": _text(briefing.get("headline")),
         },
@@ -430,6 +434,15 @@ def _trace_summary(run: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return [summary for summary in summaries if summary.get("id")]
+
+
+def _runtime_observability(run: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    runtime = run.get("runtime") if isinstance(run.get("runtime"), dict) else {}
+    existing = runtime.get("runtimeObservability") if isinstance(runtime.get("runtimeObservability"), dict) else {}
+    if existing:
+        return existing
+    report_runtime = report.get("runtime") if isinstance(report.get("runtime"), dict) else {}
+    return runtime_observability(report_runtime or runtime, run)
 
 
 def _retention_metadata() -> dict[str, Any]:

@@ -22,6 +22,7 @@ from .harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, harness_contract_su
 from .planner import plan_subagent_workflow
 from .reasoning import reason_over_evidence
 from .review_loop import run_independent_review_loop
+from .runtime_observability import runtime_observability
 
 
 def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -263,6 +264,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "safety": safety,
         "trace": trace,
     }
+    runtime["runtimeObservability"] = runtime_observability(runtime, run)
     run_independent_review_loop(run, reviewer_mode=_reviewer_mode(subagents.execution_mode))
     run["trace"] = _correlate_trace(run["trace"], case_id)
     run["architecture"] = architecture_snapshot(run["trace"], request_summary, sources, evidence, safety, runtime)
