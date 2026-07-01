@@ -127,6 +127,7 @@ class ReportRuntime(BaseModel):
     materialSkippedCount: int = 0
     harnessOutputSchemaVersion: str | None = None
     harnessContract: dict[str, Any] = Field(default_factory=dict)
+    runtimeObservability: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutiveSummary(BaseModel):

@@ -228,6 +228,9 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(output["workflowMode"], "cached_public_fixture")
         self.assertEqual(output["entryAgent"]["mode"], "cloud-supervisor-handoff")
         self.assertEqual(output["entryAgent"]["caseId"], "case_test_agentverse_001")
+        self.assertEqual(output["entryAgent"]["runtimeObservability"]["modelPath"], "entry-provided")
+        self.assertEqual(output["entryAgent"]["runtimeObservability"]["modelCallCount"], 0)
+        self.assertNotIn("tokenUsage", output["entryAgent"]["runtimeObservability"])
         self.assertTrue(output["structuredReport"]["visualization"]["annotations"])
         self.assertEqual(output["run"]["materialIngestion"]["accepted"], 1)
         self.assertIsNone(output["run"]["runtime"].get("localAsiOneSubstitute"))
@@ -345,6 +348,9 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(output["entryAgent"]["mode"], "deterministic-fallback-intake")
         self.assertEqual(output["entryAgent"]["status"], "clarification_required")
         self.assertEqual(output["entryAgent"]["fallbackReason"], "invalid_model_json")
+        self.assertEqual(output["entryAgent"]["runtimeObservability"]["modelPath"], "entry-fallback")
+        self.assertEqual(output["entryAgent"]["runtimeObservability"]["fallbackReason"], "invalid_model_json")
+        self.assertNotIn("tokenUsage", output["entryAgent"]["runtimeObservability"])
 
     def test_entry_report_lookup_forwards_to_supervisor_runtime(self):
         calls: list[dict] = []

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from typing import Any
 
@@ -124,10 +125,18 @@ def handle_invocation(
         if payload.get("confirmedByUser") is True and "intake" not in payload and turn["conversationId"] in _PENDING_INTAKES:
             payload = {**payload, "intake": _PENDING_INTAKES[turn["conversationId"]]}
         selected_model_json = select_model_json(payload, model_json)
+        intake_started = time.perf_counter()
         intake_result = coordinate_intake(
             payload,
             model_json=selected_model_json,
             fallback_to_deterministic=selected_model_json is not None and deterministic_fallback_enabled(),
+        )
+        intake_latency_ms = round((time.perf_counter() - intake_started) * 1000)
+        entry_observability = _entry_runtime_observability(
+            payload,
+            selected_model_json=selected_model_json,
+            intake_result=intake_result,
+            latency_ms=intake_latency_ms,
         )
         conversation_id = turn["conversationId"]
         user_id = str(payload.get("userId") or "3d-rams-entry-agent")
@@ -148,6 +157,7 @@ def handle_invocation(
                         "mode": _entry_agent_mode(intake_result),
                         "adapterVersion": "asi-one-entry-agent-v2",
                         "conversationId": conversation_id,
+                        "runtimeObservability": entry_observability,
                         **intake_result,
                     },
                 }
@@ -189,6 +199,7 @@ def handle_invocation(
                     "assistantMessage": assistant_message,
                     "intakeMode": intake_result.get("intakeMode"),
                     "fallbackReason": intake_result.get("fallbackReason"),
+                    "runtimeObservability": entry_observability,
                     "intake": intake_result["intake"],
                 },
             }
@@ -216,6 +227,7 @@ def _blocked_entry_output(payload: dict[str, Any], reason: str) -> dict[str, Any
                 "bedrockUsed": False,
                 "activeAgentMode": "entry-blocked",
                 "fallbackReason": reason,
+                "runtimeObservability": _blocked_entry_observability(runtime_options, reason),
             },
             "entryAgent": {
                 "mode": "intake-coordinator",
@@ -224,6 +236,7 @@ def _blocked_entry_output(payload: dict[str, Any], reason: str) -> dict[str, Any
                 "status": "blocked",
                 "assistantMessage": assistant_message,
                 "fallbackReason": reason,
+                "runtimeObservability": _blocked_entry_observability(runtime_options, reason),
                 "intake": None,
             },
         }
@@ -420,6 +433,49 @@ def _entry_agent_mode(intake_result: dict[str, Any]) -> str:
     if intake_mode == "provided":
         return "provided-confirmed-intake"
     return "deterministic-intake"
+
+
+def _entry_runtime_observability(
+    payload: dict[str, Any],
+    *,
+    selected_model_json,
+    intake_result: dict[str, Any],
+    latency_ms: int,
+) -> dict[str, Any]:
+    runtime_options = payload.get("runtimeOptions") if isinstance(payload.get("runtimeOptions"), dict) else {}
+    intake_mode = str(intake_result.get("intakeMode") or "unknown")
+    uses_bedrock_model = getattr(selected_model_json, "__name__", "") == "bedrock_intake_model_json"
+    summary = {
+        "schemaVersion": "3d-rams.runtime-observability.v1",
+        "modelPath": f"entry-{intake_mode}",
+        "modelId": _entry_model_id() if uses_bedrock_model else None,
+        "awsRegion": os.getenv("AWS_REGION", "eu-west-2") if uses_bedrock_model else None,
+        "modelCallCount": 1 if selected_model_json is not None and intake_mode in {"llm", "fallback"} else 0,
+        "latencyMs": latency_ms,
+        "bedrockRequested": bool(runtime_options.get("useBedrock", True)),
+        "bedrockEnabled": uses_bedrock_model,
+        "bedrockUsed": uses_bedrock_model and intake_mode == "llm",
+        "activeAgentMode": _entry_agent_mode(intake_result),
+        "fallbackReason": intake_result.get("fallbackReason"),
+    }
+    return {key: value for key, value in summary.items() if value is not None}
+
+
+def _blocked_entry_observability(runtime_options: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": "3d-rams.runtime-observability.v1",
+        "modelPath": "entry-blocked",
+        "modelCallCount": 0,
+        "bedrockRequested": bool(runtime_options.get("useBedrock", True)),
+        "bedrockEnabled": False,
+        "bedrockUsed": False,
+        "activeAgentMode": "entry-blocked",
+        "fallbackReason": reason,
+    }
+
+
+def _entry_model_id() -> str:
+    return os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
 
 
 def _delivery_assistant_message(delivery: dict[str, Any]) -> str:
