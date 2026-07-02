@@ -13,6 +13,46 @@ from typing import Any, Callable
 INTAKE_SCHEMA_VERSION = "3d-rams.entry-intake.v1"
 SAFETY_BOUNDARY = "This is a pre-visit review pack for human review, not certified RAMS, emergency guidance, or work approval."
 POSTCODES_IO_BASE_URL = "https://api.postcodes.io"
+ACTIVITY_PROMPT_SCHEMA_VERSION = "3d-rams.entry-activity-prompts.v1"
+ACTIVITY_PROMPT_NOTICE = "Generic considerations from your wording, not site evidence."
+_ACTIVITY_PROMPT_FAMILIES = (
+    {
+        "family": "roof_access",
+        "label": "Roof access",
+        "pattern": r"\b(roof access|rooftop|roof)\b",
+        "considerations": [
+            "Confirm access route, responsible site contact, and weather assumptions before any visit.",
+            "Ask the human planner what edge, fragile-surface, or access-equipment assumptions still need checking.",
+        ],
+    },
+    {
+        "family": "delivery",
+        "label": "Delivery",
+        "pattern": r"\b(delivery|deliver|delivering|loading|unloading)\b",
+        "considerations": [
+            "Confirm vehicle access, loading area, timing, and site contact before arrival.",
+            "Ask what pedestrian, traffic, or handover assumptions still need human review.",
+        ],
+    },
+    {
+        "family": "survey_walkover",
+        "label": "Survey or walkover",
+        "pattern": r"\b(survey|walkover|site walk|site visit)\b",
+        "considerations": [
+            "Confirm the expected route, access limits, and any areas excluded from the walkover.",
+            "Ask what lone-working, public-interface, or permission assumptions still need checking.",
+        ],
+    },
+    {
+        "family": "maintenance",
+        "label": "Maintenance",
+        "pattern": r"\b(maintenance|maintain|repair|servicing|service visit)\b",
+        "considerations": [
+            "Confirm the asset or system involved, access route, and responsible site contact.",
+            "Ask what isolation, sequencing, or handover assumptions still need human review.",
+        ],
+    },
+)
 
 
 class IntakeValidationError(ValueError):
@@ -101,7 +141,7 @@ def validate_intake_result(result: dict[str, Any], turn: dict[str, Any]) -> dict
         if not response["clarifyingQuestions"]:
             response["clarifyingQuestions"] = ["Which site and review radius should I use?"]
         response["intake"] = None
-        return response
+        return _attach_activity_prompts(response, turn)
 
     intake = _validate_confirmed_intake(response["intake"])
     response["intake"] = intake
@@ -109,13 +149,13 @@ def validate_intake_result(result: dict[str, Any], turn: dict[str, Any]) -> dict
     if status == "confirmation_required" and turn["confirmedByUser"] is not True:
         response["confirmation"] = {"summary": _confirmation_summary(intake)}
         response["assistantMessage"] = _confirmation_message(intake)
-        return response
+        return _attach_activity_prompts(response, turn)
 
     if turn["confirmedByUser"] is not True:
         response["status"] = "confirmation_required"
         response["confirmation"] = {"summary": _confirmation_summary(intake)}
         response["assistantMessage"] = _confirmation_message(intake)
-        return response
+        return _attach_activity_prompts(response, turn)
 
     response["status"] = "launch_ready"
     response["caseId"] = str(result.get("caseId") or generate_case_id(turn, intake))
@@ -300,6 +340,33 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if item is not None]
+
+
+def _attach_activity_prompts(response: dict[str, Any], turn: dict[str, Any]) -> dict[str, Any]:
+    prompts = _activity_prompts(turn.get("message") or "")
+    if prompts:
+        response["activityPrompts"] = prompts
+    return response
+
+
+def _activity_prompts(message: str) -> dict[str, Any] | None:
+    items = [
+        {
+            "family": family["family"],
+            "label": family["label"],
+            "considerations": list(family["considerations"]),
+        }
+        for family in _ACTIVITY_PROMPT_FAMILIES
+        if re.search(str(family["pattern"]), message, re.I)
+    ]
+    if not items:
+        return None
+    return {
+        "schemaVersion": ACTIVITY_PROMPT_SCHEMA_VERSION,
+        "notice": ACTIVITY_PROMPT_NOTICE,
+        "source": "deterministic wording match before confirmed launch",
+        "items": items,
+    }
 
 
 def _optional_text(value: Any) -> str | None:

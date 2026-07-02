@@ -144,6 +144,14 @@ Material references are forwarded as structured `materials`. They are not flatte
 
 The local AgentCore runtime currently preserves this metadata as request context and returns the existing visualization run under `output.run`.
 
+## Bounded Hosted Planner Context
+
+The hosted OpenAI-compatible planner does not receive the full adapter payload. Before the planner prompt is built, the supervisor reduces entry-derived state to `3d-rams.hosted-planner-context.v1`.
+
+Allowed fields are limited to `caseId`, confirmed location label or safe candidate summary, `areaScope`, `userGoal`, fixture/data mode, material counts/status/type/source metadata, and public-safe runtime or dogfood summary fields that are already present.
+
+Forbidden fields must not reach planner prompts, trace summaries, structured reports, or report-store summaries: raw turn text, raw conversation/session history, raw session ids, access codes, tokens, signed URLs, retrieval URLs, API handles, private material content, private notes, client/private documents, and hidden reasoning. Report lookup authorization still uses `reportAccess`, but stored/public artifacts keep only redacted markers and hashed bindings.
+
 ## Pending Intake Recovery Boundary
 
 Current pending intake is process-local by design. `asi_one_entry_agent` keeps `_PENDING_INTAKES` and bounded conversation state only long enough to bridge a clarification/confirmation chat turn to the next turn in the same runtime process. `agentverse/hosted_adapter.py` keeps a matching process-local hint so a hosted confirmation message can include the pending intake. This is Demo1 behavior, not durable session ownership.

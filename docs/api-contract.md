@@ -74,6 +74,22 @@ Known `input` fields:
 
 Material retrieval is bounded to 10 MiB and supported content types are PDF, JPEG, PNG, Markdown, and plain text. A short-lived `access.retrievalUrl` may be used directly. For `access.apiHandle`, configure `RAMS_ASI_MATERIAL_API_BASE_URL` and `RAMS_ASI_MATERIAL_API_BEARER_TOKEN`; the supervisor performs `GET {baseUrl}/{urlencoded apiHandle}` with `Authorization: Bearer ...` plus case/session headers. If those settings are absent, the material is skipped as `retrieval_not_configured`.
 
+## Hosted Planner Context Boundary
+
+The optional live planner path is hosted OpenAI-compatible. It receives only `3d-rams.hosted-planner-context.v1`, not the raw AgentCore request, raw entry turn, raw conversation state, or report-access context.
+
+Allowed planner context fields are:
+
+- `caseId`;
+- confirmed public location label or source-labelled candidate summary;
+- `areaScope`;
+- `userGoal`;
+- source-labelled `fixturePack` or data mode;
+- material metadata counts, statuses, source systems, and content types;
+- public-safe runtime/dogfood summary fields when already present.
+
+Forbidden in planner prompts, trace summaries, structured reports, and report-store summaries: raw turn text, raw conversation history, raw session ids, access codes, tokens, signed URLs, retrieval URLs, API handles, raw material content, private notes, private material bodies, and hidden reasoning.
+
 ## Report Lookup Request
 
 Stored reports can be loaded through the same AgentCore invocation path:
@@ -187,6 +203,25 @@ Known `output.progress` fields:
 | `traceSummary` | array | Bounded safe step summaries. Raw prompts, identity/access assertions, signed URLs, credentials, and private material contents are not exposed. |
 
 When a confirmed supervisor run completes, `output.progress.status` is `completed` and lookup still returns the existing `output.run` and `output.structuredReport` payloads. While the entry agent is waiting for location/user confirmation before launch, `output.progress.status` is `waiting_for_location_confirmation` and `output.run` remains `null`. Failed or partial progress records must return only safe bounded summaries, not raw prompts or private identity/access context.
+
+Pre-launch entry responses may include `output.entryAgent.activityPrompts`:
+
+```json
+{
+  "schemaVersion": "3d-rams.entry-activity-prompts.v1",
+  "notice": "Generic considerations from your wording, not site evidence.",
+  "source": "deterministic wording match before confirmed launch",
+  "items": [
+    {
+      "family": "survey_walkover",
+      "label": "Survey or walkover",
+      "considerations": ["Confirm the expected route, access limits, and any areas excluded from the walkover."]
+    }
+  ]
+}
+```
+
+These prompts come only from a fixed deterministic activity taxonomy in the entry agent. They are not site findings, hazards, risk scores, evidence, annotations, certified RAMS, emergency guidance, or approval to work, and they are not forwarded in the confirmed supervisor launch payload.
 
 ### Execution-Bound Failure Summaries
 

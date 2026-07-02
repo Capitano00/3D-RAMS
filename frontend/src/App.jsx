@@ -1052,6 +1052,7 @@ function App() {
             text: nextEntryResponse.assistantMessage || payload.output?.delivery?.customerSummary?.headline || "Supervisor workflow completed.",
             questions: nextEntryResponse.clarifyingQuestions || [],
             confirmationSummary: nextEntryResponse.confirmation?.summary || "",
+            activityPrompts: nextEntryResponse.activityPrompts || null,
           },
         ]);
       }
@@ -1249,6 +1250,25 @@ function App() {
                     </ul>
                   )}
                   {message.confirmationSummary && <p className="confirmation-summary">{message.confirmationSummary}</p>}
+                  {message.activityPrompts?.items?.length > 0 && (
+                    <div className="confirmation-summary">
+                      <p>{message.activityPrompts.notice || "Generic considerations from your wording, not site evidence."}</p>
+                      <ul>
+                        {message.activityPrompts.items.map((item) => (
+                          <li key={item.family || item.label}>
+                            <strong>{item.label || item.family}</strong>
+                            {Array.isArray(item.considerations) && item.considerations.length > 0 && (
+                              <ul>
+                                {item.considerations.map((consideration) => (
+                                  <li key={consideration}>{consideration}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
