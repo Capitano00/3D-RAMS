@@ -203,7 +203,7 @@ def _site_name(location_text: str | None, location_candidate: dict[str, Any]) ->
 
 def _location_candidate_payload(location_text: str | None, location_candidate: dict[str, Any]) -> dict[str, Any]:
     label = _site_name(location_text, location_candidate)
-    return {
+    payload = {
         "label": label,
         "lat": float(location_candidate["lat"]),
         "lng": float(location_candidate["lng"]),
@@ -214,6 +214,10 @@ def _location_candidate_payload(location_text: str | None, location_candidate: d
         "dataMode": location_candidate.get("dataMode") or "entry-agent-confirmed",
         "reason": location_candidate.get("reason") or "The user confirmed this structured intake before supervisor launch.",
     }
+    for key in ("sourceId", "postcodeKind", "postcode", "outcode", "adminDistrict", "adminCounty", "region", "country"):
+        if location_candidate.get(key):
+            payload[key] = location_candidate[key]
+    return payload
 
 
 def _additional_request(intake: dict[str, Any]) -> str:

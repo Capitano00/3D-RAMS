@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from typing import Any, Callable
 
 
 INTAKE_SCHEMA_VERSION = "3d-rams.entry-intake.v1"
 SAFETY_BOUNDARY = "This is a pre-visit review pack for human review, not certified RAMS, emergency guidance, or work approval."
+POSTCODES_IO_BASE_URL = "https://api.postcodes.io"
 
 
 class IntakeValidationError(ValueError):
@@ -36,6 +41,7 @@ def coordinate_intake(
     *,
     model_json: Callable[[dict[str, Any]], dict[str, Any] | str] | None = None,
     fallback_to_deterministic: bool = False,
+    postcode_resolver: Callable[[str], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     turn = build_entry_turn(payload)
     if isinstance(payload.get("intake"), dict):
@@ -62,13 +68,13 @@ def coordinate_intake(
         except Exception as exc:
             if not fallback_to_deterministic:
                 raise
-            parsed = _deterministic_intake(turn)
+            parsed = _deterministic_intake(turn, postcode_resolver=postcode_resolver)
             response = validate_intake_result(parsed, turn)
             response["intakeMode"] = "fallback"
             response["fallbackReason"] = _fallback_reason(exc)
             return response
     else:
-        parsed = _deterministic_intake(turn)
+        parsed = _deterministic_intake(turn, postcode_resolver=postcode_resolver)
     response = validate_intake_result(parsed, turn)
     response["intakeMode"] = "deterministic"
     return response
@@ -166,7 +172,11 @@ def _coerce_model_json(value: dict[str, Any] | str) -> dict[str, Any]:
     return parsed
 
 
-def _deterministic_intake(turn: dict[str, Any]) -> dict[str, Any]:
+def _deterministic_intake(
+    turn: dict[str, Any],
+    *,
+    postcode_resolver: Callable[[str], dict[str, Any] | None] | None = None,
+) -> dict[str, Any]:
     message = str(turn.get("message") or "")
     missing_questions = _missing_critical_questions(message)
     if missing_questions:
@@ -179,9 +189,13 @@ def _deterministic_intake(turn: dict[str, Any]) -> dict[str, Any]:
     scope = _area_scope(message)
     materials = list(turn.get("materials") or [])
     materials.extend(_material_hints(message))
+    location_candidate = _location_candidate(message)
+    resolved_candidate = _postcode_location_candidate(message, resolver=postcode_resolver)
+    if resolved_candidate:
+        location_candidate = resolved_candidate
     intake = {
         "locationText": _location_text(message),
-        "locationCandidate": _location_candidate(message),
+        "locationCandidate": location_candidate,
         "areaScope": scope,
         "userGoal": _goal(message),
         "userNotes": message,
@@ -299,6 +313,7 @@ def _has_site_signal(message: str) -> bool:
     return bool(
         _coordinate_pair(message)
         or _uk_postcode(message)
+        or _uk_outcode(message)
         or _os_grid_ref(message)
         or re.search(
             r"\b(albert embankment|embankment|street|road|lane|coordinate|near|site|lambeth|postcode|address)\b",
@@ -367,6 +382,9 @@ def _location_text(message: str) -> str:
     postcode = _uk_postcode(message)
     if postcode:
         return postcode
+    outcode = _uk_outcode(message)
+    if outcode:
+        return outcode
     os_grid = _os_grid_ref(message)
     if os_grid:
         return os_grid
@@ -385,6 +403,65 @@ def _location_candidate(message: str) -> dict[str, Any]:
             "confidence": 0.8,
         }
     return {"label": _location_text(message), "confidence": 0.55}
+
+
+def _postcode_location_candidate(
+    message: str,
+    *,
+    resolver: Callable[[str], dict[str, Any] | None] | None = None,
+) -> dict[str, Any] | None:
+    lookup = _uk_postcode(message) or _uk_outcode(message)
+    if not lookup:
+        return None
+    if resolver is None:
+        if not _postcodes_io_enabled():
+            return None
+        resolver = postcodes_io_location_candidate
+    try:
+        return resolver(lookup)
+    except Exception:
+        return None
+
+
+def postcodes_io_location_candidate(lookup: str) -> dict[str, Any] | None:
+    normalized = re.sub(r"\s+", "", lookup).upper()
+    is_postcode = bool(re.fullmatch(r"[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}", normalized))
+    endpoint = "postcodes" if is_postcode else "outcodes"
+    url = f"{_postcodes_io_base_url()}/{endpoint}/{urllib.parse.quote(normalized, safe='')}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "3D-RAMS demo entry agent"})
+    try:
+        with urllib.request.urlopen(req, timeout=_postcodes_io_timeout_seconds()) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return None
+    lat = _float_or_none(result.get("latitude"))
+    lng = _float_or_none(result.get("longitude"))
+    if lat is None or lng is None:
+        return None
+
+    kind = "postcode" if is_postcode else "outcode"
+    label = _optional_text(result.get("postcode") or result.get("outcode")) or lookup.upper()
+    candidate = {
+        "label": label,
+        "lat": lat,
+        "lng": lng,
+        "confidence": 0.82 if is_postcode else 0.66,
+        "source": f"Postcodes.io {kind} lookup",
+        "dataMode": f"live-postcodes-io-{kind}",
+        "reason": "Postcodes.io returned public coordinate and administrative context; user confirmation is required before site-specific tools run.",
+        "postcodeKind": kind,
+        "postcode": _optional_text(result.get("postcode")),
+        "outcode": _optional_text(result.get("outcode")) or (label if not is_postcode else None),
+        "adminDistrict": _first_text(result.get("admin_district")),
+        "adminCounty": _first_text(result.get("admin_county")),
+        "region": _first_text(result.get("region")),
+        "country": _first_text(result.get("country")),
+    }
+    return {key: value for key, value in candidate.items() if value not in (None, "", [])}
 
 
 def _goal(message: str) -> str:
@@ -429,9 +506,54 @@ def _uk_postcode(message: str) -> str | None:
     return match.group(1).upper() if match else None
 
 
+def _uk_outcode(message: str) -> str | None:
+    if _uk_postcode(message):
+        return None
+    match = re.search(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b", message, re.I)
+    if not match:
+        return None
+    token = match.group(1).upper()
+    compact_message = re.sub(r"\s+", "", message).upper()
+    if re.fullmatch(r"[A-Z]{1,2}\d[A-Z\d]?", compact_message) or re.search(r"\b(outcode|postcode)\b", message, re.I):
+        return token
+    return None
+
+
 def _os_grid_ref(message: str) -> str | None:
     match = re.search(r"\b([A-Z]{2}\s*\d{3,5}\s*\d{3,5})\b", message, re.I)
     return match.group(1).upper() if match else None
+
+
+def _postcodes_io_enabled() -> bool:
+    return str(os.getenv("ENABLE_POSTCODES_IO_RESOLVER") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _postcodes_io_base_url() -> str:
+    return (os.getenv("POSTCODES_IO_BASE_URL") or POSTCODES_IO_BASE_URL).strip().rstrip("/")
+
+
+def _postcodes_io_timeout_seconds() -> float:
+    try:
+        return max(0.1, float(os.getenv("POSTCODES_IO_TIMEOUT_SECONDS") or "2"))
+    except ValueError:
+        return 2.0
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_text(value: Any) -> str | None:
+    if isinstance(value, list):
+        for item in value:
+            text = _optional_text(item)
+            if text:
+                return text
+        return None
+    return _optional_text(value)
 
 
 def _fallback_reason(exc: Exception) -> str:
