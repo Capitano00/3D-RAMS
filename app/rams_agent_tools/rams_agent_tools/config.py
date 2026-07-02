@@ -3,6 +3,17 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+DEFAULT_PLANNING_DATA_ENDPOINT = "https://www.planning.data.gov.uk/entity.json"
+DEFAULT_PLANNING_DATA_DATASETS = (
+    "conservation-area",
+    "listed-building",
+    "scheduled-monument",
+    "flood-risk-zone",
+    "green-belt",
+    "article-4-direction-area",
+    "tree-preservation-zone",
+)
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -43,6 +54,11 @@ class RuntimeConfig:
     openai_base_url: str | None = None
     openai_api_key: str | None = None
     openai_model_id: str = "gpt-5.4-mini"
+    live_planning_data_enabled: bool = False
+    planning_data_endpoint: str = DEFAULT_PLANNING_DATA_ENDPOINT
+    planning_data_timeout_seconds: float = 2.0
+    planning_data_result_limit: int = 25
+    planning_data_datasets: tuple[str, ...] = DEFAULT_PLANNING_DATA_DATASETS
 
     @classmethod
     def from_env(cls, *, request_bedrock: bool = True) -> "RuntimeConfig":
@@ -73,6 +89,21 @@ class RuntimeConfig:
             openai_base_url=(os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/") or None,
             openai_api_key=(os.getenv("OPENAI_API_KEY") or "").strip() or None,
             openai_model_id=openai_model_id,
+            live_planning_data_enabled=_env_bool("ENABLE_LIVE_PLANNING_DATA", False),
+            planning_data_endpoint=os.getenv(
+                "PLANNING_DATA_ENDPOINT",
+                DEFAULT_PLANNING_DATA_ENDPOINT,
+            ),
+            planning_data_timeout_seconds=_env_float("PLANNING_DATA_TIMEOUT_SECONDS", 2.0),
+            planning_data_result_limit=max(1, min(_env_int("PLANNING_DATA_RESULT_LIMIT", 25), 100)),
+            planning_data_datasets=tuple(
+                item.strip()
+                for item in os.getenv(
+                    "PLANNING_DATA_DATASETS",
+                    ",".join(DEFAULT_PLANNING_DATA_DATASETS),
+                ).split(",")
+                if item.strip()
+            ),
         )
 
     def public_runtime(self, *, status: str, fallback_reason: str | None = None) -> dict[str, object]:
@@ -89,5 +120,6 @@ class RuntimeConfig:
             "temperature": self.bedrock_temperature if self.bedrock_enabled else None,
             "materialExtractionModelId": self.material_extraction_model_id,
             "materialExtractionMaxTokens": self.material_extraction_max_tokens if self.bedrock_enabled else None,
+            "livePlanningDataEnabled": self.live_planning_data_enabled,
             "fallbackReason": fallback_reason,
         }

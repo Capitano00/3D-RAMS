@@ -88,6 +88,52 @@ def run_smoke(
         }
     )
 
+    follow_up = invoke_entry(
+        {
+            "entryTurn": True,
+            "caller": "hosted-smoke",
+            "conversationId": conversation_id,
+            "entryAgentId": "@3d-rams",
+            "message": "What do you mean?",
+            "runtimeOptions": {
+                "fixturePack": "public-lambeth-thames",
+                "useBedrock": False,
+            },
+        }
+    )
+    follow_up_output = _output(follow_up)
+    follow_up_entry = _entry_agent(follow_up)
+    follow_up_observability = _dict(follow_up_entry.get("runtimeObservability"))
+    _assert(
+        follow_up_output.get("run") is None,
+        "follow-up turn unexpectedly returned a supervisor run",
+    )
+    _assert(
+        follow_up_output.get("structuredReport") is None,
+        "follow-up turn unexpectedly returned a structured report",
+    )
+    _assert(
+        follow_up_entry.get("mode") == "guarded-conversation-router",
+        "follow-up turn did not stay in guarded conversation router mode",
+    )
+    _assert(
+        follow_up_entry.get("route") == "follow_up",
+        "follow-up turn did not report follow_up route",
+    )
+    _assert(
+        follow_up_observability.get("modelCallCount") == 0,
+        "follow-up turn unexpectedly called a model",
+    )
+    checks.append(
+        {
+            "name": "guarded_follow_up_no_supervisor",
+            "status": "ok",
+            "mode": follow_up_entry.get("mode"),
+            "route": follow_up_entry.get("route"),
+            "modelCallCount": follow_up_observability.get("modelCallCount"),
+        }
+    )
+
     material = _dict(run.get("materialIngestion"))
     skipped_reasons = {str(item.get("reason")) for item in _list(material.get("skipped"))}
     _assert(int(material.get("accepted") or 0) >= 1, "authorized material reference was not accepted")
