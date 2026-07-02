@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.error
+import urllib.request
 from typing import Any
 
 from .config import RuntimeConfig
@@ -55,6 +57,16 @@ def generate_bedrock_briefing(
         briefing = _mock_bedrock_briefing(deterministic_briefing, hazards, planning_available)
         return briefing, _metadata(config, started, "bedrock-mock")
 
+    if config.llm_provider == "openai":
+        parsed = _extract_json_object(
+            _invoke_openai_json(
+                config,
+                _briefing_prompt(location, hazards, deterministic_briefing, evidence, planning_available),
+            )
+        )
+        briefing = _normalise_briefing(parsed, deterministic_briefing, generation_mode="openai-compatible")
+        return briefing, _metadata(config, started, "openai-compatible", model_id=config.openai_model_id)
+
     try:
         import boto3
     except ImportError as exc:
@@ -79,7 +91,7 @@ def generate_bedrock_briefing(
         if item.get("type") == "text"
     )
     parsed = _extract_json_object(text)
-    briefing = _normalise_briefing(parsed, deterministic_briefing)
+    briefing = _normalise_briefing(parsed, deterministic_briefing, generation_mode="bedrock")
     return briefing, _metadata(config, started, "bedrock")
 
 
@@ -100,30 +112,35 @@ def generate_bedrock_subagent_plan(
         plan = _mock_bedrock_subagent_plan(scenario)
         return plan, _metadata(config, started, "bedrock-mock", phase="planner-plan", model_call_count=1)
 
+    prompt = {
+        "task": "Plan the bounded 3D-RAMS AgentCore Harness subagent workflow for a site review pack.",
+        "safety_boundary": (
+            "Use only the supplied subagent ids. Do not request shell, file, URL, network, or code execution. "
+            "The final pack is for human review only and is not certified RAMS, emergency guidance, or work approval."
+        ),
+        "required_json_schema": {
+            "rationale": "short string",
+            "initial_parallel_groups": ["geospatial_subagent", "planning_subagent", "material_subagent"],
+            "sequential_groups": ["hazard_subagent", "open_web_subagent", "review_guardrail"],
+            "report_parallel_groups": ["annotation_subagent", "briefing_subagent"],
+            "required_evidence": ["short strings"],
+            "missing_inputs": ["short strings"],
+        },
+        "request": request_summary,
+        "allowed_subagents": subagent_schemas,
+        "planner_policy": {
+            "planner_is_required": True,
+            "subagents_are_bounded": True,
+            "supervisor_falls_back_on_invalid_or_missing_groups": True,
+        },
+    }
+    if config.llm_provider == "openai":
+        plan = _extract_json_object(_invoke_openai_json(config, prompt))
+        return plan, _metadata(config, started, "openai-compatible", phase="planner-plan", model_call_count=1, model_id=config.openai_model_id)
+
     response_text = _invoke_bedrock_json(
         config,
-        {
-            "task": "Plan the bounded 3D-RAMS AgentCore Harness subagent workflow for a site review pack.",
-            "safety_boundary": (
-                "Use only the supplied subagent ids. Do not request shell, file, URL, network, or code execution. "
-                "The final pack is for human review only and is not certified RAMS, emergency guidance, or work approval."
-            ),
-            "required_json_schema": {
-                "rationale": "short string",
-                "initial_parallel_groups": ["geospatial_subagent", "planning_subagent", "material_subagent"],
-                "sequential_groups": ["hazard_subagent", "open_web_subagent", "review_guardrail"],
-                "report_parallel_groups": ["annotation_subagent", "briefing_subagent"],
-                "required_evidence": ["short strings"],
-                "missing_inputs": ["short strings"],
-            },
-            "request": request_summary,
-            "allowed_subagents": subagent_schemas,
-            "planner_policy": {
-                "planner_is_required": True,
-                "subagents_are_bounded": True,
-                "supervisor_falls_back_on_invalid_or_missing_groups": True,
-            },
-        },
+        prompt,
     )
     plan = _extract_json_object(response_text)
     return plan, _metadata(config, started, "bedrock", phase="planner-plan", model_call_count=1)
@@ -152,6 +169,28 @@ def generate_bedrock_material_extraction(
             "bedrock-mock",
             phase="material-extraction",
             model_id=config.material_extraction_model_id,
+            max_tokens=config.material_extraction_max_tokens,
+        )
+
+    if config.llm_provider == "openai":
+        if not text:
+            raise BedrockAdapterError("OpenAI-compatible material extraction requires text content.")
+        extraction = _normalise_material_extraction(
+            _extract_json_object(
+                _invoke_openai_json(
+                    config,
+                    _material_extraction_prompt(material_id, label, content_type, text),
+                    max_tokens=config.material_extraction_max_tokens,
+                )
+            ),
+            label=label,
+        )
+        return extraction, _metadata(
+            config,
+            started,
+            "openai-compatible",
+            phase="material-extraction",
+            model_id=config.openai_model_id,
             max_tokens=config.material_extraction_max_tokens,
         )
 
@@ -355,8 +394,7 @@ def _string_list(value: Any, fallback: list[str]) -> list[str]:
     return items or fallback
 
 
-def _anthropic_payload(
-    config: RuntimeConfig,
+def _briefing_prompt(
     location: dict[str, Any],
     hazards: list[dict[str, Any]],
     deterministic_briefing: dict[str, Any],
@@ -387,6 +425,18 @@ def _anthropic_payload(
         "planning_available": planning_available,
         "deterministic_fallback": deterministic_briefing,
     }
+    return prompt
+
+
+def _anthropic_payload(
+    config: RuntimeConfig,
+    location: dict[str, Any],
+    hazards: list[dict[str, Any]],
+    deterministic_briefing: dict[str, Any],
+    evidence: list[dict[str, Any]],
+    planning_available: bool,
+) -> dict[str, Any]:
+    prompt = _briefing_prompt(location, hazards, deterministic_briefing, evidence, planning_available)
     return {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": config.bedrock_max_tokens,
@@ -452,6 +502,64 @@ def _invoke_bedrock_json(config: RuntimeConfig, prompt: dict[str, Any]) -> str:
     )
 
 
+def _material_extraction_prompt(material_id: str, label: str, content_type: str, text: str) -> dict[str, Any]:
+    return {
+        "task": "Extract bounded material evidence for a draft 3D-RAMS human-review pack.",
+        "material": {"materialId": material_id, "label": label, "contentType": content_type},
+        "material_text": text[:12000],
+        "safety_boundary": (
+            "Return evidence only. Do not certify RAMS, approve work, provide emergency guidance, "
+            "or quote long private document passages."
+        ),
+        "required_json_schema": {
+            "summary": "one short sentence",
+            "confidence": "high | medium | low | unknown",
+            "observations": [
+                {
+                    "title": "short observation title",
+                    "category": "access | buried_services | planning | environment | hazard | other",
+                    "description": "bounded observation, no long quotes",
+                    "citation_anchor": "page/section/paragraph hint if available",
+                    "confidence": "high | medium | low | unknown",
+                }
+            ],
+            "limitations": ["short strings"],
+        },
+        "limits": {"max_observations": 5, "max_description_chars": 240},
+    }
+
+
+def _invoke_openai_json(config: RuntimeConfig, prompt: dict[str, Any], *, max_tokens: int | None = None) -> str:
+    if not config.openai_base_url or not config.openai_api_key:
+        raise BedrockAdapterError("OPENAI_BASE_URL and OPENAI_API_KEY are required for OpenAI-compatible RAMS LLM calls.")
+    body = json.dumps(
+        {
+            "model": config.openai_model_id,
+            "messages": [{"role": "user", "content": "Return only valid JSON.\n\n" + json.dumps(prompt, ensure_ascii=True)}],
+            "max_tokens": max_tokens or config.bedrock_max_tokens,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"{config.openai_base_url}/chat/completions",
+        data=body,
+        headers={"Authorization": f"Bearer {config.openai_api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise BedrockAdapterError(f"OpenAI-compatible RAMS LLM call failed: {type(exc).__name__}") from exc
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        raise BedrockAdapterError("OpenAI-compatible RAMS LLM response did not include choices.")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        return "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+    return str(content or "")
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -496,7 +604,7 @@ def _normalise_subagent_plan(parsed: dict[str, Any]) -> dict[str, Any]:
     return _ensure_required_subagents(plan)
 
 
-def _normalise_briefing(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+def _normalise_briefing(parsed: dict[str, Any], fallback: dict[str, Any], *, generation_mode: str) -> dict[str, Any]:
     briefing = dict(fallback)
     briefing["headline"] = _text(parsed.get("headline"), fallback["headline"])
     briefing["summary"] = _list(parsed.get("summary"), fallback["summary"], 3)
@@ -507,7 +615,7 @@ def _normalise_briefing(parsed: dict[str, Any], fallback: dict[str, Any]) -> dic
     if not any("certified" in item.lower() or "human review" in item.lower() for item in limitations):
         limitations.append(boundary)
     briefing["limitations"] = limitations[:5]
-    briefing["generation_mode"] = "bedrock"
+    briefing["generation_mode"] = generation_mode
     return briefing
 
 
@@ -643,6 +751,7 @@ def _metadata(
     return {
         "mode": mode,
         "phase": phase,
+        "modelProvider": "openai-compatible" if mode == "openai-compatible" else "amazon-bedrock",
         "modelId": model_id or config.bedrock_model_id,
         "awsRegion": config.aws_region,
         "maxTokens": max_tokens or config.bedrock_max_tokens,

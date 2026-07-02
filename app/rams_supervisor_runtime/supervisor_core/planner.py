@@ -265,7 +265,7 @@ def _model_call(metadata: dict[str, Any], planner_status: str) -> dict[str, Any]
         "id": "model-call-planner-1",
         "phase": "planner-plan",
         "status": planner_status,
-        "provider": "amazon-bedrock",
+        "provider": metadata.get("modelProvider") or "amazon-bedrock",
         "modelId": metadata.get("modelId"),
         "awsRegion": metadata.get("awsRegion"),
         "latencyMs": metadata.get("latencyMs"),
