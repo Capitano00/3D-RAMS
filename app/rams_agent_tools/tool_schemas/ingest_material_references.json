@@ -23,7 +23,7 @@
     },
     "useBedrock": {
       "type": "boolean",
-      "description": "Whether this run requests Bedrock-backed material extraction when retrieved bytes/text are present.",
+      "description": "Whether this run requests live-model material extraction when retrieved bytes/text are present.",
       "default": true
     }
   }

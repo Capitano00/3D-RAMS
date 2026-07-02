@@ -42,28 +42,16 @@ class ModelLoadTests(unittest.TestCase):
         self.assertEqual(calls["model_id"], "gpt-5.4-mini")
         self.assertEqual(calls["client_args"], {"api_key": "test-key", "base_url": "https://gateway.example/v1"})
 
-    def test_bedrock_model_requires_explicit_provider(self):
-        calls: dict[str, object] = {}
-
-        class FakeBedrockModel:
-            def __init__(self, **kwargs):
-                calls.update(kwargs)
-
-        bedrock_module = types.ModuleType("strands.models.bedrock")
-        bedrock_module.BedrockModel = FakeBedrockModel
+    def test_bedrock_provider_is_disabled(self):
         with mock.patch.dict(
-            sys.modules,
-            {"strands.models.bedrock": bedrock_module},
-        ), mock.patch.dict(
             os.environ,
             {"OPENAI_BASE_URL": "", "OPENAI_API_KEY": "", "ENTRY_AGENT_PROVIDER": "bedrock"},
             clear=False,
         ):
             from model.load import load_model
 
-            load_model()
-
-        self.assertEqual(calls["model_id"], "amazon.nova-micro-v1:0")
+            with self.assertRaisesRegex(RuntimeError, "ENTRY_AGENT_PROVIDER=bedrock is disabled"):
+                load_model()
 
     def test_default_provider_requires_openai_gateway_env(self):
         with mock.patch.dict(

@@ -13,6 +13,17 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
+export const RAMS_WORKFLOW_HARNESS_NAMES = [
+  'rams_geospatial_harness',
+  'rams_planning_harness',
+  'rams_material_harness',
+  'rams_hazard_harness',
+  'rams_open_web_harness',
+  'rams_annotation_harness',
+  'rams_briefing_harness',
+  'rams_review_harness',
+];
+
 /**
  * Harness deployment config: role-scoped fields (for IAM role + container build)
  * plus the full validated spec + its config directory so the L3 construct can
@@ -304,18 +315,9 @@ export class AgentCoreStack extends Stack {
     ]);
     supervisor.runtime.grantInvoke(entry.runtime.role);
 
-    const harnessNames = [
-      'rams_geospatial_harness',
-      'rams_planning_harness',
-      'rams_material_harness',
-      'rams_hazard_harness',
-      'rams_annotation_harness',
-      'rams_briefing_harness',
-      'rams_review_harness',
-    ];
     const harnessArnMapping: Record<string, string> = {};
     const harnessArns: string[] = [];
-    for (const name of harnessNames) {
+    for (const name of RAMS_WORKFLOW_HARNESS_NAMES) {
       const harness = this.application.harnesses.get(name);
       if (!harness) {
         continue;
@@ -329,7 +331,7 @@ export class AgentCoreStack extends Stack {
 
     supervisor.runtime.addEnvironmentVariable('RAMS_SUBAGENT_EXECUTION_MODE', 'agentcore_harness');
     supervisor.runtime.addEnvironmentVariable('RAMS_HARNESS_ARNS', Stack.of(this).toJsonString(harnessArnMapping));
-    supervisor.runtime.addEnvironmentVariable('ENABLE_BEDROCK', 'true');
+    supervisor.runtime.addEnvironmentVariable('ENABLE_LIVE_MODEL', 'true');
     supervisor.runtime.addEnvironmentVariable('RUNTIME_DATA_MODE', 'fixture_first');
     passEnv(supervisor.runtime, [
       'RAMS_LLM_PROVIDER',

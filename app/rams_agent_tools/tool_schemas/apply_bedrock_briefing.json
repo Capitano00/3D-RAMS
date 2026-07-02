@@ -10,7 +10,7 @@
     },
     "hazards": {
       "type": "array",
-      "description": "Hazard notes used for optional Bedrock drafting.",
+      "description": "Hazard notes used for optional live-model drafting.",
       "items": {
         "type": "object"
       }
@@ -33,7 +33,7 @@
     "useBedrock": {
       "type": "boolean",
       "default": false,
-      "description": "Whether Bedrock drafting is requested. Demo defaults keep this false."
+      "description": "Whether live-model drafting is requested. Demo defaults keep this false."
     }
   },
   "required": ["location", "hazards", "briefing", "evidence"]

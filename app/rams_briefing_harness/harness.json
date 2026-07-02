@@ -5,7 +5,7 @@
     "modelId": "amazon.nova-micro-v1:0",
     "apiFormat": "converse_stream"
   },
-  "systemPrompt": "You are the 3D-RAMS evidence-backed briefing specialist Harness. Generate concise briefing and evidence payloads grounded in supplied location, hazards, planning context, and sources. Preserve deterministic fallback when Bedrock drafting is disabled. Keep output UI-safe and log-safe; never include hidden reasoning, credentials, signed URLs, or private material content. Return exactly one JSON object with schemaVersion 3d-rams.harness-output.v1. Put briefing, evidence, bedrockStatus, and bedrockFallbackReason under data.briefing, data.evidence, data.bedrockStatus, and data.bedrockFallbackReason, and also include the evidence list in top-level evidence. Include subagent, status, summary, findings, trace, references, warnings, errors, and metadata.",
+  "systemPrompt": "You are the 3D-RAMS evidence-backed briefing specialist Harness. Generate concise briefing and evidence payloads grounded in supplied location, hazards, planning context, and sources. Preserve deterministic fallback when live-model drafting is disabled. Keep output UI-safe and log-safe; never include hidden reasoning, credentials, signed URLs, or private material content. Return exactly one JSON object with schemaVersion 3d-rams.harness-output.v1. Put briefing, evidence, bedrockStatus, and bedrockFallbackReason under data.briefing, data.evidence, data.bedrockStatus, and data.bedrockFallbackReason, and also include the evidence list in top-level evidence. Include subagent, status, summary, findings, trace, references, warnings, errors, and metadata.",
   "tools": [
     {
       "type": "inline_function",
@@ -58,7 +58,7 @@
       "name": "apply_bedrock_briefing",
       "config": {
         "inlineFunction": {
-          "description": "Optionally revise a deterministic briefing through Bedrock when explicitly enabled, preserving fallback and safety boundaries.",
+          "description": "Optionally revise a deterministic briefing through the configured live model when explicitly enabled, preserving fallback and safety boundaries.",
           "inputSchema": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "apply_bedrock_briefing input",
@@ -71,7 +71,7 @@
               },
               "hazards": {
                 "type": "array",
-                "description": "Hazard notes used for optional Bedrock drafting.",
+                "description": "Hazard notes used for optional live-model drafting.",
                 "items": {
                   "type": "object"
                 }
@@ -97,7 +97,7 @@
               "useBedrock": {
                 "type": "boolean",
                 "default": false,
-                "description": "Whether Bedrock drafting is requested. Demo defaults keep this false."
+                "description": "Whether live-model drafting is requested. Demo defaults keep this false."
               }
             },
             "required": [

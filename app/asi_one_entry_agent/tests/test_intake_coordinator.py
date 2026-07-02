@@ -44,6 +44,12 @@ class IntakeCoordinatorTests(unittest.TestCase):
 
         self.assertIs(selected, openai_intake_model_json)
 
+    def test_bedrock_intake_provider_still_selects_openai_compatible_model(self):
+        with mock.patch.dict("os.environ", {"ENTRY_INTAKE_PROVIDER": "bedrock", "ENTRY_INTAKE_MODE": "llm_first"}, clear=False):
+            selected = select_model_json({"runtimeOptions": {"useBedrock": True}}, None)
+
+        self.assertIs(selected, openai_intake_model_json)
+
     def test_missing_location_returns_clarification(self):
         result = coordinate_intake({"message": "Can you help me?", "conversationId": "c1"})
 

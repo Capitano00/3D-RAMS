@@ -31,8 +31,6 @@ afterEach(() => {
 });
 
 test('resolves harness model override through LiteLLM and a named AgentCore credential', () => {
-  process.env.RAMS_HARNESS_MODEL_PROVIDER = 'lite_llm';
-  process.env.RAMS_HARNESS_MODEL_ID = 'gpt-5.4-mini';
   process.env.RAMS_HARNESS_API_BASE = 'https://example.test/v1';
   process.env.RAMS_HARNESS_API_KEY_CREDENTIAL_NAME = 'openai-gateway';
 
@@ -48,4 +46,10 @@ test('resolves harness model override through LiteLLM and a named AgentCore cred
     apiKeyArn: 'arn:aws:bedrock-agentcore:eu-west-2:123456789012:apikeycredentialprovider/openai-gateway',
     apiBase: 'https://example.test/v1',
   });
+});
+
+test('fails fast instead of leaving a Bedrock harness model in deployed config', () => {
+  expect(() => resolveHarnessSpec(BASE_SPEC)).toThrow(
+    'RAMS_HARNESS_API_BASE or OPENAI_BASE_URL is required for deployed Harness OpenAI-compatible models'
+  );
 });

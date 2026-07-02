@@ -444,7 +444,7 @@ class AgentCoreHarnessInvoker:
         return self._invoke_json(
             "briefing_subagent",
             {
-                "task": "Generate evidence-backed briefing, evidence, and optional Bedrock drafting status. Return JSON only.",
+                "task": "Generate evidence-backed briefing, evidence, and optional live-model drafting status. Return JSON only.",
                 "location": location,
                 "hazards": hazards,
                 "planningText": planning_text,

@@ -207,8 +207,5 @@ def select_model_json(
     if explicit_model_json is not None:
         return explicit_model_json
     if should_use_llm_intake(payload):
-        provider = os.getenv("ENTRY_INTAKE_PROVIDER", "").strip().lower()
-        if provider == "bedrock":
-            return bedrock_intake_model_json
         return openai_intake_model_json
     return None

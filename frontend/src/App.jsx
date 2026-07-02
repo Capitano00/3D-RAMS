@@ -1211,7 +1211,7 @@ function App() {
           </div>
           <div className={`safety-pill ${request.useBedrock ? "warning" : "allowed"}`}>
             <GitBranch size={16} />
-            Bedrock {request.useBedrock ? "on" : "off"}
+            Live model {request.useBedrock ? "on" : "off"}
           </div>
           {caseId && (
             <div className="safety-pill pending" title={persistence?.status || "case id"}>
@@ -1289,7 +1289,7 @@ function App() {
                   checked={request.useBedrock}
                   onChange={(event) => setRequest((current) => ({ ...current, useBedrock: event.target.checked }))}
                 />
-                <span>Use Bedrock</span>
+                <span>Use live model</span>
               </label>
               <span>{uploads.length ? `${uploads.length} material reference(s) registered` : "Dev metadata only; ASI:ONE owns real material ingestion."}</span>
             </div>

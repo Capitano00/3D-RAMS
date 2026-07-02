@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import sys
 import types
@@ -66,6 +67,16 @@ def fake_chat_response(content: dict, usage: dict | None = None):
     if usage is not None:
         payload["usage"] = usage
     return FakeResponse(payload)
+
+
+def supervisor_load_model():
+    module_path = APP_ROOT / "model" / "load.py"
+    spec = importlib.util.spec_from_file_location("rams_supervisor_model_load_for_test", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load supervisor model loader from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.load_model()
 
 
 class OpenAIGatewayTests(unittest.TestCase):
@@ -324,12 +335,15 @@ class OpenAIGatewayTests(unittest.TestCase):
             },
             clear=False,
         ):
-            from model.load import load_model
-
-            load_model()
+            supervisor_load_model()
 
         self.assertEqual(calls["model_id"], "gpt-5.4-mini")
         self.assertEqual(calls["client_args"], {"api_key": "test-key", "base_url": "https://gateway.example/v1"})
+
+    def test_supervisor_model_loader_rejects_bedrock_provider(self):
+        with mock.patch.dict(os.environ, {"RAMS_LLM_PROVIDER": "bedrock"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "RAMS_LLM_PROVIDER=bedrock is disabled"):
+                supervisor_load_model()
 
     def test_runtime_config_defaults_to_openai_provider(self):
         with mock.patch.dict(os.environ, {"RAMS_LLM_PROVIDER": "", "ENABLE_LIVE_MODEL": "true"}, clear=False):

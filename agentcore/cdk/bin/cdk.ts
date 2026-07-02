@@ -27,19 +27,23 @@ export function resolveHarnessSpec(spec: HarnessSpec, credentials?: DeployedCred
   const credentialName = process.env.RAMS_HARNESS_API_KEY_CREDENTIAL_NAME;
   const apiKeyArn = process.env.RAMS_HARNESS_API_KEY_ARN || (credentialName ? credentials?.[credentialName]?.credentialProviderArn : undefined);
   const apiBase = process.env.RAMS_HARNESS_API_BASE || process.env.OPENAI_BASE_URL;
-  const shouldOverride = !!(provider || apiKeyArn || credentialName || process.env.RAMS_HARNESS_API_BASE);
+  const shouldOverride = spec.model.provider === 'bedrock' || !!(provider || apiKeyArn || credentialName || process.env.RAMS_HARNESS_API_BASE);
   if (!shouldOverride) {
     return spec;
   }
 
-  const resolvedProvider = provider || (apiBase ? 'lite_llm' : spec.model.provider);
-  const modelId = process.env.RAMS_HARNESS_MODEL_ID || process.env.OPENAI_MODEL || spec.model.modelId;
+  const resolvedProvider = provider || (apiBase || spec.model.provider === 'bedrock' ? 'lite_llm' : spec.model.provider);
+  const modelId =
+    process.env.RAMS_HARNESS_MODEL_ID ||
+    process.env.OPENAI_MODEL ||
+    process.env.RAMS_OPENAI_MODEL ||
+    (resolvedProvider === 'lite_llm' ? 'gpt-5.4-mini' : spec.model.modelId);
   if (resolvedProvider === 'lite_llm' && !apiBase) {
-    throw new Error('RAMS_HARNESS_API_BASE or OPENAI_BASE_URL is required when RAMS_HARNESS_MODEL_PROVIDER=lite_llm');
+    throw new Error('RAMS_HARNESS_API_BASE or OPENAI_BASE_URL is required for deployed Harness OpenAI-compatible models');
   }
   if (resolvedProvider === 'lite_llm' && !apiKeyArn) {
     throw new Error(
-      'RAMS_HARNESS_API_KEY_ARN or RAMS_HARNESS_API_KEY_CREDENTIAL_NAME is required when RAMS_HARNESS_MODEL_PROVIDER=lite_llm'
+      'RAMS_HARNESS_API_KEY_ARN or RAMS_HARNESS_API_KEY_CREDENTIAL_NAME is required for deployed Harness OpenAI-compatible models'
     );
   }
 

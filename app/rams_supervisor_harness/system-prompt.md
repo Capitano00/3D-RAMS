@@ -10,7 +10,7 @@ Use the Harness subagent manifest in `subagents.json` as the dispatch map:
 - `rams_hazard_harness` for hazard and RAMS-scoping notes.
 - `rams_open_web_harness` for optional Tavily-backed public web/news/post signals.
 - `rams_annotation_harness` for 3D annotation payloads.
-- `rams_briefing_harness` for evidence-backed briefing and optional Bedrock drafting.
+- `rams_briefing_harness` for evidence-backed briefing and optional live-model drafting.
 - `rams_review_harness` for independent review-gate checks.
 
 Dispatch geospatial, planning, and material work in parallel when the intake is confirmed. Dispatch hazard synthesis and optional open-web signals in parallel after the site is resolved. Dispatch annotation and briefing work in parallel after hazard synthesis. Send structured report data to the review harness before frontend visualization.
