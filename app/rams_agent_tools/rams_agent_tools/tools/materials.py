@@ -411,7 +411,7 @@ def _extract_retrieved_material(
         "citations": extraction.get("citations") if isinstance(extraction.get("citations"), list) else [],
         "limitations": _string_list(extraction.get("limitations")),
         "model": {
-            "provider": "amazon-bedrock",
+            "provider": metadata.get("modelProvider") or "amazon-bedrock",
             "modelId": metadata.get("modelId"),
             "awsRegion": metadata.get("awsRegion"),
             "mode": metadata.get("mode"),
@@ -705,12 +705,16 @@ def _origin(reference: dict[str, Any], extracted: dict[str, Any]) -> str:
         return "FieldBrief development/mock material reference; metadata-only local testing path"
     if extracted["retrievalMode"] == "bedrock-material-extraction":
         model = extracted.get("model") if isinstance(extracted.get("model"), dict) else {}
-        return f"Authorized retrieved material extracted through Amazon Bedrock {model.get('modelId') or 'material model'}"
+        provider = "OpenAI-compatible gateway" if model.get("provider") == "openai-compatible" else "Amazon Bedrock"
+        return f"Authorized retrieved material extracted through {provider} {model.get('modelId') or 'material model'}"
     return "ASI-owned authorized material reference with safe pre-extracted summary"
 
 
 def _aws_mapping(extracted: dict[str, Any]) -> str:
     if extracted.get("retrievalMode") == "bedrock-material-extraction":
+        model = extracted.get("model") if isinstance(extracted.get("model"), dict) else {}
+        if model.get("provider") == "openai-compatible":
+            return "OpenAI-compatible material extraction plus CloudWatch source metadata"
         return "Amazon Bedrock Converse material extraction plus CloudWatch source metadata"
     return "Future AgentCore material retrieval adapter plus CloudWatch source metadata"
 

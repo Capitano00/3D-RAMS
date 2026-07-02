@@ -193,6 +193,16 @@ powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 
 This check starts local AgentCore and frontend preview servers, then shuts them down. It does not use AWS, Google Maps, live planning portals, hosted infrastructure, real site data, or secrets. It verifies the fallback/baseline path, not hosted ASI/ASI:ONE access.
 
+## Optional Live Planning Data Smoke
+
+The live Planning Data feature lookup is default-off. Use this only when you deliberately want a bounded public API check after a confirmed location:
+
+```bash
+ENABLE_LIVE_PLANNING_DATA=true python3 scripts/live-planning-data-smoke.py
+```
+
+Without `ENABLE_LIVE_PLANNING_DATA=true`, the script skips and makes no network call. The normal demo and `scripts/check-demo.sh` do not require live Planning Data.
+
 ## Plain-English Repo Map
 
 | Part | Meaning |
@@ -204,6 +214,7 @@ This check starts local AgentCore and frontend preview servers, then shuts them 
 | `scripts/start-dev.sh` | One-command startup script for Codespaces. |
 | `scripts/check-demo.sh` / `scripts/check-demo.ps1` | One-command local verification scripts for tests, evaluation, frontend build, and runtime smoke. |
 | `scripts/smoke-runtime.py` | No-AWS HTTP smoke test for AgentCore health, invocation, and frontend preview shell. |
+| `scripts/live-planning-data-smoke.py` | Opt-in live Planning Data check for a confirmed public coordinate. Skips unless `ENABLE_LIVE_PLANNING_DATA=true`. |
 | `scripts/hosted-agentcore-asio-smoke.py` | Hosted ASI/AgentCore parity smoke when signed proxy and cloud resources are configured. |
 | `docs/team-test-guide.md` | This testing checklist. |
 | `.github/ISSUE_TEMPLATE` | Feedback form for teammate testing. |

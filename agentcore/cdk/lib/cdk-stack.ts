@@ -331,6 +331,13 @@ export class AgentCoreStack extends Stack {
     supervisor.runtime.addEnvironmentVariable('RAMS_HARNESS_ARNS', Stack.of(this).toJsonString(harnessArnMapping));
     supervisor.runtime.addEnvironmentVariable('ENABLE_BEDROCK', 'true');
     supervisor.runtime.addEnvironmentVariable('RUNTIME_DATA_MODE', 'fixture_first');
+    passEnv(supervisor.runtime, [
+      'RAMS_LLM_PROVIDER',
+      'OPENAI_BASE_URL',
+      'OPENAI_API_KEY',
+      'OPENAI_MODEL',
+      'RAMS_OPENAI_MODEL',
+    ]);
     supervisor.runtime.addToPolicy(
       new iam.PolicyStatement({
         actions: ['bedrock-agentcore:InvokeHarness', 'bedrock-agentcore:InvokeAgentRuntime'],
