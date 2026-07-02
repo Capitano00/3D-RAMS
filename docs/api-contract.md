@@ -188,6 +188,12 @@ Known `output.progress` fields:
 
 When a confirmed supervisor run completes, `output.progress.status` is `completed` and lookup still returns the existing `output.run` and `output.structuredReport` payloads. While the entry agent is waiting for location/user confirmation before launch, `output.progress.status` is `waiting_for_location_confirmation` and `output.run` remains `null`. Failed or partial progress records must return only safe bounded summaries, not raw prompts or private identity/access context.
 
+### Execution-Bound Failure Summaries
+
+Completed supervisor runs may include `output.run.runtime.executionFailureSummaries`, `output.structuredReport.runtime.executionFailureSummaries`, and `runtimeObservability.executionFailureSummaries` when AgentCore Harness execution hits a bounded failure and deterministic fallback output is used.
+
+Each item uses `schemaVersion: "3d-rams.execution-bound-failure.v1"` and contains only public-safe fields: `category`, `subagentGroup`, `harness`, `fallbackReason`, `deterministicFallbackUsed`, optional `errorType`, and `errorSummary`. Supported categories are `harness_invocation_failure` for timeout/invocation fallback and `harness_tool_loop_cap_exceeded` for the local Harness inline tool-loop cap. These summaries must not include raw prompts, private material content, signed URLs, access assertions, credentials, hidden reasoning, client data, or local planning notes.
+
 ## Invocation Response
 
 The response keeps the AgentCore output envelope:

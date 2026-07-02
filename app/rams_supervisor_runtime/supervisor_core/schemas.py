@@ -127,6 +127,7 @@ class ReportRuntime(BaseModel):
     materialSkippedCount: int = 0
     harnessOutputSchemaVersion: str | None = None
     harnessContract: dict[str, Any] = Field(default_factory=dict)
+    executionFailureSummaries: list[dict[str, Any]] = Field(default_factory=list)
     repairAttemptCount: int = 0
     repairStopReason: str | None = None
     repairIssueCount: int = 0

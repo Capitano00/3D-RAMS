@@ -119,6 +119,7 @@ def _build_runtime(runtime: dict[str, Any]) -> ReportRuntime:
         materialSkippedCount=int(runtime.get("materialSkippedCount") or 0),
         harnessOutputSchemaVersion=runtime.get("harnessOutputSchemaVersion"),
         harnessContract=_dict(runtime.get("harnessContract")),
+        executionFailureSummaries=_list(runtime.get("executionFailureSummaries")),
         repairAttemptCount=int(runtime.get("repairAttemptCount") or 0),
         repairStopReason=runtime.get("repairStopReason"),
         repairIssueCount=int(runtime.get("repairIssueCount") or 0),

@@ -12,6 +12,7 @@ def runtime_observability(runtime: dict[str, Any], run: dict[str, Any] | None = 
     model_calls = run.get("modelCalls") if isinstance(run.get("modelCalls"), list) else []
     latency_ms = _latency_ms(model_calls)
     harness_contract = runtime.get("harnessContract") if isinstance(runtime.get("harnessContract"), dict) else {}
+    failure_summaries = runtime.get("executionFailureSummaries")
     summary = {
         "schemaVersion": RUNTIME_OBSERVABILITY_SCHEMA_VERSION,
         "modelPath": _model_path(runtime),
@@ -29,6 +30,7 @@ def runtime_observability(runtime: dict[str, Any], run: dict[str, Any] | None = 
         "fallbackReason": runtime.get("fallbackReason"),
         "harnessOutputSchemaVersion": runtime.get("harnessOutputSchemaVersion"),
         "harnessContractStatus": "compliant" if harness_contract.get("contractCompliant", True) else "fallback",
+        "executionFailureSummaries": failure_summaries if isinstance(failure_summaries, list) and failure_summaries else None,
     }
     return {key: value for key, value in summary.items() if value is not None}
 

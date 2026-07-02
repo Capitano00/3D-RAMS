@@ -19,6 +19,7 @@ from main import invoke_local, ping_local  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
 from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION  # noqa: E402
 from supervisor_core.report_store import build_report_store_item, load_report, persist_report  # noqa: E402
+from supervisor_core.structured_report import build_structured_report  # noqa: E402
 
 
 def report_access(
@@ -180,6 +181,50 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertTrue(
             any("Material access-plan review" in item for item in report["executiveSummary"]["priorityChecks"])
         )
+
+    def test_structured_report_runtime_includes_execution_failure_summaries(self):
+        failure_summary = {
+            "schemaVersion": "3d-rams.execution-bound-failure.v1",
+            "category": "harness_invocation_failure",
+            "subagentGroup": "planning_subagent",
+            "harness": "rams_planning_harness",
+            "fallbackReason": "bedrock_timeout",
+            "deterministicFallbackUsed": True,
+            "errorSummary": "AgentCore Harness invocation failed or timed out; deterministic fallback output was used.",
+        }
+        report = build_structured_report(
+            {
+                "runId": "run_execution_failure_test",
+                "caseId": "case_execution_failure_test",
+                "request": {"caseId": "case_execution_failure_test", "includePlanningFixture": True},
+                "location": {"label": "Test site", "latitude": 51.49, "longitude": -0.12},
+                "runtime": {
+                    "briefingMode": "fallback",
+                    "fixturePackMode": "cached-public-fixture",
+                    "liveApiCalls": False,
+                    "executionFailureSummaries": [failure_summary],
+                },
+                "briefing": {
+                    "headline": "Fallback briefing.",
+                    "summary": ["Deterministic fallback output was used."],
+                    "limitations": ["Human review is required."],
+                },
+                "safety": {"allowed": True, "message": "Human review is required.", "level": "bounded"},
+                "trace": [],
+                "reasoning": {},
+                "scene": {},
+                "annotations": [],
+                "sources": [],
+                "evidence": [],
+                "hazards": [],
+                "externalSignals": {},
+                "materialIngestion": {},
+            },
+            "review_passed",
+            "cached_public_fixture",
+        )
+
+        self.assertEqual(report["runtime"]["executionFailureSummaries"], [failure_summary])
 
     def test_report_store_persists_material_status_summary_without_sensitive_fields(self):
         response = invoke_local(
