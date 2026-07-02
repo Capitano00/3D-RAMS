@@ -58,14 +58,19 @@ def generate_bedrock_briefing(
         return briefing, _metadata(config, started, "bedrock-mock")
 
     if config.llm_provider == "openai":
-        parsed = _extract_json_object(
-            _invoke_openai_json(
-                config,
-                _briefing_prompt(location, hazards, deterministic_briefing, evidence, planning_available),
-            )
+        response_text, token_usage = _invoke_openai_json(
+            config,
+            _briefing_prompt(location, hazards, deterministic_briefing, evidence, planning_available),
         )
+        parsed = _extract_json_object(response_text)
         briefing = _normalise_briefing(parsed, deterministic_briefing, generation_mode="openai-compatible")
-        return briefing, _metadata(config, started, "openai-compatible", model_id=config.openai_model_id)
+        return briefing, _metadata(
+            config,
+            started,
+            "openai-compatible",
+            model_id=config.openai_model_id,
+            token_usage=token_usage,
+        )
 
     try:
         import boto3
@@ -135,8 +140,17 @@ def generate_bedrock_subagent_plan(
         },
     }
     if config.llm_provider == "openai":
-        plan = _extract_json_object(_invoke_openai_json(config, prompt))
-        return plan, _metadata(config, started, "openai-compatible", phase="planner-plan", model_call_count=1, model_id=config.openai_model_id)
+        response_text, token_usage = _invoke_openai_json(config, prompt)
+        plan = _extract_json_object(response_text)
+        return plan, _metadata(
+            config,
+            started,
+            "openai-compatible",
+            phase="planner-plan",
+            model_call_count=1,
+            model_id=config.openai_model_id,
+            token_usage=token_usage,
+        )
 
     response_text = _invoke_bedrock_json(
         config,
@@ -175,14 +189,13 @@ def generate_bedrock_material_extraction(
     if config.llm_provider == "openai":
         if not text:
             raise BedrockAdapterError("OpenAI-compatible material extraction requires text content.")
+        response_text, token_usage = _invoke_openai_json(
+            config,
+            _material_extraction_prompt(material_id, label, content_type, text),
+            max_tokens=config.material_extraction_max_tokens,
+        )
         extraction = _normalise_material_extraction(
-            _extract_json_object(
-                _invoke_openai_json(
-                    config,
-                    _material_extraction_prompt(material_id, label, content_type, text),
-                    max_tokens=config.material_extraction_max_tokens,
-                )
-            ),
+            _extract_json_object(response_text),
             label=label,
         )
         return extraction, _metadata(
@@ -192,6 +205,7 @@ def generate_bedrock_material_extraction(
             phase="material-extraction",
             model_id=config.openai_model_id,
             max_tokens=config.material_extraction_max_tokens,
+            token_usage=token_usage,
         )
 
     try:
@@ -529,7 +543,12 @@ def _material_extraction_prompt(material_id: str, label: str, content_type: str,
     }
 
 
-def _invoke_openai_json(config: RuntimeConfig, prompt: dict[str, Any], *, max_tokens: int | None = None) -> str:
+def _invoke_openai_json(
+    config: RuntimeConfig,
+    prompt: dict[str, Any],
+    *,
+    max_tokens: int | None = None,
+) -> tuple[str, dict[str, Any] | None]:
     if not config.openai_base_url or not config.openai_api_key:
         raise BedrockAdapterError("OPENAI_BASE_URL and OPENAI_API_KEY are required for OpenAI-compatible RAMS LLM calls.")
     body = json.dumps(
@@ -555,9 +574,27 @@ def _invoke_openai_json(config: RuntimeConfig, prompt: dict[str, Any], *, max_to
         raise BedrockAdapterError("OpenAI-compatible RAMS LLM response did not include choices.")
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     content = message.get("content") if isinstance(message, dict) else None
-    if isinstance(content, list):
-        return "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
-    return str(content or "")
+    text = (
+        "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+        if isinstance(content, list)
+        else str(content or "")
+    )
+    return text, _safe_openai_usage(payload.get("usage") if isinstance(payload, dict) else None)
+
+
+def _safe_openai_usage(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    usage: dict[str, int] = {}
+    for source, target in (
+        ("prompt_tokens", "promptTokens"),
+        ("completion_tokens", "completionTokens"),
+        ("total_tokens", "totalTokens"),
+    ):
+        count = value.get(source)
+        if isinstance(count, int) and not isinstance(count, bool):
+            usage[target] = count
+    return usage or None
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -747,8 +784,9 @@ def _metadata(
     model_call_count: int = 1,
     model_id: str | None = None,
     max_tokens: int | None = None,
+    token_usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    metadata = {
         "mode": mode,
         "phase": phase,
         "modelProvider": "openai-compatible" if mode == "openai-compatible" else "amazon-bedrock",
@@ -760,6 +798,9 @@ def _metadata(
         "modelCallCount": model_call_count,
         "latencyMs": round((time.perf_counter() - started) * 1000),
     }
+    if token_usage:
+        metadata["tokenUsage"] = token_usage
+    return metadata
 
 
 def _text(value: Any, fallback: str) -> str:

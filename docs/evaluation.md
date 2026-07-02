@@ -58,12 +58,13 @@ powershell -ExecutionPolicy Bypass -File scripts/check-demo.ps1 -Install
 
 The runner forces:
 
-- `ENABLE_BEDROCK=false`;
-- no Bedrock mock response;
-- no Bedrock unsafe mock response;
-- no simulated Bedrock failure.
+- `ENABLE_LIVE_MODEL=false`;
+- `ENABLE_BEDROCK=false` for legacy compatibility;
+- no live-model mock response;
+- no unsafe model mock response;
+- no simulated model failure.
 
-This keeps the evaluation stable and cheap. It also proves that the app remains useful when Bedrock is disabled or unavailable.
+This keeps the evaluation stable and cheap. It also proves that the app remains useful when the hosted OpenAI-compatible model path is disabled or unavailable.
 
 ## Scenario Coverage
 
@@ -73,7 +74,7 @@ This keeps the evaluation stable and cheap. It also proves that the app remains 
 | `synthetic_happy_path` | The older synthetic fallback path still works without the public fixture pack. |
 | `missing_planning_public_pack` | Disabling planning/context evidence produces a warning and usable degraded output. |
 | `map_fallback_public_pack` | Simulated geospatial failure uses fallback data and exposes the fallback reason in the trace. |
-| `bedrock_disabled_request_fallback` | A request for Bedrock in no-AWS mode returns deterministic briefing output and marks Bedrock as disabled. |
+| `bedrock_disabled_request_fallback` | A legacy `useBedrock` live-model request in no-credentials mode returns deterministic briefing output and marks the live model as disabled. |
 | `unsafe_request_blocked` | Certified RAMS/work-approval requests are blocked by the safety gate. |
 | `low_confidence_visible` | Low-confidence evidence appears in annotations, evidence, and briefing limitations. |
 | `architecture_visualizer_contract` | The architecture payload contains trace, sources, real-vs-mocked boundaries, safety gate, and future AWS path. |
@@ -85,7 +86,7 @@ This keeps the evaluation stable and cheap. It also proves that the app remains 
 - The AgentCore runtime and frontend preview can start over HTTP and serve the default no-AWS runtime path.
 - Output remains inspectable through evidence, source IDs, trace steps, confidence labels, and safety decisions.
 - The default demo uses cached public-safe fixture data and does not make live public-data calls.
-- Bedrock is optional for the MVP and not required for teammate testing.
+- The hosted OpenAI-compatible model gateway is optional for the MVP and not required for teammate testing.
 - The safety gate blocks certified RAMS, work approval, and emergency-style claims.
 
 ## What This Does Not Prove

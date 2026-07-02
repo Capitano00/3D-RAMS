@@ -1,5 +1,7 @@
 # dev-chunteng 分支交接说明
 
+Provider note: issue #70 supersedes the older Bedrock live-model guidance in this handoff. Current hosted live-model testing should use the OpenAI-compatible gateway path; `bedrock-agentcore` names are AgentCore runtime plumbing only.
+
 这份文档用于 AgentCore 架构分支的 merge / handoff。后续如果要把产品原型分支的功能合进来，或者让另一个 Codex session 读取上下文后做 merge，应该先读这份文档。
 
 ## 分支目的

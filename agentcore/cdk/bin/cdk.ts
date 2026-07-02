@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AgentCoreStack, type HarnessConfig } from '../lib/cdk-stack';
-import { ConfigIO, HarnessSpecSchema, type AwsDeploymentTarget } from '@aws/agentcore-cdk';
+import { ConfigIO, HarnessSpecSchema, type AwsDeploymentTarget, type HarnessSpec } from '@aws/agentcore-cdk';
 import { App, type Environment } from 'aws-cdk-lib';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -18,6 +18,60 @@ function sanitize(name: string): string {
 
 function toStackName(projectName: string, targetName: string): string {
   return `AgentCore-${sanitize(projectName)}-${sanitize(targetName)}`;
+}
+
+type DeployedCredentials = Record<string, { credentialProviderArn: string; clientSecretArn?: string }>;
+
+export function resolveHarnessSpec(spec: HarnessSpec, credentials?: DeployedCredentials): HarnessSpec {
+  const provider = process.env.RAMS_HARNESS_MODEL_PROVIDER;
+  const credentialName = process.env.RAMS_HARNESS_API_KEY_CREDENTIAL_NAME;
+  const apiKeyArn = process.env.RAMS_HARNESS_API_KEY_ARN || (credentialName ? credentials?.[credentialName]?.credentialProviderArn : undefined);
+  const apiBase = process.env.RAMS_HARNESS_API_BASE || process.env.OPENAI_BASE_URL;
+  const shouldOverride = !!(provider || apiKeyArn || credentialName || process.env.RAMS_HARNESS_API_BASE);
+  if (!shouldOverride) {
+    return spec;
+  }
+
+  const resolvedProvider = provider || (apiBase ? 'lite_llm' : spec.model.provider);
+  const modelId = process.env.RAMS_HARNESS_MODEL_ID || process.env.OPENAI_MODEL || spec.model.modelId;
+  if (resolvedProvider === 'lite_llm' && !apiBase) {
+    throw new Error('RAMS_HARNESS_API_BASE or OPENAI_BASE_URL is required when RAMS_HARNESS_MODEL_PROVIDER=lite_llm');
+  }
+  if (resolvedProvider === 'lite_llm' && !apiKeyArn) {
+    throw new Error(
+      'RAMS_HARNESS_API_KEY_ARN or RAMS_HARNESS_API_KEY_CREDENTIAL_NAME is required when RAMS_HARNESS_MODEL_PROVIDER=lite_llm'
+    );
+  }
+
+  const model: Record<string, unknown> = {
+    provider: resolvedProvider,
+    modelId,
+  };
+  if (apiKeyArn) {
+    model.apiKeyArn = apiKeyArn;
+  }
+  if (resolvedProvider === 'lite_llm') {
+    model.apiBase = apiBase;
+  } else if (process.env.RAMS_HARNESS_API_FORMAT) {
+    model.apiFormat = process.env.RAMS_HARNESS_API_FORMAT;
+  }
+
+  return HarnessSpecSchema.parse({ ...spec, model });
+}
+
+export function resolveHarnessConfigs(configs: HarnessConfig[], credentials?: DeployedCredentials): HarnessConfig[] {
+  return configs.map(config => {
+    if (!config.spec) {
+      return config;
+    }
+    const spec = resolveHarnessSpec(config.spec, credentials);
+    return {
+      ...config,
+      apiKeyArn: spec.model.apiKeyArn,
+      apiFormat: spec.model.apiFormat,
+      spec,
+    };
+  });
 }
 
 async function main() {
@@ -124,9 +178,7 @@ async function main() {
       | Record<string, Record<string, unknown>>
       | undefined;
     const targetResources = targetState?.[target.name]?.resources as Record<string, unknown> | undefined;
-    const credentials = targetResources?.credentials as
-      | Record<string, { credentialProviderArn: string; clientSecretArn?: string }>
-      | undefined;
+    const credentials = targetResources?.credentials as DeployedCredentials | undefined;
 
     // Payment credential provider ARNs live in the same credentials map as identity credentials
     const paymentCredentials = credentials;
@@ -172,7 +224,7 @@ async function main() {
       mcpSpec,
       credentials,
       connectorParametersByFile,
-      harnesses: harnessConfigs.length > 0 ? harnessConfigs : undefined,
+      harnesses: harnessConfigs.length > 0 ? resolveHarnessConfigs(harnessConfigs, credentials) : undefined,
       paymentSpec,
       env,
       description: `AgentCore stack for ${spec.name} deployed to ${target.name} (${target.region})`,
@@ -186,7 +238,9 @@ async function main() {
   app.synth();
 }
 
-main().catch((error: unknown) => {
-  console.error('AgentCore CDK synthesis failed:', error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    console.error('AgentCore CDK synthesis failed:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

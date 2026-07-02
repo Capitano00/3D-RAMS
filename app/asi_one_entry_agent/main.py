@@ -5,6 +5,7 @@ import os
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from agentcore_client import invoke_runtime_json
@@ -154,6 +155,7 @@ def handle_invocation(
         if intake_result["status"] != "launch_ready":
             if intake_result["status"] == "confirmation_required" and isinstance(intake_result.get("intake"), dict):
                 _PENDING_INTAKES[conversation_id] = intake_result["intake"]
+            progress = _entry_waiting_progress(intake_result, conversation_id)
             _remember_intake_state(conversation_id, conversation_route or "intake", intake_result)
             return {
                 "output": {
@@ -161,6 +163,7 @@ def handle_invocation(
                     "delivery": None,
                     "run": None,
                     "structuredReport": None,
+                    "progress": progress,
                     "reportStatus": "entry_pending",
                     "workflowMode": "entry_intake",
                     "assistantMessage": intake_result["assistantMessage"],
@@ -203,6 +206,7 @@ def handle_invocation(
                 "reportStatus": output.get("reportStatus") or delivery.get("status"),
                 "workflowMode": output.get("workflowMode") or delivery.get("workflowMode"),
                 "persistence": output.get("persistence"),
+                "progress": output.get("progress"),
                 "assistantMessage": assistant_message,
                 "entryAgent": {
                     "mode": "cloud-supervisor-handoff",
@@ -510,6 +514,7 @@ def _blocked_entry_output(payload: dict[str, Any], reason: str) -> dict[str, Any
             "delivery": None,
             "run": None,
             "structuredReport": None,
+            "progress": _entry_failed_progress(payload, conversation_id, reason),
             "reportStatus": "blocked",
             "workflowMode": "entry_intake",
             "assistantMessage": assistant_message,
@@ -775,11 +780,11 @@ def _product_metadata_output() -> dict[str, Any]:
     model_line = (
         f"Configured public model id: {model_id}."
         if model_id
-        else "Configured public model id: not disclosed; ENTRY_AGENT_MODEL_ID is not set to a generic public model id."
+        else "Configured public model id: not disclosed."
     )
     assistant_message = (
         "This turn was routed as product/runtime metadata. "
-        f"Model path: {observability['modelPath']}. Provider: {observability['provider']}. "
+        f"Model path: {observability['modelPath']}. Provider: {observability['modelProvider']}. "
         f"{model_line} Model calls this turn: 0. "
         "Map, evidence, risk, and briefing tools did not start for this turn; the supervisor runtime was not invoked."
     )
@@ -805,12 +810,13 @@ def _product_metadata_output() -> dict[str, Any]:
 
 
 def _product_metadata_observability() -> dict[str, Any]:
-    model_id = _safe_public_entry_agent_model_id()
+    provider, model_id = _product_metadata_model_info()
     observability = {
         "schemaVersion": "3d-rams.runtime-observability.v1",
         "modelPath": "entry-product-meta",
         "modelId": model_id,
-        "provider": "amazon-bedrock" if model_id else "not_disclosed",
+        "modelProvider": provider,
+        "provider": provider,
         "mode": "deterministic",
         "modelCallCount": 0,
         "bedrockRequested": False,
@@ -824,15 +830,58 @@ def _product_metadata_observability() -> dict[str, Any]:
     return {key: value for key, value in observability.items() if value is not None}
 
 
-def _safe_public_entry_agent_model_id() -> str | None:
-    model_id = os.getenv("ENTRY_AGENT_MODEL_ID", "").strip()
-    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,160}", model_id) and not re.search(r"\barn:|/|\d{12}", model_id, re.I):
+def _product_metadata_model_info() -> tuple[str, str | None]:
+    configured_provider = (
+        os.getenv("ENTRY_AGENT_PROVIDER") or os.getenv("ENTRY_INTAKE_PROVIDER") or ""
+    ).strip().lower()
+    if configured_provider == "openai" or (not configured_provider and os.getenv("OPENAI_BASE_URL", "").strip()):
+        return "openai-compatible", _safe_public_model_id(
+            os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or ""
+        )
+    if configured_provider == "bedrock" or os.getenv("ENTRY_AGENT_MODEL_ID", "").strip():
+        return "amazon-bedrock", _safe_public_model_id(os.getenv("ENTRY_AGENT_MODEL_ID", ""))
+    return "not_disclosed", None
+
+
+def _safe_public_model_id(model_id: str) -> str | None:
+    model_id = model_id.strip()
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,160}", model_id) and not re.search(
+        r"\barn:|/|\d{12}", model_id, re.I
+    ):
         return model_id
     return None
 
 
 def _entry_model_id() -> str:
-    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
+    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "gpt-5.4-mini"
+
+
+def _entry_waiting_progress(intake_result: dict[str, Any], conversation_id: str) -> dict[str, Any]:
+    case_id = intake_result.get("caseId")
+    status = str(intake_result.get("status") or "")
+    current_step = "confirm_location_before_launch" if status == "confirmation_required" else "collect_location_before_launch"
+    return _entry_progress(case_id, conversation_id, "waiting_for_location_confirmation", current_step)
+
+
+def _entry_failed_progress(payload: dict[str, Any], conversation_id: str, reason: str) -> dict[str, Any]:
+    return {
+        **_entry_progress(payload.get("caseId"), conversation_id, "failed", "entry_payload_validation_failed"),
+        "errorSummary": reason[:280],
+    }
+
+
+def _entry_progress(case_id: Any, conversation_id: str, status: str, current_step: str) -> dict[str, Any]:
+    resolved_case_id = str(case_id) if case_id else None
+    seed = resolved_case_id or conversation_id
+    return {
+        "schemaVersion": "3d-rams.run-progress.v1",
+        "caseId": resolved_case_id,
+        "runId": f"run_{uuid.uuid5(uuid.NAMESPACE_URL, f'3d-rams-entry-progress:{seed}').hex[:12]}",
+        "status": status,
+        "currentStep": current_step,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "modelCallCount": 0,
+    }
 
 
 def _delivery_assistant_message(delivery: dict[str, Any]) -> str:

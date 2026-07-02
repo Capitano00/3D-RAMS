@@ -34,7 +34,7 @@ def runtime_observability(runtime: dict[str, Any], run: dict[str, Any] | None = 
 
 
 def _model_path(runtime: dict[str, Any]) -> str:
-    if runtime.get("modelProvider") == "openai-compatible":
+    if runtime.get("modelProvider") == "openai-compatible" and runtime.get("bedrockEnabled"):
         return "openai-compatible"
     if runtime.get("bedrockUsed"):
         return "bedrock"

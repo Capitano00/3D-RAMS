@@ -55,7 +55,7 @@
     "fixturePack": "public-lambeth-thames",
     "fixturePackMode": "cached-public-fixture",
     "liveApiCalls": false,
-    "fallbackReason": "Bedrock was not requested.",
+    "fallbackReason": "Live model briefing was not requested.",
     "awsRegion": "eu-west-2",
     "modelId": null,
     "materialIngestionStatus": "ok",

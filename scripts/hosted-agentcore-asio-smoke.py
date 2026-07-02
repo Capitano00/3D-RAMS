@@ -25,7 +25,7 @@ def run_smoke(
     *,
     case_id: str | None = None,
     require_persistence: bool = True,
-    bedrock_fallback: bool = False,
+    live_model: bool = False,
     expected_subagent_mode: str | None = None,
 ) -> dict[str, Any]:
     case_id = case_id or f"case_hosted_smoke_{uuid.uuid4().hex[:10]}"
@@ -57,7 +57,40 @@ def run_smoke(
         }
     )
 
-    launch = invoke_entry(_confirmed_launch_payload(case_id, conversation_id))
+    product_meta = invoke_entry(
+        {
+            "entryTurn": True,
+            "caller": "hosted-smoke",
+            "conversationId": f"{conversation_id}-product-meta",
+            "entryAgentId": "@3d-rams",
+            "message": "What model/runtime are you using?",
+            "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": False},
+        }
+    )
+    product_meta_output = _output(product_meta)
+    product_meta_entry = _entry_agent(product_meta)
+    product_meta_observability = _dict(product_meta_entry.get("runtimeObservability"))
+    product_meta_answer = str(product_meta_output.get("assistantMessage") or product_meta_entry.get("assistantMessage") or "")
+    provider = str(product_meta_observability.get("modelProvider") or product_meta_observability.get("provider") or "")
+    _assert(product_meta_entry.get("route") == "product_meta", "product metadata turn did not route to product_meta")
+    _assert(product_meta_output.get("workflowMode") == "entry_conversation", "product metadata turn left entry conversation mode")
+    _assert(product_meta_output.get("run") is None, "product metadata turn unexpectedly launched supervisor")
+    _assert(product_meta_output.get("structuredReport") is None, "product metadata turn unexpectedly returned a structured report")
+    _assert("openai-compatible" in provider.lower(), "product metadata provider did not reflect OpenAI-compatible hosting")
+    _assert("bedrock" not in product_meta_answer.lower(), "product metadata answer implied a Bedrock model dependency")
+    _assert(_says_no_tools_started(product_meta_answer), "product metadata answer did not say map/evidence/risk/briefing tools stayed stopped")
+    _assert_public_safe_metadata_response(product_meta)
+    checks.append(
+        {
+            "name": "product_metadata_route_no_supervisor",
+            "status": "ok",
+            "route": product_meta_entry.get("route"),
+            "workflowMode": product_meta_output.get("workflowMode"),
+            "modelProvider": provider,
+        }
+    )
+
+    launch = invoke_entry(_confirmed_launch_payload(case_id, conversation_id, use_live_model=live_model))
     output = _output(launch)
     run = _dict(output.get("run"))
     report = _dict(output.get("structuredReport"))
@@ -82,11 +115,24 @@ def run_smoke(
             "status": "ok",
             "reportStatus": output.get("reportStatus"),
             "workflowMode": output.get("workflowMode"),
+            "modelProvider": runtime.get("modelProvider"),
             "subagentExecutionMode": runtime.get("subagentExecutionMode"),
             "traceSteps": len(_list(run.get("trace"))),
             "evidenceItems": len(_list(run.get("evidence"))),
         }
     )
+    if live_model:
+        _assert(runtime.get("modelProvider") == "openai-compatible", "live model run did not use the OpenAI-compatible provider")
+        _assert(runtime.get("bedrockUsed") is not True, "live model run reported Bedrock model use")
+        _assert(runtime.get("briefingMode") != "disabled", "live model run did not enable a model-backed briefing path")
+        checks.append(
+            {
+                "name": "openai_compatible_live_model",
+                "status": "ok",
+                "briefingMode": runtime.get("briefingMode"),
+                "modelProvider": runtime.get("modelProvider"),
+            }
+        )
 
     follow_up = invoke_entry(
         {
@@ -210,34 +256,6 @@ def run_smoke(
         }
     )
 
-    if bedrock_fallback:
-        bedrock_case_id = f"{case_id}_bedrock"
-        bedrock_launch = invoke_entry(
-            _confirmed_launch_payload(
-                bedrock_case_id,
-                f"{conversation_id}-bedrock",
-                use_bedrock=True,
-            )
-        )
-        bedrock_output = _output(bedrock_launch)
-        bedrock_run = _dict(bedrock_output.get("run"))
-        bedrock_runtime = _dict(bedrock_run.get("runtime"))
-        _assert(bedrock_output.get("caseId") == bedrock_case_id, "Bedrock fallback launch did not preserve caseId")
-        _assert(bedrock_runtime.get("bedrockRequested") is True, "Bedrock fallback launch did not request Bedrock")
-        _assert(
-            bedrock_runtime.get("briefingMode") in {"disabled", "fallback"},
-            "Bedrock-requested fallback did not use disabled/fallback briefing mode",
-        )
-        _assert(bedrock_runtime.get("fallbackReason"), "Bedrock-requested fallback did not report fallbackReason")
-        checks.append(
-            {
-                "name": "bedrock_requested_fallback",
-                "status": "ok",
-                "briefingMode": bedrock_runtime.get("briefingMode"),
-                "fallback": True,
-            }
-        )
-
     return redact_public_safe(
         _summary(case_id=case_id, checks=checks, output=output, run=run, report=report)
     )
@@ -314,7 +332,7 @@ def redact_text(text: str) -> str:
     return text
 
 
-def _confirmed_launch_payload(case_id: str, conversation_id: str, *, use_bedrock: bool = False) -> dict[str, Any]:
+def _confirmed_launch_payload(case_id: str, conversation_id: str, *, use_live_model: bool = False) -> dict[str, Any]:
     return {
         "entryTurn": True,
         "caller": "hosted-smoke",
@@ -363,7 +381,7 @@ def _confirmed_launch_payload(case_id: str, conversation_id: str, *, use_bedrock
         },
         "runtimeOptions": {
             "fixturePack": "public-lambeth-thames",
-            "useBedrock": use_bedrock,
+            "useBedrock": use_live_model,
             "includePlanningFixture": True,
             "simulateMapFailure": False,
         },
@@ -423,6 +441,36 @@ def _secret_key(key: str) -> bool:
     )
 
 
+def _says_no_tools_started(text: str) -> bool:
+    lowered = text.lower()
+    return all(token in lowered for token in ("map", "evidence", "risk", "briefing")) and "did not start" in lowered
+
+
+def _assert_public_safe_metadata_response(response: dict[str, Any]) -> None:
+    text = json.dumps(response, sort_keys=True).lower()
+    forbidden_substrings = (
+        "raw prompt",
+        "raw_prompt",
+        "tokenusage",
+        "token_usage",
+        "chain-of-thought",
+        "chain_of_thought",
+        "scratchpad",
+        "access code",
+        "access_code",
+        "api key",
+        "api_key",
+        "x-amz-signature",
+        "x-amz-credential",
+        "private-session",
+    )
+    for forbidden in forbidden_substrings:
+        _assert(forbidden not in text, f"product metadata response leaked {forbidden}")
+    _assert(not re.search(r"arn:aws:[a-z0-9_:/.-]+", text), "product metadata response leaked an AWS ARN")
+    _assert(not re.search(r"(?<![a-z0-9])\d{12}(?![a-z0-9])", text), "product metadata response leaked an account id")
+    _assert(not re.search(r"https?://[^\s\"']*(signature=|token=)", text), "product metadata response leaked a signed URL")
+
+
 def _output(response: dict[str, Any]) -> dict[str, Any]:
     output = response.get("output")
     if not isinstance(output, dict):
@@ -459,7 +507,12 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=int(os.getenv("RAMS_HOSTED_SMOKE_TIMEOUT", "120")))
     parser.add_argument("--case-id", default=os.getenv("RAMS_HOSTED_SMOKE_CASE_ID"))
     parser.add_argument("--expected-subagent-mode", default=os.getenv("RAMS_HOSTED_EXPECT_SUBAGENT_MODE"))
-    parser.add_argument("--bedrock-fallback", action="store_true", default=os.getenv("RAMS_HOSTED_SMOKE_BEDROCK_FALLBACK", "").lower() in {"1", "true", "yes", "on"})
+    parser.add_argument(
+        "--live-model",
+        action="store_true",
+        default=os.getenv("RAMS_HOSTED_SMOKE_LIVE_MODEL", "").lower() in {"1", "true", "yes", "on"},
+        help="Request the hosted live model path and require OpenAI-compatible provider metadata.",
+    )
     parser.add_argument(
         "--allow-unstored",
         action="store_true",
@@ -477,7 +530,7 @@ def main() -> int:
             lambda payload: invoke_entry_url(args.entry_url, payload, timeout=args.timeout),
             case_id=args.case_id,
             require_persistence=not args.allow_unstored,
-            bedrock_fallback=args.bedrock_fallback,
+            live_model=args.live_model,
             expected_subagent_mode=args.expected_subagent_mode,
         )
         if frontend:

@@ -20,7 +20,7 @@ The MVP is not a certified RAMS product. It is a controlled briefing assistant f
 | 40-55s | Show Evidence Register and Trace. | "Every output is inspectable. The evidence register shows source IDs, freshness, confidence, and whether the data is cached-public, fallback, or mocked. The trace shows each tool step." |
 | 55-70s | Show Architecture + Workflow. | "The visualizer explains data flow, tool calls, real-vs-mocked boundaries, and the future AWS path. This is designed as a production-shaped workflow, not a black-box chat answer." |
 | 70-82s | Click `Safety test`. | "If a user asks for certified RAMS or work approval, the safety gate blocks the output. The product stays in human-review territory." |
-| 82-90s | Reset or switch to synthetic fallback. | "The demo keeps fallback paths visible: cached public data, synthetic fallback, disabled Bedrock, and map fallback all remain testable." |
+| 82-90s | Reset or switch to synthetic fallback. | "The demo keeps fallback paths visible: cached public data, synthetic fallback, disabled live model, and map fallback all remain testable." |
 
 ## Before / After Proof
 
@@ -54,7 +54,7 @@ For repeatable AgentCore workflow proof, run `python scripts/evaluate-demo.py` f
 | Synthetic fallback | Change `Data pack` to `Synthetic default`, click `Run`. | Shows the workflow still runs without public fixture pack dependency. |
 | Missing planning | Turn off `Planning fixture`, click `Run`. | Shows missing-data warning and degraded but usable output. |
 | Map fallback | Turn on `Map fallback`, click `Run`. | Shows tool failure/fallback trace. |
-| Bedrock disabled/fallback | Run without AWS config or simulate failure. | Shows deterministic briefing fallback. |
+| Live model disabled/fallback | Run without gateway config or simulate failure. | Shows deterministic briefing fallback. |
 | Unsafe request | Click `Safety test`. | Shows blocked certified RAMS / work approval behavior. |
 | Low confidence | Inspect annotations and evidence. | Shows uncertainty labels rather than hidden assumptions. |
 | Architecture visualizer | Inspect `Architecture + Workflow`. | Shows tool flow, boundaries, and future production path. |
@@ -66,7 +66,7 @@ For repeatable AgentCore workflow proof, run `python scripts/evaluate-demo.py` f
 | AgentCore runtime loop | Real local Python workflow. |
 | Frontend viewer | Real React/Cesium UI with token-free local overlay. |
 | Lambeth fixture pack | Cached public-source demo pack with attribution and no live runtime calls. |
-| Bedrock briefing | Optional live AWS call only when explicitly configured. |
+| Live model briefing | Optional OpenAI-compatible gateway call only when explicitly configured. |
 | Planning portals/PDFs | Not scraped in MVP. |
 | Google 3D / Earth | Not required in MVP. |
 | DynamoDB report store | Optional cloud persistence when `RAMS_REPORT_STORE_TABLE` is configured; disabled in no-AWS local demos. |

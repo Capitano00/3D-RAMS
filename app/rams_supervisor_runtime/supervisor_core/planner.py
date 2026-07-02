@@ -63,14 +63,18 @@ def plan_subagent_workflow(
             "plannerStatus": planner_status,
             "activeAgentMode": active_agent_mode,
             "modelCalls": [model_call],
-            "tokenUsage": None,
+            "tokenUsage": (
+                metadata.get("tokenUsage")
+                if isinstance(metadata.get("tokenUsage"), dict)
+                else None
+            ),
             "fallback": {"status": "not_used", "reason": None},
         }
 
     reason = (
-        "Bedrock planner was not requested for this run; deterministic Harness planner was used."
+        "Live model planner was not requested for this run; deterministic Harness planner was used."
         if not config.bedrock_requested
-        else "ENABLE_BEDROCK is not true; deterministic Harness planner was used."
+        else "ENABLE_LIVE_MODEL is not true; deterministic Harness planner was used."
     )
     return _deterministic_result(
         request_summary=request_summary,
@@ -261,7 +265,7 @@ def _text(value: Any, fallback: str) -> str:
 
 
 def _model_call(metadata: dict[str, Any], planner_status: str) -> dict[str, Any]:
-    return {
+    model_call = {
         "id": "model-call-planner-1",
         "phase": "planner-plan",
         "status": planner_status,
@@ -272,3 +276,6 @@ def _model_call(metadata: dict[str, Any], planner_status: str) -> dict[str, Any]
         "maxTokens": metadata.get("maxTokens"),
         "temperature": metadata.get("temperature"),
     }
+    if isinstance(metadata.get("tokenUsage"), dict):
+        model_call["tokenUsage"] = metadata["tokenUsage"]
+    return model_call

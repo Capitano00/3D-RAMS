@@ -22,6 +22,8 @@ from rams_agent_tools.bedrock_adapter import (  # noqa: E402
 )
 from rams_agent_tools.config import RuntimeConfig  # noqa: E402
 from supervisor_core.planner import SUPERVISOR_HARNESS_SUBAGENTS  # noqa: E402
+from supervisor_core.planner import plan_subagent_workflow  # noqa: E402
+from supervisor_core.runtime_observability import runtime_observability  # noqa: E402
 
 
 class FakeResponse:
@@ -59,8 +61,11 @@ def openai_config() -> RuntimeConfig:
     )
 
 
-def fake_chat_response(content: dict):
-    return FakeResponse({"choices": [{"message": {"content": json.dumps(content)}}]})
+def fake_chat_response(content: dict, usage: dict | None = None):
+    payload = {"choices": [{"message": {"content": json.dumps(content)}}]}
+    if usage is not None:
+        payload["usage"] = usage
+    return FakeResponse(payload)
 
 
 class OpenAIGatewayTests(unittest.TestCase):
@@ -77,7 +82,8 @@ class OpenAIGatewayTests(unittest.TestCase):
                     "priority_checks": ["Access route"],
                     "before_site_visit": ["Confirm permits"],
                     "limitations": ["Human review is required."],
-                }
+                },
+                usage={"prompt_tokens": 5, "completion_tokens": 4, "total_tokens": 9},
             )
 
         with mock.patch("rams_agent_tools.bedrock_adapter.urllib.request.urlopen", side_effect=fake_urlopen):
@@ -101,6 +107,7 @@ class OpenAIGatewayTests(unittest.TestCase):
         self.assertEqual(briefing["generation_mode"], "openai-compatible")
         self.assertEqual(metadata["mode"], "openai-compatible")
         self.assertEqual(metadata["modelProvider"], "openai-compatible")
+        self.assertEqual(metadata["tokenUsage"], {"promptTokens": 5, "completionTokens": 4, "totalTokens": 9})
 
     def test_planner_uses_openai_compatible_gateway(self):
         plan = {
@@ -124,6 +131,43 @@ class OpenAIGatewayTests(unittest.TestCase):
         self.assertEqual(output["rationale"], "Use bounded Harness subagents.")
         self.assertEqual(metadata["mode"], "openai-compatible")
         self.assertEqual(metadata["phase"], "planner-plan")
+        self.assertNotIn("tokenUsage", metadata)
+
+    def test_planner_observability_passes_safe_openai_usage(self):
+        plan = {
+            "rationale": "Use bounded Harness subagents.",
+            "initial_parallel_groups": ["geospatial_subagent", "planning_subagent", "material_subagent"],
+            "sequential_groups": ["hazard_subagent", "open_web_subagent", "review_guardrail"],
+            "report_parallel_groups": ["annotation_subagent", "briefing_subagent"],
+            "required_evidence": ["resolved location"],
+            "missing_inputs": [],
+        }
+        with mock.patch(
+            "rams_agent_tools.bedrock_adapter.urllib.request.urlopen",
+            return_value=fake_chat_response(
+                plan,
+                usage={
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                    "prompt_tokens_details": {"cached_tokens": 2},
+                    "provider_internal": "do-not-copy",
+                    "cached_tokens": True,
+                },
+            ),
+        ):
+            result = plan_subagent_workflow(config=openai_config(), request_summary={"site": "Test"})
+
+        expected_usage = {"promptTokens": 11, "completionTokens": 7, "totalTokens": 18}
+        self.assertEqual(result["tokenUsage"], expected_usage)
+        self.assertEqual(result["modelCalls"][0]["tokenUsage"], expected_usage)
+        self.assertNotIn("prompt_tokens_details", result["tokenUsage"])
+        runtime = openai_config().public_runtime(status="real")
+        runtime["plannerMode"] = result["plannerStatus"]
+        runtime["activeAgentMode"] = result["activeAgentMode"]
+        runtime["modelCallCount"] = len(result["modelCalls"])
+        observability = runtime_observability(runtime, result)
+        self.assertEqual(observability["tokenUsage"], expected_usage)
 
     def test_text_material_extraction_uses_openai_compatible_gateway(self):
         with mock.patch(
@@ -142,7 +186,8 @@ class OpenAIGatewayTests(unittest.TestCase):
                         }
                     ],
                     "limitations": ["Bounded extraction."],
-                }
+                },
+                usage={"prompt_tokens": 13, "completion_tokens": 8, "total_tokens": 21},
             ),
         ):
             extraction, metadata = generate_bedrock_material_extraction(
@@ -156,6 +201,7 @@ class OpenAIGatewayTests(unittest.TestCase):
         self.assertEqual(extraction["status"], "extracted")
         self.assertEqual(extraction["observations"][0]["category"], "access")
         self.assertEqual(metadata["mode"], "openai-compatible")
+        self.assertEqual(metadata["tokenUsage"], {"promptTokens": 13, "completionTokens": 8, "totalTokens": 21})
 
     def test_supervisor_model_loader_selects_openai_model(self):
         calls: dict[str, object] = {}
@@ -182,6 +228,14 @@ class OpenAIGatewayTests(unittest.TestCase):
 
         self.assertEqual(calls["model_id"], "gpt-5.4-mini")
         self.assertEqual(calls["client_args"], {"api_key": "test-key", "base_url": "https://gateway.example/v1"})
+
+    def test_runtime_config_defaults_to_openai_provider(self):
+        with mock.patch.dict(os.environ, {"RAMS_LLM_PROVIDER": "", "ENABLE_LIVE_MODEL": "true"}, clear=False):
+            config = RuntimeConfig.from_env(request_bedrock=True)
+
+        self.assertEqual(config.llm_provider, "openai")
+        self.assertTrue(config.bedrock_enabled)
+        self.assertEqual(config.public_runtime(status="disabled")["modelProvider"], "openai-compatible")
 
 
 if __name__ == "__main__":

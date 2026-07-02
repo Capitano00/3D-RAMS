@@ -9,6 +9,7 @@ FRAMEWORK="${AMPLIFY_FRAMEWORK:-React}"
 STAGE="${AMPLIFY_STAGE:-DEVELOPMENT}"
 WAIT_FOR_JOB="${AMPLIFY_WAIT:-true}"
 SKIP_GITHUB_PREFLIGHT="${AMPLIFY_SKIP_GITHUB_PREFLIGHT:-false}"
+ALLOW_EMPTY_ENTRY_PROXY="${ALLOW_EMPTY_ENTRY_PROXY:-false}"
 
 usage() {
   cat <<'EOF'
@@ -33,12 +34,25 @@ Optional:
   AWS_REGION                     Default: eu-west-2
   AMPLIFY_WAIT                   Default: true
   AMPLIFY_SKIP_GITHUB_PREFLIGHT  Default: false
+  ALLOW_EMPTY_ENTRY_PROXY        Default: false. Set true only for static-shell/debug
+                                  deploys that intentionally cannot call the
+                                  cloud AgentCore workflow yet.
 EOF
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   exit 0
+fi
+
+if [[ -z "${VITE_CLOUD_ENTRY_PROXY_URL:-}" ]]; then
+  if [[ "$ALLOW_EMPTY_ENTRY_PROXY" != "true" ]]; then
+    echo "Missing VITE_CLOUD_ENTRY_PROXY_URL. Source-connected Amplify deploys must target the signed AgentCore entry proxy." >&2
+    echo "For static-shell/debug deployments only, rerun with ALLOW_EMPTY_ENTRY_PROXY=true." >&2
+    exit 1
+  fi
+
+  echo "Warning: ALLOW_EMPTY_ENTRY_PROXY=true; deploying a static-shell/debug UI without cloud AgentCore workflow calls." >&2
 fi
 
 if [[ -n "${AWS_PROFILE:-}" ]]; then
@@ -83,10 +97,6 @@ chmod 600 "$TOKEN_FILE"
 if [[ ! -s "$TOKEN_FILE" ]]; then
   echo "GitHub token is empty." >&2
   exit 1
-fi
-
-if [[ -z "${VITE_CLOUD_ENTRY_PROXY_URL:-}" ]]; then
-  echo "Warning: VITE_CLOUD_ENTRY_PROXY_URL is empty; hosted UI can load, but cloud workflow calls will fail until it is set." >&2
 fi
 
 if [[ "$SKIP_GITHUB_PREFLIGHT" != "true" ]]; then
