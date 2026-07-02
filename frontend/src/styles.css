@@ -463,6 +463,12 @@ textarea {
   color: #4e625c;
 }
 
+.risk-grid small {
+  grid-column: 1 / -1;
+  color: #687973;
+  font-weight: 800;
+}
+
 .briefing-block {
   margin: 0 14px 14px;
 }
