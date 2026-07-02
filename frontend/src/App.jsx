@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -474,6 +474,16 @@ function frontendReportSessionId() {
 
 function SceneViewer({ scene, annotations, location, sceneMode }) {
   const containerRef = useRef(null);
+  const markerItems = useMemo(
+    () =>
+      toList(annotations).map((annotation, index) => ({
+        annotation,
+        marker: String(index + 1),
+        title: annotation.title || annotation.label || annotation.id || `Marker ${index + 1}`,
+        status: annotation.confidence || annotation.status || annotation.source_type || "review",
+      })),
+    [annotations],
+  );
 
   useEffect(() => {
     if (!containerRef.current || !scene?.center) return undefined;
@@ -518,9 +528,9 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
       },
     });
 
-    toList(annotations).forEach((annotation) => {
+    markerItems.forEach(({ annotation, marker, title }) => {
       viewer.entities.add({
-        name: annotation.title,
+        name: title,
         position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
         point: {
           pixelSize: annotation.confidence === "low" ? 12 : 10,
@@ -529,18 +539,19 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
           outlineWidth: 2,
         },
         label: {
-          text: annotation.title,
-          font: "12px sans-serif",
+          text: marker,
+          font: "700 13px sans-serif",
           fillColor: Cesium.Color.fromCssColorString("#111827"),
           showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.84),
-          pixelOffset: new Cesium.Cartesian2(0, -22),
+          backgroundColor: Cesium.Color.WHITE.withAlpha(0.9),
+          pixelOffset: new Cesium.Cartesian2(0, -20),
         },
       });
     });
 
+    const cameraRange = Number(scene.camera?.rangeMeters) || 1500;
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 1500),
+      destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, cameraRange),
       orientation: {
         heading: Cesium.Math.toRadians(scene.camera?.headingDegrees || 0),
         pitch: Cesium.Math.toRadians(scene.camera?.pitchDegrees || -48),
@@ -551,13 +562,13 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
     return () => {
       if (!viewer.isDestroyed()) viewer.destroy();
     };
-  }, [scene, annotations]);
+  }, [scene, markerItems]);
 
   if (!scene) {
     return (
       <div className="empty-map">
         <MapPinned size={24} />
-        <span>Map updates after the agent resolves a site.</span>
+        <span>{sceneMode?.label || "Scene not run"}: map appears after the site is resolved.</span>
         <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Scene not run"}</em>
       </div>
     );
@@ -568,7 +579,18 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
       <div ref={containerRef} className="scene-viewer" />
       <div className="map-caption">
         <strong>{location?.label || "Selected site"}</strong>
-        <span>{toList(annotations).length} mapped risk marker(s)</span>
+        <span>{markerItems.length} mapped risk marker(s)</span>
+        {markerItems.length > 0 && (
+          <ol className="marker-key" aria-label="3D marker key">
+            {markerItems.map(({ annotation, marker, title, status }) => (
+              <li key={annotation.id || `${marker}-${title}`}>
+                <span>{marker}</span>
+                <strong>{title}</strong>
+                <em className={`status ${status}`}>{status}</em>
+              </li>
+            ))}
+          </ol>
+        )}
         <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Unknown data mode"}</em>
       </div>
     </div>
