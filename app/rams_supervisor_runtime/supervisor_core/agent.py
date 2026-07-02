@@ -21,6 +21,13 @@ from .subagent_invoker import build_subagent_invoker
 from .harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, harness_contract_summary, harness_data
 from .planner import plan_subagent_workflow
 from .reasoning import reason_over_evidence
+from .report_grounding_repair import (
+    MAX_REPAIR_ATTEMPTS,
+    assess_report_grounding,
+    downgrade_briefing_for_review,
+    repair_metadata,
+    repair_trace,
+)
 from .review_loop import run_independent_review_loop
 from .runtime_observability import runtime_observability
 
@@ -202,6 +209,53 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     trace.extend(_trace_steps(annotation_result.get("trace"), "annotation_subagent"))
     trace.extend(_trace_steps(briefing_result.get("trace"), "briefing_subagent"))
 
+    repair_attempt_count = 0
+    repair_assessment = assess_report_grounding(
+        location=location,
+        hazards=hazards,
+        briefing=briefing,
+    )
+    while repair_assessment["repairableIssueCount"] and repair_attempt_count < MAX_REPAIR_ATTEMPTS:
+        repair_attempt_count += 1
+        briefing_result = subagents.invoke_briefing(
+            config,
+            location,
+            hazards,
+            planning_text,
+            fixture_pack=fixture_pack,
+        )
+        subagent_outputs.append(briefing_result)
+        briefing_data = harness_data(briefing_result)
+        briefing = _briefing_payload(briefing_data.get("briefing"))
+        _merge_material_briefing(briefing, {**material_result, "findings": material_findings})
+        evidence = _evidence_items(briefing_data.get("evidence")) + material_evidence
+        bedrock_status = briefing_data["bedrockStatus"]
+        bedrock_fallback_reason = briefing_data["bedrockFallbackReason"]
+        trace.extend(_trace_steps(briefing_result.get("trace"), "briefing_subagent"))
+        repair_assessment = assess_report_grounding(
+            location=location,
+            hazards=hazards,
+            briefing=briefing,
+        )
+
+    repair_stop_reason = "passed"
+    if repair_assessment["issueCount"]:
+        repair_stop_reason = "downgraded_after_cap" if repair_attempt_count else "downgraded_unrepairable"
+        downgrade_briefing_for_review(
+            briefing=briefing,
+            location=location,
+            hazards=hazards,
+            assessment=repair_assessment,
+        )
+    elif repair_attempt_count:
+        repair_stop_reason = "passed_after_retry"
+    grounding_repair = repair_metadata(
+        repair_assessment,
+        attempt_count=repair_attempt_count,
+        stop_reason=repair_stop_reason,
+    )
+    trace.append(repair_trace(grounding_repair))
+
     safety, safety_step = safety_gate(tool_request, briefing)
     trace.append(safety_step)
 
@@ -255,6 +309,9 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["materialSkippedCount"] = len(material_result.get("skipped") or [])
     runtime["harnessOutputSchemaVersion"] = HARNESS_OUTPUT_SCHEMA_VERSION
     runtime["harnessContract"] = harness_contract_summary(subagent_outputs)
+    runtime["repairAttemptCount"] = grounding_repair["repairAttemptCount"]
+    runtime["repairStopReason"] = grounding_repair["repairStopReason"]
+    runtime["repairIssueCount"] = grounding_repair["repairIssueCount"]
     trace = _correlate_trace(trace, case_id)
 
     run = {
@@ -281,6 +338,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "materialIngestion": _material_public_result(material_result),
         "externalSignals": external_signals,
         "safety": safety,
+        "reportGroundingRepair": grounding_repair,
         "trace": trace,
     }
     runtime["runtimeObservability"] = runtime_observability(runtime, run)

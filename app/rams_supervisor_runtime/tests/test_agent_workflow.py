@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +20,7 @@ from rams_agent_tools.tools import SUPERVISOR_HARNESS_SUBAGENTS, harness_for_gro
 from rams_agent_tools.tools.materials import ingest_material_references  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
 from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, validate_harness_output  # noqa: E402
-from supervisor_core.subagent_invoker import AgentCoreHarnessInvoker  # noqa: E402
+from supervisor_core.subagent_invoker import AgentCoreHarnessInvoker, DirectSubagentInvoker  # noqa: E402
 
 
 def authorized_material(case_id: str = "case_material_test_001") -> dict:
@@ -102,6 +103,10 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("request", result)
         self.assertIn("runtime", result)
         self.assertEqual(result["runtime"]["briefingMode"], "disabled")
+        self.assertEqual(result["runtime"]["repairAttemptCount"], 0)
+        self.assertEqual(result["runtime"]["repairStopReason"], "passed")
+        self.assertEqual(result["runtime"]["repairIssueCount"], 0)
+        self.assertEqual(result["reportGroundingRepair"]["status"], "ok")
         self.assertTrue(result["runtime"]["bedrockRequested"])
         self.assertFalse(result["runtime"]["bedrockEnabled"])
         self.assertFalse(result["runtime"]["bedrockUsed"])
@@ -126,6 +131,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("sources", result)
         self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in result["trace"]))
         self.assertTrue(any(step["name"] == "reason_over_evidence" for step in result["trace"]))
+        self.assertTrue(any(step["name"] == "report_grounding_repair" for step in result["trace"]))
         self.assertTrue(any(step["name"] == "independent_review_gate" for step in result["trace"]))
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
@@ -789,7 +795,36 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertFalse(result["runtime"]["bedrockUsed"])
         self.assertFalse(any(step.get("fallbackReason") == "bedrock_simulated_failure" for step in result["trace"]))
 
-    def test_unsafe_bedrock_mock_briefing_is_blocked_after_generation(self):
+    def test_grounding_repair_retries_missing_briefing_sections_before_review(self):
+        original = DirectSubagentInvoker.invoke_briefing
+        calls = 0
+
+        def flaky_briefing(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            result = original(self, *args, **kwargs)
+            if calls == 1:
+                bad = dict(result["briefing"])
+                bad["priority_checks"] = ["Generic check not tied to a current finding."]
+                bad.pop("before_site_visit", None)
+                result["briefing"] = bad
+                result["data"] = dict(result["data"], briefing=bad)
+            return result
+
+        with patch.object(DirectSubagentInvoker, "invoke_briefing", flaky_briefing):
+            result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(result["runtime"]["repairAttemptCount"], 1)
+        self.assertEqual(result["runtime"]["repairStopReason"], "passed_after_retry")
+        self.assertEqual(result["runtime"]["repairIssueCount"], 0)
+        self.assertEqual(result["reportGroundingRepair"]["status"], "ok")
+        self.assertEqual(result["reviewGate"]["status"], "passed_with_caveats")
+        repair_step = next(step for step in result["trace"] if step["name"] == "report_grounding_repair")
+        self.assertEqual(repair_step["output"]["repairAttemptCount"], 1)
+        self.assertEqual(repair_step["output"]["repairIssueCount"], 0)
+
+    def test_unsafe_bedrock_mock_briefing_is_downgraded_before_review(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
             BEDROCK_MOCK_RESPONSE="true",
@@ -799,10 +834,17 @@ class SiteBriefingAgentTests(unittest.TestCase):
             result = run_site_briefing({"useBedrock": True})
 
         self.assertEqual(result["runtime"]["briefingMode"], "mocked")
-        self.assertFalse(result["safety"]["allowed"])
-        self.assertEqual(result["safety"]["level"], "blocked")
-        self.assertEqual(result["annotations"], [])
-        self.assertEqual(result["reviewGate"]["status"], "blocked")
+        self.assertEqual(result["runtime"]["repairAttemptCount"], 1)
+        self.assertEqual(result["runtime"]["repairStopReason"], "downgraded_after_cap")
+        self.assertGreater(result["runtime"]["repairIssueCount"], 0)
+        self.assertEqual(result["reportGroundingRepair"]["status"], "review_required")
+        self.assertEqual(result["briefing"]["generation_mode"], "grounding-repair-fallback")
+        self.assertTrue(result["safety"]["allowed"])
+        self.assertEqual(result["reviewGate"]["status"], "review_required")
+        self.assertEqual(result["finalReportStatus"], "review_required")
+        serialized = json.dumps(result["briefing"]).lower()
+        self.assertNotIn("approved for work", serialized)
+        self.assertNotIn("certified rams briefing", serialized)
 
     def test_independent_review_pass_path_is_visible(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "pass"})
