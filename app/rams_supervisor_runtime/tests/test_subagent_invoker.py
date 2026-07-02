@@ -126,6 +126,39 @@ class FailingHarnessClient:
         raise TimeoutError("bedrock-agentcore invoke_harness timeout")
 
 
+class RepeatingToolUseHarnessClient:
+    def __init__(self):
+        self.calls: list[dict[str, Any]] = []
+
+    def invoke_harness(self, **kwargs):
+        self.calls.append(kwargs)
+        return {
+            "stream": iter(
+                [
+                    {
+                        "contentBlockStart": {
+                            "contentBlockIndex": 0,
+                            "start": {
+                                "toolUse": {
+                                    "name": "load_planning_context",
+                                    "toolUseId": f"tool-{len(self.calls)}",
+                                }
+                            },
+                        }
+                    },
+                    {
+                        "contentBlockDelta": {
+                            "contentBlockIndex": 0,
+                            "delta": {"toolUse": {"input": '{"includePlanningFixture":false}'}},
+                        }
+                    },
+                    {"contentBlockStop": {"contentBlockIndex": 0}},
+                    {"messageStop": {"stopReason": "tool_use"}},
+                ]
+            )
+        }
+
+
 def harness_output(group: str, harness: str, data: dict[str, Any], **updates: Any) -> dict[str, Any]:
     payload = {
         "schemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
@@ -351,6 +384,30 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         self.assertEqual(fallback_step["fallbackReason"], "bedrock_timeout")
         self.assertEqual(fallback_step["policyDecision"]["decision"], "downgrade")
         self.assertEqual(fallback_step["policyDecision"]["reason_code"], "bedrock_timeout")
+        summary = result["metadata"]["executionFailureSummary"]
+        self.assertEqual(summary["schemaVersion"], "3d-rams.execution-bound-failure.v1")
+        self.assertEqual(summary["category"], "harness_invocation_failure")
+        self.assertEqual(summary["subagentGroup"], "planning_subagent")
+        self.assertEqual(summary["harness"], "rams_planning_harness")
+        self.assertEqual(summary["fallbackReason"], "bedrock_timeout")
+        self.assertTrue(summary["deterministicFallbackUsed"])
+
+    def test_tool_loop_cap_uses_bounded_failure_summary(self):
+        config = RuntimeConfig.from_env(request_bedrock=False)
+        client = RepeatingToolUseHarnessClient()
+        with EnvPatch(RAMS_PLANNING_HARNESS_ARN="arn:aws:bedrock-agentcore:eu-west-2:123456789012:harness/rams_planning_harness-ABCDEFGHIJ"):
+            invoker = AgentCoreHarnessInvoker(config=config, client=client)
+            result = invoker.invoke_planning({}, fixture_pack={"name": "public-lambeth-thames"})
+
+        self.assertEqual(len(client.calls), 8)
+        fallback_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_failure_fallback")
+        self.assertEqual(fallback_step["fallbackReason"], "agentcore_harness_tool_loop_cap_exceeded")
+        summary = result["metadata"]["executionFailureSummary"]
+        self.assertEqual(summary["category"], "harness_tool_loop_cap_exceeded")
+        self.assertEqual(summary["subagentGroup"], "planning_subagent")
+        self.assertEqual(summary["harness"], "rams_planning_harness")
+        self.assertEqual(summary["fallbackReason"], "agentcore_harness_tool_loop_cap_exceeded")
+        self.assertTrue(summary["deterministicFallbackUsed"])
 
     def test_invoke_material_harness_returns_safe_ingestion_payload(self):
         config = RuntimeConfig.from_env(request_bedrock=False)
