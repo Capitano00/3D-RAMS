@@ -121,11 +121,11 @@ def generate_bedrock_subagent_plan(
             "planner_policy": {
                 "planner_is_required": True,
                 "subagents_are_bounded": True,
-                "supervisor_may_normalise_invalid_or_missing_groups": True,
+                "supervisor_falls_back_on_invalid_or_missing_groups": True,
             },
         },
     )
-    plan = _normalise_subagent_plan(_extract_json_object(response_text))
+    plan = _extract_json_object(response_text)
     return plan, _metadata(config, started, "bedrock", phase="planner-plan", model_call_count=1)
 
 

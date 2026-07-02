@@ -32,6 +32,14 @@ def plan_subagent_workflow(
 
         planner_status = "mocked" if metadata.get("mode") == "bedrock-mock" else "real"
         active_agent_mode = "llm-planner-mock" if planner_status == "mocked" else "llm-planner"
+        validation_reason = _plan_validation_reason(plan)
+        if validation_reason:
+            return _deterministic_result(
+                request_summary=request_summary,
+                status="fallback",
+                active_agent_mode="deterministic-planner-fallback",
+                fallback_reason=validation_reason,
+            )
         normalised_plan = _normalise_plan(plan)
         model_call = _model_call(metadata, planner_status)
         return {
@@ -138,6 +146,74 @@ def _normalise_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "missingInputs": _strings(plan.get("missing_inputs"), []),
         "subagents": _subagent_schemas(),
     }
+
+
+def _plan_validation_reason(plan: Any) -> str | None:
+    if not isinstance(plan, dict):
+        return "invalid_plan"
+
+    grouped = {
+        "initial_parallel_groups": _raw_groups(plan, "initial_parallel_groups", "initialParallelGroups"),
+        "sequential_groups": _raw_groups(plan, "sequential_groups", "sequentialGroups"),
+        "report_parallel_groups": _raw_groups(plan, "report_parallel_groups", "reportParallelGroups"),
+    }
+    if any(not groups for groups in grouped.values()):
+        return "empty_phase"
+
+    allowed = set(SUPERVISOR_HARNESS_SUBAGENTS)
+    seen: set[str] = set()
+    selected: set[str] = set()
+    phases: set[str] = set()
+    expected = {
+        "initial_parallel_groups": {"initial_parallel_research"},
+        "sequential_groups": {"evidence_synthesis", "parallel_evidence_synthesis", "independent_review_gate"},
+        "report_parallel_groups": {"parallel_report_preparation"},
+    }
+    for field, groups in grouped.items():
+        for name in groups:
+            if name not in allowed:
+                return "unknown_subagent"
+            if name in seen:
+                return "duplicate_subagent"
+            phase = str(SUPERVISOR_HARNESS_SUBAGENTS[name]["phase"])
+            if phase not in expected[field]:
+                return "wrong_phase"
+            seen.add(name)
+            selected.add(name)
+            phases.add(phase)
+
+    phase_order = {
+        "initial_parallel_research": 0,
+        "evidence_synthesis": 1,
+        "parallel_evidence_synthesis": 1,
+        "parallel_report_preparation": 2,
+        "independent_review_gate": 3,
+    }
+    for name in selected:
+        phase = str(SUPERVISOR_HARNESS_SUBAGENTS[name]["phase"])
+        for dependency in SUPERVISOR_HARNESS_SUBAGENTS[name]["dependsOn"]:
+            if dependency not in selected:
+                return "missing_dependency"
+            dependency_phase = str(SUPERVISOR_HARNESS_SUBAGENTS[dependency]["phase"])
+            if phase_order[dependency_phase] >= phase_order[phase]:
+                return "missing_dependency"
+
+    required_phases = {
+        "initial_parallel_research",
+        "evidence_synthesis",
+        "parallel_report_preparation",
+        "independent_review_gate",
+    }
+    if not required_phases.issubset(phases):
+        return "empty_phase"
+    return None
+
+
+def _raw_groups(plan: dict[str, Any], snake_key: str, camel_key: str) -> list[str]:
+    value = plan.get(snake_key, plan.get(camel_key))
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _default_plan() -> dict[str, Any]:
