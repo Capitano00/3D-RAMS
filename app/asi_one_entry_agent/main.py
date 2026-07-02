@@ -231,6 +231,8 @@ def _conversation_route(message: str, conversation_id: str) -> str | None:
     has_site_evidence = _has_corrected_site_evidence(text)
     if _awaiting_location_correction(conversation_id) and has_site_evidence:
         return "location_correction"
+    if _looks_like_product_metadata(text) and not has_site_evidence:
+        return "product_meta"
     if _looks_like_start_over(text) and not has_site_evidence:
         return "start_over_without_site"
     if _looks_like_location_rejection(text) and not has_site_evidence:
@@ -249,6 +251,9 @@ def _conversation_route(message: str, conversation_id: str) -> str | None:
 
 
 def _conversation_route_output(payload: dict[str, Any], turn: dict[str, Any], route: str) -> dict[str, Any]:
+    if route == "product_meta":
+        return _product_metadata_output()
+
     conversation_id = turn["conversationId"]
     message = turn.get("message") or ""
     if route == "start_over_without_site":
@@ -441,6 +446,15 @@ def _looks_like_help(text: str) -> bool:
 
 def _looks_like_follow_up(text: str) -> bool:
     return bool(re.search(r"\b(what do you mean|explain|what next|what else|why|how so)\b", text))
+
+
+def _looks_like_product_metadata(text: str) -> bool:
+    question_cue = r"\?|(\b(what|which|who|tell me|show me|are you|do you use|are you using|powered by|running on|runtime path|model id)\b)"
+    if not re.search(question_cue, text):
+        return False
+    if re.search(r"\b(llm|bedrock|agentcore|runtime|orchestrator)\b", text):
+        return True
+    return bool(re.search(r"\b(your model|model id|what model are you|which model|model do you use)\b", text))
 
 
 def _looks_like_location_rejection(text: str) -> bool:
@@ -753,6 +767,68 @@ def _blocked_entry_observability(runtime_options: dict[str, Any], reason: str) -
         "activeAgentMode": "entry-blocked",
         "fallbackReason": reason,
     }
+
+
+def _product_metadata_output() -> dict[str, Any]:
+    observability = _product_metadata_observability()
+    model_id = observability.get("modelId")
+    model_line = (
+        f"Configured public model id: {model_id}."
+        if model_id
+        else "Configured public model id: not disclosed; ENTRY_AGENT_MODEL_ID is not set to a generic public model id."
+    )
+    assistant_message = (
+        "This turn was routed as product/runtime metadata. "
+        f"Model path: {observability['modelPath']}. Provider: {observability['provider']}. "
+        f"{model_line} Model calls this turn: 0. "
+        "Map, evidence, risk, and briefing tools did not start for this turn; the supervisor runtime was not invoked."
+    )
+    return {
+        "output": {
+            "caseId": None,
+            "delivery": None,
+            "run": None,
+            "structuredReport": None,
+            "reportStatus": "entry_pending",
+            "workflowMode": "entry_conversation",
+            "assistantMessage": assistant_message,
+            "entryAgent": {
+                "mode": "guarded-conversation-router",
+                "adapterVersion": "asi-one-entry-agent-v2",
+                "route": "product_meta",
+                "status": "conversation_routed",
+                "assistantMessage": assistant_message,
+                "runtimeObservability": observability,
+            },
+        }
+    }
+
+
+def _product_metadata_observability() -> dict[str, Any]:
+    model_id = _safe_public_entry_agent_model_id()
+    observability = {
+        "schemaVersion": "3d-rams.runtime-observability.v1",
+        "modelPath": "entry-product-meta",
+        "modelId": model_id,
+        "provider": "amazon-bedrock" if model_id else "not_disclosed",
+        "mode": "deterministic",
+        "modelCallCount": 0,
+        "bedrockRequested": False,
+        "bedrockEnabled": False,
+        "bedrockUsed": False,
+        "activeAgentMode": "product-metadata-router",
+        "fallbackReason": "metadata_route_no_supervisor_tools",
+        "noToolReason": "product_runtime_metadata_answer",
+        "toolsStarted": {"map": False, "evidence": False, "risk": False, "briefing": False},
+    }
+    return {key: value for key, value in observability.items() if value is not None}
+
+
+def _safe_public_entry_agent_model_id() -> str | None:
+    model_id = os.getenv("ENTRY_AGENT_MODEL_ID", "").strip()
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,160}", model_id) and not re.search(r"\barn:|/|\d{12}", model_id, re.I):
+        return model_id
+    return None
 
 
 def _entry_model_id() -> str:
