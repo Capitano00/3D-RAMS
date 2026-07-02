@@ -282,7 +282,8 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertTrue(extraction["observations"])
         self.assertFalse(extraction["rawContentStored"])
 
-        material_evidence = {item["id"]: item for item in result["evidence"]}["ev-material-retrieved-pdf-access-plan"]
+        evidence_by_id = {item["id"]: item for item in result["evidence"]}
+        material_evidence = evidence_by_id["ev-material-retrieved-pdf-access-plan"]
         self.assertEqual(material_evidence["status"], "extracted")
         self.assertEqual(
             material_evidence["extraction"]["limitations"][0],
@@ -360,6 +361,15 @@ class SiteBriefingAgentTests(unittest.TestCase):
             )
         self.assertEqual(failed["accepted"], 0)
         self.assertEqual(failed["skipped"][0]["reason"], "extraction_failed")
+
+        quiet_material = {**retrieved_text_material(), "materialId": "retrieved_text_quiet", "rawContent": "Meeting agenda only."}
+        with EnvPatch(ENABLE_BEDROCK="true", BEDROCK_MOCK_RESPONSE="true", BEDROCK_SIMULATE_FAILURE=None):
+            no_relevant = ingest_material_references(
+                [quiet_material],
+                case_id="case_material_extraction_001",
+                config=RuntimeConfig.from_env(request_bedrock=True),
+            )
+        self.assertEqual(no_relevant["acceptedReferences"][0]["status"], "no_relevant_content")
 
     def test_denied_expired_and_oversized_materials_are_skipped_without_secret_leakage(self):
         result = run_site_briefing(

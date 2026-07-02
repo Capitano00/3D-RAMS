@@ -155,6 +155,11 @@ def generate_bedrock_material_extraction(
             max_tokens=config.material_extraction_max_tokens,
         )
 
+    try:
+        import boto3
+    except ImportError as exc:
+        raise BedrockAdapterError("boto3 is not installed in the AgentCore runtime environment.") from exc
+
     content = _material_converse_content(
         material_id=material_id,
         label=label,
@@ -162,11 +167,6 @@ def generate_bedrock_material_extraction(
         text=text,
         document_bytes=document_bytes,
     )
-    try:
-        import boto3
-    except ImportError as exc:
-        raise BedrockAdapterError("boto3 is not installed in the AgentCore runtime environment.") from exc
-
     session_kwargs = {}
     if config.aws_profile:
         session_kwargs["profile_name"] = config.aws_profile
@@ -226,9 +226,25 @@ def _material_converse_content(
     }
     content: list[dict[str, Any]] = []
     if content_type == "application/pdf" and document_bytes is not None:
-        content.append({"document": {"format": "pdf", "name": _document_name(material_id, label), "source": {"bytes": document_bytes}}})
+        content.append(
+            {
+                "document": {
+                    "format": "pdf",
+                    "name": _document_name(material_id, label),
+                    "source": {"bytes": document_bytes},
+                }
+            }
+        )
     if content_type in {"text/plain", "text/markdown"} and text:
-        content.append({"text": f"Authorized material text for extraction:\n\n{text}"})
+        content.append(
+            {
+                "document": {
+                    "format": "md" if content_type == "text/markdown" else "txt",
+                    "name": _document_name(material_id, label),
+                    "source": {"text": text},
+                }
+            }
+        )
     content.append({"text": "Return only valid JSON.\n\n" + json.dumps(prompt, ensure_ascii=True)})
     return content
 
@@ -236,6 +252,107 @@ def _material_converse_content(
 def _document_name(material_id: str, label: str) -> str:
     name = "".join(ch if ch.isalnum() else "-" for ch in (label or material_id).lower()).strip("-")
     return (name or "material")[:80]
+
+
+def _normalise_material_extraction(parsed: dict[str, Any], *, label: str) -> dict[str, Any]:
+    observations = []
+    for index, item in enumerate(parsed.get("observations") if isinstance(parsed.get("observations"), list) else []):
+        if not isinstance(item, dict):
+            continue
+        description = _text(item.get("description"), "")
+        title = _text(item.get("title"), f"Material observation {index + 1}")
+        if not description:
+            continue
+        citation_anchor = _text(item.get("citation_anchor") or item.get("citationAnchor"), "document evidence")
+        observations.append(
+            {
+                "id": f"observation-{index + 1}",
+                "title": title[:120],
+                "category": _material_category(item.get("category")),
+                "description": description[:240],
+                "confidence": _confidence(item.get("confidence")),
+                "citationAnchor": citation_anchor[:120],
+            }
+        )
+        if len(observations) >= 5:
+            break
+    summary = _text(parsed.get("summary"), f"No RAMS-relevant observations were extracted from {label}.")[:300]
+    limitations = _string_list(parsed.get("limitations"), ["Material extraction is bounded for demo review."])[:5]
+    return {
+        "status": "extracted" if observations else "no_relevant_content",
+        "summary": summary,
+        "confidence": _confidence(parsed.get("confidence")),
+        "limitations": limitations,
+        "observations": observations,
+        "citations": [
+            {"label": label, "locator": observation["citationAnchor"]}
+            for observation in observations
+        ],
+    }
+
+
+def _mock_material_extraction(
+    *,
+    label: str,
+    content_type: str,
+    text: str | None,
+    document_bytes: bytes | None,
+) -> dict[str, Any]:
+    sample = (text or "").lower()
+    if not sample and document_bytes:
+        sample = "pdf material supplied"
+    observations = []
+    if any(token in sample for token in ("access", "route", "public realm", "pdf material")):
+        observations.append(
+            {
+                "id": "observation-1",
+                "title": "Material access constraint",
+                "category": "access",
+                "description": "Retrieved material indicates access assumptions should be checked before site attendance.",
+                "confidence": "medium",
+                "citationAnchor": "page/section hint unavailable in mock",
+            }
+        )
+    if any(token in sample for token in ("service", "utility", "buried")):
+        observations.append(
+            {
+                "id": "observation-2",
+                "title": "Material utility check",
+                "category": "buried_services",
+                "description": "Retrieved material indicates utility or buried-service records need competent review.",
+                "confidence": "low",
+                "citationAnchor": "text section hint unavailable in mock",
+            }
+        )
+    return {
+        "status": "extracted" if observations else "no_relevant_content",
+        "summary": (
+            f"Mock Bedrock extraction reviewed a retrieved {content_type} material for bounded RAMS evidence."
+            if observations
+            else f"Mock Bedrock extraction found no RAMS-relevant content in {label}."
+        ),
+        "confidence": "medium" if observations else "low",
+        "limitations": ["Mock extraction for local verification; use live Bedrock only with authorized public-safe material."],
+        "observations": observations[:5],
+        "citations": [{"label": label, "locator": item["citationAnchor"]} for item in observations[:5]],
+    }
+
+
+def _material_category(value: Any) -> str:
+    category = str(value or "other").strip().lower()
+    return category if category in {"access", "buried_services", "planning", "environment", "hazard", "other"} else "other"
+
+
+def _confidence(value: Any) -> str:
+    confidence = str(value or "unknown").strip().lower()
+    return confidence if confidence in {"high", "medium", "low", "unknown"} else "unknown"
+
+
+def _string_list(value: Any, fallback: list[str]) -> list[str]:
+    if not isinstance(value, list):
+        return fallback
+    items = [str(item).strip()[:180] for item in value if str(item).strip()]
+    return items or fallback
 
 
 def _anthropic_payload(

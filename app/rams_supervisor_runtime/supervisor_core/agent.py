@@ -426,6 +426,7 @@ def _material_public_result(material_result: dict[str, Any]) -> dict[str, Any]:
         "references",
         "acceptedReferences",
         "skipped",
+        "extractions",
         "citations",
         "extractions",
         "sourceIds",

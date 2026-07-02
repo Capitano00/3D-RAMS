@@ -178,6 +178,7 @@ def ingest_material_references(
                     "evidenceIds": [evidence_id],
                     "confidence": observation["confidence"],
                     "note": observation["description"],
+                    "citationAnchor": observation.get("citationAnchor"),
                     "humanReviewRequired": True,
                 }
             )
@@ -193,6 +194,8 @@ def ingest_material_references(
                 "evidenceId": evidence_id,
                 "retrievalMode": extracted["retrievalMode"],
                 "status": extracted["status"],
+                "confidence": extracted["confidence"],
+                "limitations": extracted.get("limitations", []),
             }
         )
 
@@ -210,8 +213,8 @@ def ingest_material_references(
         "references": safe_references,
         "acceptedReferences": accepted,
         "skipped": skipped,
-        "citations": citations,
         "extractions": extractions,
+        "citations": citations,
         "sourceIds": [item["id"] for item in sources],
         "evidenceIds": [item["id"] for item in evidence],
     }
@@ -232,6 +235,8 @@ def ingest_material_references(
                 "acceptedReferences": accepted,
                 "skippedCount": output["skippedCount"],
                 "skipped": skipped,
+                "extractionStatuses": [item["status"] for item in extractions],
+                "materialExtractionModelId": config.material_extraction_model_id if config else None,
                 "citationCount": len(citations),
             },
             source_ids=output["sourceIds"],
@@ -390,7 +395,7 @@ def _extract_retrieved_material(
 
     observations = extraction.get("observations") if isinstance(extraction.get("observations"), list) else []
     return {
-        "status": extraction.get("status") or "extracted",
+        "status": str(extraction.get("status") or ("extracted" if observations else "no_relevant_content")),
         "retrievalMode": "bedrock-material-extraction",
         "summary": _text(extraction.get("summary")) or "Material extraction completed with no summary.",
         "confidence": _confidence(extraction.get("confidence")),
