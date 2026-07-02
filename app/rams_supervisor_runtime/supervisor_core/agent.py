@@ -317,6 +317,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["materialSkippedCount"] = len(material_result.get("skipped") or [])
     runtime["harnessOutputSchemaVersion"] = HARNESS_OUTPUT_SCHEMA_VERSION
     runtime["harnessContract"] = harness_contract_summary(subagent_outputs)
+    runtime["executionFailureSummaries"] = _execution_failure_summaries(subagent_outputs)
     runtime["repairAttemptCount"] = grounding_repair["repairAttemptCount"]
     runtime["repairStopReason"] = grounding_repair["repairStopReason"]
     runtime["repairIssueCount"] = grounding_repair["repairIssueCount"]
@@ -374,6 +375,27 @@ def _case_id_for_request(request_summary: dict[str, Any], upstream_context: Any)
     }
     digest = hashlib.sha256(json.dumps(seed, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     return f"case_{digest[:12]}"
+
+
+def _execution_failure_summaries(outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries = []
+    seen = set()
+    for output in outputs:
+        metadata = _dict(output.get("metadata"))
+        summary = _dict(metadata.get("executionFailureSummary"))
+        if not summary:
+            continue
+        key = (
+            summary.get("category"),
+            summary.get("subagentGroup"),
+            summary.get("harness"),
+            summary.get("fallbackReason"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        summaries.append(summary)
+    return summaries
 
 
 def _location_confirmation_run(
