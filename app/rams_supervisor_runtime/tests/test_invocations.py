@@ -83,6 +83,11 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(report["intake"]["caseId"], "case_supervisor_test_001")
         self.assertTrue(all(step["caseId"] == "case_supervisor_test_001" for step in run["trace"]))
         self.assertTrue(all(step["output"]["caseId"] == "case_supervisor_test_001" for step in run["trace"] if isinstance(step.get("output"), dict)))
+        policy_decisions = [step["policyDecision"] for step in run["trace"] if isinstance(step.get("policyDecision"), dict)]
+        self.assertTrue(policy_decisions)
+        self.assertTrue(all(set(decision) == {"tool_name", "decision", "reason_code", "source"} for decision in policy_decisions))
+        self.assertTrue(any(decision["tool_name"] == "resolve_location" and decision["decision"] == "allow" for decision in policy_decisions))
+        self.assertTrue(any(decision["decision"] in {"skip", "downgrade"} for decision in policy_decisions))
         self.assertEqual(output["persistence"]["mode"], "disabled")
         self.assertEqual(output["persistence"]["status"], "skipped")
         self.assertEqual(output["reportStatus"], "review_passed")
