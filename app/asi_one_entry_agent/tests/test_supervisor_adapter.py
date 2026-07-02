@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -326,6 +327,55 @@ class AgentVerseAdapterTests(unittest.TestCase):
                 self.assertEqual(entry["mode"], "guarded-conversation-router")
                 self.assertEqual(entry["route"], route)
                 self.assertEqual(entry["runtimeObservability"]["modelCallCount"], 0)
+
+    def test_product_metadata_route_does_not_invoke_supervisor_or_leak_sensitive_fields(self):
+        previous_model_id = os.environ.get("ENTRY_AGENT_MODEL_ID")
+        os.environ["ENTRY_AGENT_MODEL_ID"] = "amazon.nova-micro-v1:0"
+        try:
+            response = handle_invocation(
+                {
+                    "entryTurn": True,
+                    "message": "What LLM model are you? token secret-token https://example.invalid/private?sig=abc",
+                    "conversationId": "private-session-id-42",
+                    "runtimeOptions": {"useBedrock": True},
+                },
+                supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
+                model_json=lambda _: self.fail("entry model should not be called"),
+            )
+        finally:
+            if previous_model_id is None:
+                os.environ.pop("ENTRY_AGENT_MODEL_ID", None)
+            else:
+                os.environ["ENTRY_AGENT_MODEL_ID"] = previous_model_id
+
+        output = response["output"]
+        entry = output["entryAgent"]
+        observability = entry["runtimeObservability"]
+        serialized = json.dumps(response)
+
+        self.assertEqual(entry["route"], "product_meta")
+        self.assertEqual(output["workflowMode"], "entry_conversation")
+        self.assertIsNone(output["run"])
+        self.assertIsNone(output["structuredReport"])
+        self.assertEqual(observability["modelPath"], "entry-product-meta")
+        self.assertEqual(observability["modelId"], "amazon.nova-micro-v1:0")
+        self.assertEqual(observability["modelCallCount"], 0)
+        self.assertEqual(observability["noToolReason"], "product_runtime_metadata_answer")
+        self.assertFalse(any(observability["toolsStarted"].values()))
+        self.assertIn("Map, evidence, risk, and briefing tools did not start", self.assert_user_readable_response(response))
+        for sensitive in (
+            "secret-token",
+            "sig=abc",
+            "https://example.invalid",
+            "private-session-id-42",
+            "123456789012",
+            "runtime/supervisor-test",
+            "tokenUsage",
+            "chain-of-thought",
+            "scratchpad",
+        ):
+            self.assertNotIn(sensitive, serialized)
 
     def test_location_rejection_blocks_stale_confirmation_until_correction_resumes_intake(self):
         calls: list[dict] = []
