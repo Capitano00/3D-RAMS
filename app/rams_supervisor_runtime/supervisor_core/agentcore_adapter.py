@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent import run_site_briefing
-from .report_store import load_report, persist_report
+from .report_store import build_run_progress, load_report, persist_report
 from .structured_report import build_structured_report
 
 
@@ -27,6 +27,7 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
         persistence = agentcore_output.get("persistence") if isinstance(agentcore_output, dict) else None
         structured_report = agentcore_output.get("structuredReport") if isinstance(agentcore_output, dict) else None
         review_metadata = _review_metadata(agentcore_output) if isinstance(agentcore_output, dict) else None
+        progress = agentcore_output.get("progress") if isinstance(agentcore_output, dict) else None
         return {
             "output": {
                 "caseId": local_response.get("caseId") if isinstance(local_response, dict) else None,
@@ -36,6 +37,7 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
                 "reviewGate": review_metadata,
                 "reviewMetadata": review_metadata,
                 "run": run,
+                "progress": progress,
                 "persistence": persistence,
                 "reportStatus": delivery.get("status") if isinstance(delivery, dict) else "entry_pending",
                 "workflowMode": delivery.get("workflowMode") if isinstance(delivery, dict) else "entry_intake",
@@ -65,6 +67,7 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
         "reviewMetadata": review_metadata,
         "run": run,
     }
+    output["progress"] = build_run_progress(output)
     output["persistence"] = persist_report(output)
     return {
         "output": output

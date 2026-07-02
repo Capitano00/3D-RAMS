@@ -126,6 +126,66 @@ The React frontend uses this contract for `/case/{caseId}` routes. A direct page
 
 In hosted mode, `/case/{caseId}` lookup still goes through the signed entry proxy and `asi_one_entry_agent`. `caseId` is a correlation id, not a bearer secret; production report access remains ASI/ASI:ONE identity-bound per ADR 0013.
 
+## Run Progress Contract
+
+ASI/ASI:ONE entry responses and report lookup responses may include `output.progress` so callers can reconnect to a case and display safe run state without using the old FastAPI `/api/runs` route shape.
+
+`caseId` remains the primary workflow correlation and lookup id. `runId` is only the execution-attempt id under that case.
+
+Supported progress statuses are only:
+
+- `queued`
+- `running`
+- `waiting_for_location_confirmation`
+- `completed`
+- `failed`
+
+Example:
+
+```json
+{
+  "output": {
+    "caseId": "case_demo_fixture_001",
+    "progress": {
+      "schemaVersion": "3d-rams.run-progress.v1",
+      "caseId": "case_demo_fixture_001",
+      "runId": "run_2f4b7c9d1a03",
+      "status": "running",
+      "currentStep": "dispatch_parallel_evidence_synthesis",
+      "updatedAt": "2026-07-01T19:17:00+00:00",
+      "modelCallCount": 1,
+      "fallbackReason": "bedrock_not_configured",
+      "traceSummary": [
+        {
+          "id": "dispatch_parallel_tool_groups",
+          "name": "dispatch_parallel_tool_groups",
+          "status": "ok",
+          "caseId": "case_demo_fixture_001"
+        }
+      ]
+    }
+  }
+}
+```
+
+Known `output.progress` fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `schemaVersion` | string | Current value is `3d-rams.run-progress.v1`. |
+| `caseId` | string | Primary case correlation id and lookup key. |
+| `runId` | string | Execution-attempt id. Do not use it as the report lookup key. |
+| `status` | string | One of the five supported statuses listed above. |
+| `currentStep` | string | Safe step label for the current or latest bounded step. |
+| `createdAt` | string | Optional ISO timestamp when a progress-only record was created. |
+| `updatedAt` | string | ISO timestamp for the progress state. |
+| `modelCallCount` | number | Included when known from runtime observability. |
+| `fallbackReason` | string | Safe bounded fallback summary when applicable. |
+| `errorSummary` | string | Safe bounded failure summary for `failed` records. |
+| `traceSummary` | array | Bounded safe step summaries. Raw prompts, identity/access assertions, signed URLs, credentials, and private material contents are not exposed. |
+
+When a confirmed supervisor run completes, `output.progress.status` is `completed` and lookup still returns the existing `output.run` and `output.structuredReport` payloads. While the entry agent is waiting for location/user confirmation before launch, `output.progress.status` is `waiting_for_location_confirmation` and `output.run` remains `null`. Failed or partial progress records must return only safe bounded summaries, not raw prompts or private identity/access context.
+
 ## Invocation Response
 
 The response keeps the AgentCore output envelope:
@@ -143,6 +203,7 @@ The response keeps the AgentCore output envelope:
       "caseId": "case_demo_fixture_001"
     },
     "structuredReport": {},
+    "progress": {},
     "run": {}
   }
 }
@@ -182,10 +243,13 @@ Important `output.persistence` fields:
 | `tableName` | DynamoDB table name when configured. |
 | `caseId` | Partition key used for the stored item. |
 
+Important `output.progress` fields are documented in [Run Progress Contract](#run-progress-contract). Progress readback is part of the AgentCore invocation/report lookup envelope; it is not a standalone product API.
+
 The DynamoDB item uses `caseId` as the partition key and stores:
 
 - `schemaVersion: 3d-rams.report-store.v1`;
 - report metadata and workflow status;
+- `progress` with the safe `3d-rams.run-progress.v1` state object;
 - `reportAccessBinding` with hashed subject/session references and optional expiry metadata;
 - `authorizationBinding` with non-secret ASI/ASI:ONE session or pre-hashed subject/organization references for audit/debug summary;
 - bounded `evidenceSummary`, `materialEvidenceSummary`, `citationMetadata`, and `traceSummary`;

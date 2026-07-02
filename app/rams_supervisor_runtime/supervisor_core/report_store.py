@@ -26,6 +26,12 @@ class ReportStoreError(RuntimeError):
     pass
 
 
+PROGRESS_STATUSES = {"queued", "running", "waiting_for_location_confirmation", "completed", "failed"}
+PROGRESS_SCHEMA_VERSION = "3d-rams.run-progress.v1"
+_MAX_PROGRESS_TRACE_STEPS = 12
+_MAX_PROGRESS_TEXT = 280
+
+
 def persist_report(
     output: dict[str, Any],
     *,
@@ -129,10 +135,11 @@ def load_report(
                     "reportAccess": binding_decision,
                     "reviewGate": item.get("reviewGate"),
                     "reviewMetadata": item.get("reviewMetadata"),
+                    "progress": build_run_progress(item),
                     "evidenceSummary": item.get("evidenceSummary"),
                     "materialEvidenceSummary": item.get("materialEvidenceSummary"),
                     "citationMetadata": item.get("citationMetadata"),
-                    "traceSummary": item.get("traceSummary"),
+                    "traceSummary": _progress_trace_summary(item.get("traceSummary")),
                     "persistence": {
                         "mode": "dynamodb",
                         "status": "loaded",
@@ -166,6 +173,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
     if not case_id:
         raise ReportStoreError("caseId is required before writing a report store item.")
 
+    updated_at = datetime.now(timezone.utc).isoformat()
     run = output.get("run") if isinstance(output.get("run"), dict) else {}
     report = output.get("structuredReport") if isinstance(output.get("structuredReport"), dict) else {}
     stored_run = _storage_safe_run(run)
@@ -181,10 +189,11 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
         "schemaVersion": "3d-rams.report-store.v1",
         "recordType": "case-correlated-report-evidence",
         "caseId": case_id,
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": updated_at,
         "reportId": _text(report.get("reportId")) or _text(run.get("runId")),
         "reportStatus": _text(output.get("reportStatus")) or _text(report.get("status")) or "unknown",
         "workflowMode": _text(output.get("workflowMode")) or _text(report.get("workflowMode")) or "unknown",
+        "progress": build_run_progress(output, updated_at=updated_at),
         "authorizationBinding": build_authorization_binding(output),
         "siteLabel": _text(location.get("label")) or _report_site_label(report),
         "safetyLevel": _text(safety.get("level")) or _report_safety_level(report),
@@ -232,6 +241,50 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
     return _dynamo_safe(item)
 
 
+def build_run_progress(source: dict[str, Any], *, updated_at: str | None = None) -> dict[str, Any]:
+    explicit = source.get("progress") if isinstance(source.get("progress"), dict) else {}
+    run = source.get("run") if isinstance(source.get("run"), dict) else {}
+    report = source.get("structuredReport") if isinstance(source.get("structuredReport"), dict) else {}
+    runtime = run.get("runtime") if isinstance(run.get("runtime"), dict) else {}
+    observability = (
+        explicit.get("runtimeObservability")
+        if isinstance(explicit.get("runtimeObservability"), dict)
+        else source.get("runtimeObservability")
+        if isinstance(source.get("runtimeObservability"), dict)
+        else runtime.get("runtimeObservability")
+        if isinstance(runtime.get("runtimeObservability"), dict)
+        else {}
+    )
+    status = _progress_status(_text(explicit.get("status")) or _text(source.get("reportStatus")) or _text(report.get("status")), run, report)
+    trace_summary = _progress_trace_summary(
+        explicit.get("traceSummary")
+        if isinstance(explicit.get("traceSummary"), list)
+        else source.get("traceSummary")
+        if isinstance(source.get("traceSummary"), list)
+        else _trace_summary(run)
+    )
+    progress = {
+        "schemaVersion": PROGRESS_SCHEMA_VERSION,
+        "caseId": _text(explicit.get("caseId")) or _text(source.get("caseId")) or _text(run.get("caseId")) or _text(report.get("caseId")),
+        "runId": _text(explicit.get("runId")) or _text(run.get("runId")) or _text(source.get("reportId")),
+        "status": status,
+        "currentStep": _progress_current_step(explicit, status, trace_summary),
+        "createdAt": _text(explicit.get("createdAt")) or _text(source.get("createdAt")),
+        "updatedAt": _text(explicit.get("updatedAt")) or updated_at or _text(source.get("updatedAt")) or datetime.now(timezone.utc).isoformat(),
+        "modelCallCount": _int_or_none(explicit.get("modelCallCount"))
+        if explicit.get("modelCallCount") is not None
+        else _int_or_none(observability.get("modelCallCount"))
+        if isinstance(observability, dict)
+        else None,
+        "fallbackReason": _bounded_text(explicit.get("fallbackReason"))
+        or _bounded_text(observability.get("fallbackReason") if isinstance(observability, dict) else None)
+        or _bounded_text(runtime.get("fallbackReason")),
+        "errorSummary": _bounded_text(explicit.get("errorSummary")) or _bounded_text(_nested_mapping(source, "persistence").get("message")),
+        "traceSummary": trace_summary,
+    }
+    return {key: value for key, value in progress.items() if value not in (None, "", [])}
+
+
 def build_authorization_binding(output: dict[str, Any]) -> dict[str, Any]:
     run = output.get("run") if isinstance(output.get("run"), dict) else {}
     report = output.get("structuredReport") if isinstance(output.get("structuredReport"), dict) else {}
@@ -270,6 +323,63 @@ def build_authorization_binding(output: dict[str, Any]) -> dict[str, Any]:
         "confirmedByUser": bool(upstream.get("confirmedByUser")) if upstream else None,
         "bindingStatus": "bound_to_entry_context" if identity_bound else "dev_unbound_record",
     }
+
+
+def _progress_status(value: str | None, run: dict[str, Any], report: dict[str, Any]) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in PROGRESS_STATUSES:
+        return normalized
+    if run or report:
+        return "completed"
+    if normalized in {"lookup_error", "error", "blocked"}:
+        return "failed"
+    return "running"
+
+
+def _progress_current_step(explicit: dict[str, Any], status: str, trace_summary: list[dict[str, Any]]) -> str:
+    explicit_step = _bounded_text(explicit.get("currentStep"))
+    if explicit_step:
+        return explicit_step
+    for step in reversed(trace_summary):
+        name = _bounded_text(step.get("name")) or _bounded_text(step.get("id"))
+        if name:
+            return name
+    return {
+        "queued": "queued_for_supervisor",
+        "running": "supervisor_running",
+        "waiting_for_location_confirmation": "confirm_location_before_launch",
+        "completed": "report_ready",
+        "failed": "run_failed",
+    }[status]
+
+
+def _progress_trace_summary(value: Any) -> list[dict[str, Any]]:
+    summaries = []
+    for step in value if isinstance(value, list) else []:
+        if not isinstance(step, dict):
+            continue
+        summary = {
+            "id": _bounded_text(step.get("id")),
+            "name": _bounded_text(step.get("name")),
+            "status": _bounded_text(step.get("status")),
+            "caseId": _bounded_text(step.get("caseId")),
+            "sourceIds": _string_list(step.get("sourceIds"))[:8],
+            "evidenceIds": _string_list(step.get("evidenceIds"))[:8],
+            "fallbackReason": _bounded_text(step.get("fallbackReason")),
+            "cloudWatchSpanName": _bounded_text(step.get("cloudWatchSpanName")),
+        }
+        summaries.append({key: item for key, item in summary.items() if item not in (None, "", [])})
+    return summaries[-_MAX_PROGRESS_TRACE_STEPS:]
+
+
+def _bounded_text(value: Any) -> str | None:
+    text = _text(value)
+    if not text:
+        return None
+    if len(text) <= _MAX_PROGRESS_TEXT:
+        return text
+    return f"{text[: _MAX_PROGRESS_TEXT - 1]}..."
+
 
 def _dynamodb_table(table_name: str) -> DynamoTable:
     try:

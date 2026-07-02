@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -240,7 +241,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     trace = _correlate_trace(trace, case_id)
 
     run = {
-        "runId": "demo1-local-run",
+        "runId": f"run_{uuid.uuid4().hex[:12]}",
         "caseId": case_id,
         "upstream": upstream_context,
         "request": request_summary,
