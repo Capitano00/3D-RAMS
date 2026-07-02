@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -84,6 +86,9 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertFalse(text.lstrip().startswith("{"))
         self.assertNotIn('"entryAgent"', text)
         return text
+
+    def patch_env(self, **updates: str):
+        return mock.patch.dict(os.environ, updates, clear=False)
 
     def test_rejects_unconfirmed_entry_payload(self):
         payload = confirmed_entry_payload()
@@ -445,6 +450,44 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(entry["intakeMode"], "llm")
         self.assertEqual(entry["intake"]["locationText"], "Model Parsed Site")
         self.assertIn("Model Parsed Site", self.assert_user_readable_response(response))
+
+    def test_entry_selects_openai_compatible_intake_from_env(self):
+        with self.patch_env(
+            ENTRY_INTAKE_PROVIDER="openai",
+            OPENAI_BASE_URL="https://example.invalid/v1",
+            OPENAI_API_KEY="test-key",
+            OPENAI_MODEL="gpt-5.4-mini",
+            ENTRY_INTAKE_MOCK_RESPONSE=json.dumps(
+                {
+                    "status": "confirmation_required",
+                    "assistantMessage": "Please confirm launch.",
+                    "confirmation": {"summary": "Confirm Model Parsed Site."},
+                    "intake": {
+                        "locationText": "Model Parsed Site",
+                        "locationCandidate": {"label": "Model Parsed Site", "lat": 51.5, "lng": -0.12, "confidence": 0.91},
+                        "areaScope": {"type": "radius", "meters": 1200},
+                        "userGoal": "inspection pre-review",
+                        "userNotes": "Parsed by mock OpenAI-compatible model.",
+                        "materials": [],
+                    },
+                }
+            ),
+        ):
+            response = handle_invocation(
+                {
+                    "entryTurn": True,
+                    "caller": "agentverse",
+                    "message": "Please inspect the site by the river.",
+                    "conversationId": "openai-model-case-test",
+                    "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": True},
+                },
+                supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                invoke_runtime=lambda **_: self.fail("supervisor should not be invoked before confirmation"),
+            )
+
+        observability = response["output"]["entryAgent"]["runtimeObservability"]
+        self.assertEqual(observability["modelProvider"], "openai-compatible")
+        self.assertEqual(observability["modelId"], "gpt-5.4-mini")
 
     def test_entry_raw_message_confirmation_then_launch(self):
         calls: list[dict] = []

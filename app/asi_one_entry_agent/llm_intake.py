@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
+import urllib.request
 from typing import Any, Callable
 
 
@@ -16,7 +18,7 @@ def should_use_llm_intake(payload: dict[str, Any]) -> bool:
     runtime_options = payload.get("runtimeOptions") if isinstance(payload.get("runtimeOptions"), dict) else {}
     if runtime_options.get("useBedrock") is False:
         return False
-    return mode in {"llm_first", "bedrock", "model"}
+    return mode in {"llm_first", "bedrock", "openai", "model"}
 
 
 def deterministic_fallback_enabled() -> bool:
@@ -75,6 +77,52 @@ def bedrock_intake_model_json(prompt: dict[str, Any]) -> dict[str, Any]:
         for block in response.get("output", {}).get("message", {}).get("content", [])
         if isinstance(block, dict)
     )
+    return _extract_json_object(text)
+
+
+def openai_intake_model_json(prompt: dict[str, Any]) -> dict[str, Any]:
+    mock_response = os.getenv("ENTRY_INTAKE_MOCK_RESPONSE")
+    if mock_response:
+        return _coerce_json_object(mock_response)
+
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip().rstrip("/")
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not base_url or not api_key:
+        raise IntakeLLMError("OPENAI_BASE_URL and OPENAI_API_KEY are required for OpenAI-compatible entry intake.")
+
+    model_id = os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "gpt-5.4-mini"
+    timeout = _int_env("ENTRY_INTAKE_TIMEOUT_SECONDS", 20)
+    body = json.dumps(
+        {
+            "model": model_id,
+            "messages": [{"role": "user", "content": _prompt_text(prompt)}],
+            "max_tokens": _int_env("ENTRY_INTAKE_MAX_TOKENS", 1800),
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise IntakeLLMError(f"OpenAI-compatible entry intake failed: {type(exc).__name__}") from exc
+
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        raise IntakeLLMError("OpenAI-compatible entry intake response did not include choices.")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        text = "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+    else:
+        text = str(content or "")
     return _extract_json_object(text)
 
 
@@ -159,5 +207,8 @@ def select_model_json(
     if explicit_model_json is not None:
         return explicit_model_json
     if should_use_llm_intake(payload):
+        provider = os.getenv("ENTRY_INTAKE_PROVIDER", "").strip().lower()
+        if provider == "openai" or (not provider and os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY")):
+            return openai_intake_model_json
         return bedrock_intake_model_json
     return None

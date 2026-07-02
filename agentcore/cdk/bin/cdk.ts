@@ -7,7 +7,7 @@ import * as fs from 'fs';
 
 function toEnvironment(target: AwsDeploymentTarget): Environment {
   return {
-    account: target.account,
+    account: target.account === '000000000000' ? (process.env.AWS_ACCOUNT_ID || process.env.CDK_DEFAULT_ACCOUNT || target.account) : target.account,
     region: target.region,
   };
 }

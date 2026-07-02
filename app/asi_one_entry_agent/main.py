@@ -722,11 +722,14 @@ def _entry_runtime_observability(
 ) -> dict[str, Any]:
     runtime_options = payload.get("runtimeOptions") if isinstance(payload.get("runtimeOptions"), dict) else {}
     intake_mode = str(intake_result.get("intakeMode") or "unknown")
-    uses_bedrock_model = getattr(selected_model_json, "__name__", "") == "bedrock_intake_model_json"
+    model_json_name = getattr(selected_model_json, "__name__", "")
+    uses_bedrock_model = model_json_name == "bedrock_intake_model_json"
+    uses_openai_model = model_json_name == "openai_intake_model_json"
     summary = {
         "schemaVersion": "3d-rams.runtime-observability.v1",
         "modelPath": f"entry-{intake_mode}",
-        "modelId": _entry_model_id() if uses_bedrock_model else None,
+        "modelId": _entry_model_id() if uses_bedrock_model or uses_openai_model else None,
+        "modelProvider": "openai-compatible" if uses_openai_model else ("bedrock" if uses_bedrock_model else None),
         "awsRegion": os.getenv("AWS_REGION", "eu-west-2") if uses_bedrock_model else None,
         "modelCallCount": 1 if selected_model_json is not None and intake_mode in {"llm", "fallback"} else 0,
         "latencyMs": latency_ms,
@@ -753,7 +756,7 @@ def _blocked_entry_observability(runtime_options: dict[str, Any], reason: str) -
 
 
 def _entry_model_id() -> str:
-    return os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
+    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
 
 
 def _delivery_assistant_message(delivery: dict[str, Any]) -> str:
