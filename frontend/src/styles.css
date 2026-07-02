@@ -370,6 +370,47 @@ textarea {
   margin-top: 4px;
 }
 
+.scene-context {
+  display: grid;
+  gap: 6px;
+}
+
+.scene-context small {
+  color: #4d625b;
+  font-size: 0.78rem;
+}
+
+.scene-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-badge {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #eef4f1;
+  color: #37524a;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.source-badge strong {
+  color: inherit;
+  text-transform: uppercase;
+}
+
+.source-badge em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: inherit;
+  font-style: normal;
+}
+
 .marker-key {
   display: grid;
   gap: 4px;
@@ -624,7 +665,9 @@ textarea {
 .status.warning,
 .status.review_required,
 .status.caveats,
-.status.fallback {
+.status.fallback,
+.source-badge.fallback,
+.source-badge.warning {
   background: #fff5df;
   color: #8a5600;
 }
@@ -634,12 +677,17 @@ textarea {
 .status.cached,
 .status.ready,
 .status.passed,
-.status.real {
+.status.real,
+.status.fixture,
+.source-badge.cached,
+.source-badge.real,
+.source-badge.fixture {
   background: #eefaf6;
   color: #075e4e;
 }
 
-.status.blocked {
+.status.blocked,
+.source-badge.blocked {
   background: #fff4ed;
   color: #8a2d10;
 }
