@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from rams_agent_tools.planner_context import public_upstream_context, redact_for_public_output
 
+from .dogfood_summary import build_dogfood_summary
 from .report_access import (
     authorize_report_lookup,
     build_report_access_binding,
@@ -137,6 +138,7 @@ def load_report(
                     "reportAccess": binding_decision,
                     "reviewGate": item.get("reviewGate"),
                     "reviewMetadata": item.get("reviewMetadata"),
+                    "dogfoodSummary": item.get("dogfoodSummary"),
                     "progress": build_run_progress(item),
                     "evidenceSummary": item.get("evidenceSummary"),
                     "materialEvidenceSummary": item.get("materialEvidenceSummary"),
@@ -190,6 +192,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     observability = _runtime_observability(run, report)
+    dogfood_summary = _dogfood_summary(output, run, report)
 
     item = {
         "schemaVersion": "3d-rams.report-store.v1",
@@ -221,6 +224,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
         "citationMetadata": _citation_metadata(run, report),
         "traceSummary": _trace_summary(run),
         "runtimeObservability": observability,
+        "dogfoodSummary": dogfood_summary,
         "retention": _retention_metadata(),
         "redaction": {
             "rawPrivateMaterialPersisted": False,
@@ -237,6 +241,7 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
             "runId": _text(run.get("runId")),
             "runtime": run.get("runtime") if isinstance(run.get("runtime"), dict) else {},
             "runtimeObservability": observability,
+            "dogfoodSummary": dogfood_summary,
             "location": location,
             "briefingHeadline": _text(briefing.get("headline")),
         },
@@ -738,6 +743,7 @@ def _storage_safe_run(run: dict[str, Any]) -> dict[str, Any]:
         "materialIngestion",
         "reviewGate",
         "reviewMetadata",
+        "dogfoodSummary",
         "finalReportStatus",
         "fallback",
         "externalSignals",
@@ -752,6 +758,13 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _dogfood_summary(output: dict[str, Any], run: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    for candidate in (output.get("dogfoodSummary"), run.get("dogfoodSummary"), report.get("dogfoodSummary")):
+        if isinstance(candidate, dict):
+            return candidate
+    return build_dogfood_summary(run, report)
 
 
 def _report_site_label(report: dict[str, Any]) -> str | None:

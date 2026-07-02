@@ -4,6 +4,7 @@ from typing import Any
 
 from rams_agent_tools.planner_context import public_upstream_context, redact_for_public_output
 
+from .dogfood_summary import build_dogfood_summary
 from .schemas import (
     Coordinate,
     DataQuality,
@@ -34,6 +35,7 @@ def build_structured_report(
     trace = _list(redact_for_public_output(run.get("trace")))
     reasoning = _dict(run.get("reasoning"))
 
+    dogfood_summary = _dict(run.get("dogfoodSummary")) or build_dogfood_summary(run)
     report = StructuredReport(
         reportId=str(run.get("runId") or "unknown-run"),
         caseId=run.get("caseId") or request.get("caseId"),
@@ -55,6 +57,7 @@ def build_structured_report(
         ),
         reviewGate=_build_review_gate(run, safety, reasoning),
         dataQuality=_build_data_quality(run, runtime, trace, briefing, reasoning),
+        dogfoodSummary=dogfood_summary,
         externalSignals=_dict(redact_for_public_output(run.get("externalSignals"))),
         materialIngestion=_dict(redact_for_public_output(run.get("materialIngestion"))),
         trace=trace,
@@ -121,6 +124,7 @@ def _build_runtime(runtime: dict[str, Any]) -> ReportRuntime:
         materialSkippedCount=int(runtime.get("materialSkippedCount") or 0),
         harnessOutputSchemaVersion=runtime.get("harnessOutputSchemaVersion"),
         harnessContract=_dict(runtime.get("harnessContract")),
+        executionFailureSummaries=_list(runtime.get("executionFailureSummaries")),
         repairAttemptCount=int(runtime.get("repairAttemptCount") or 0),
         repairStopReason=runtime.get("repairStopReason"),
         repairIssueCount=int(runtime.get("repairIssueCount") or 0),

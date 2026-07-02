@@ -251,6 +251,26 @@ class OpenAIGatewayTests(unittest.TestCase):
         observability = runtime_observability(runtime, result)
         self.assertEqual(observability["tokenUsage"], expected_usage)
 
+    def test_runtime_observability_includes_execution_failure_summaries(self):
+        failure_summary = {
+            "schemaVersion": "3d-rams.execution-bound-failure.v1",
+            "category": "harness_tool_loop_cap_exceeded",
+            "subagentGroup": "planning_subagent",
+            "harness": "rams_planning_harness",
+            "fallbackReason": "agentcore_harness_tool_loop_cap_exceeded",
+            "deterministicFallbackUsed": True,
+            "errorSummary": "AgentCore Harness stopped after the bounded local tool-loop cap; deterministic fallback output was used.",
+        }
+        runtime = openai_config().public_runtime(status="fallback")
+        runtime["plannerMode"] = "fallback"
+        runtime["activeAgentMode"] = "deterministic-planner-fallback"
+        runtime["modelCallCount"] = 0
+        runtime["executionFailureSummaries"] = [failure_summary]
+
+        observability = runtime_observability(runtime, {})
+
+        self.assertEqual(observability["executionFailureSummaries"], [failure_summary])
+
     def test_text_material_extraction_uses_openai_compatible_gateway(self):
         with mock.patch(
             "rams_agent_tools.bedrock_adapter.urllib.request.urlopen",

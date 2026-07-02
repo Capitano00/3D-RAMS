@@ -204,6 +204,12 @@ Known `output.progress` fields:
 
 When a confirmed supervisor run completes, `output.progress.status` is `completed` and lookup still returns the existing `output.run` and `output.structuredReport` payloads. While the entry agent is waiting for location/user confirmation before launch, `output.progress.status` is `waiting_for_location_confirmation` and `output.run` remains `null`. Failed or partial progress records must return only safe bounded summaries, not raw prompts or private identity/access context.
 
+### Execution-Bound Failure Summaries
+
+Completed supervisor runs may include `output.run.runtime.executionFailureSummaries`, `output.structuredReport.runtime.executionFailureSummaries`, and `runtimeObservability.executionFailureSummaries` when AgentCore Harness execution hits a bounded failure and deterministic fallback output is used.
+
+Each item uses `schemaVersion: "3d-rams.execution-bound-failure.v1"` and contains only public-safe fields: `category`, `subagentGroup`, `harness`, `fallbackReason`, `deterministicFallbackUsed`, optional `errorType`, and `errorSummary`. Supported categories are `harness_invocation_failure` for timeout/invocation fallback and `harness_tool_loop_cap_exceeded` for the local Harness inline tool-loop cap. These summaries must not include raw prompts, private material content, signed URLs, access assertions, credentials, hidden reasoning, client data, or local planning notes.
+
 ## Invocation Response
 
 The response keeps the AgentCore output envelope:
@@ -222,6 +228,11 @@ The response keeps the AgentCore output envelope:
     },
     "structuredReport": {},
     "progress": {},
+    "dogfoodSummary": {
+      "schemaVersion": "3d-rams.dogfood-summary.v1",
+      "tags": ["output_quality_gap"],
+      "recommendedNextRegressionTest": "add_output_quality_regression"
+    },
     "run": {}
   }
 }
@@ -247,10 +258,13 @@ Important `output.structuredReport` fields:
 | `reasoning` | Inspectable supervisor evidence-use decisions, report-fit status, gaps, conflicts, and review questions. |
 | `reviewGate` | Independent review output with decision, status, issues, caveats, and bounded revision count. |
 | `dataQuality` | Completeness flags, warnings, and gaps surfaced by fixture fallback, disabled data, or limitations. |
+| `dogfoodSummary` | Public-safe dogfood triage tags and a deterministic next regression-test hint. |
 | `externalSignals` | Placeholder for future Tavily/open-web signals. Current prototype marks this as `not_configured`. |
 | `trace` | Ordered tool timeline for debugging and evidence inspection. |
 
 The trace is case-correlated. Each supervisor trace step includes `caseId`, and the step `output` includes the same id where the output is an object. This is the field to map into future CloudWatch search and trace correlation.
+
+`output.dogfoodSummary` is duplicated in `output.structuredReport.dogfoodSummary`, `output.run.dogfoodSummary`, and the report-store item for teammate dogfood triage. It is derived only from existing public-safe run/report metadata: location confirmation status, trace/runtime fallback status, review gate, safety status, data-quality gaps, and runtime observability. Current tags are fixed to `location_evidence_needed`, `confirmation_pending`, `fallback_used`, `safety_blocked`, `review_rework_needed`, and `output_quality_gap`. The `recommendedNextRegressionTest` value is a deterministic hint for the next test to add; it must not change report publication, review, safety, or access decisions.
 
 Important `output.persistence` fields:
 
@@ -271,9 +285,10 @@ The DynamoDB item uses `caseId` as the partition key and stores:
 - `reportAccessBinding` with hashed subject/session references and optional expiry metadata;
 - `authorizationBinding` with non-secret ASI/ASI:ONE session or pre-hashed subject/organization references for audit/debug summary;
 - bounded `evidenceSummary`, `materialEvidenceSummary`, `citationMetadata`, and `traceSummary`;
+- bounded `dogfoodSummary` tags and the next regression-test hint;
 - the generated `structuredReport` and `run` payloads for detailed lookup.
 
-The record deliberately excludes raw ASI identity tokens, raw private material content, signed material URLs, shared access codes, AWS credentials, AgentCore secrets, and certified/approval-to-work claims. `caseId` is a correlation key, not a bearer token.
+The record deliberately excludes raw prompts, raw user messages, private session ids, raw ASI identity tokens, raw private material content, signed material URLs, shared access codes, AWS credentials, AgentCore secrets, and certified/approval-to-work claims. `caseId` is a correlation key, not a bearer token.
 
 Retention is explicit metadata on the item. `RAMS_REPORT_STORE_TTL_DAYS` can be used to publish an intended TTL value in the record; DynamoDB TTL/index wiring remains an infrastructure decision. Until that infrastructure exists, stored records must be treated as human-review demo evidence/report records and not production audit records.
 
