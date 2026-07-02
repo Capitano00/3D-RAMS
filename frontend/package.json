@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test:scene-context": "node src/sceneContext.test.js",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
@@ -19,4 +20,3 @@
   },
   "devDependencies": {}
 }
-

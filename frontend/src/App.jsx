@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
+import { sceneModeFrom } from "./sceneContext.js";
 
 const AGENTCORE_URL = import.meta.env.VITE_AGENTCORE_URL || "/agentcore/invocations";
 const CLOUD_ENTRY_PROXY_URL = import.meta.env.VITE_CLOUD_ENTRY_PROXY_URL || "";
@@ -164,7 +165,7 @@ function contractStateFrom({ run, entryResponse, persistence }) {
     locationGate: normalizeLocationGate(locationGateSource(run, entryResponse, output, report), entryResponse),
     repair: normalizeRepair(repairSource(run, output, report)),
     review: normalizeReview(reviewGateFromRun(run) || output.reviewMetadata || output.reviewGate || report?.reviewGate),
-    sceneMode: sceneModeFrom(run, report, persistence),
+    sceneMode: sceneModeFrom(run, report, persistence, entryResponse),
   };
 }
 
@@ -335,27 +336,6 @@ function normalizeReview(reviewGate) {
     stopReason: reviewGate.stopReason || reviewGate.message || "",
     requiresHumanReview: reviewGate.requiresHumanReview !== false,
   };
-}
-
-function sceneModeFrom(run, report, persistence) {
-  const raw =
-    run?.scene?.dataMode ||
-    run?.location?.dataMode ||
-    report?.visualization?.scene?.dataMode ||
-    report?.site?.dataMode ||
-    report?.dataQuality?.dataMode ||
-    run?.runtime?.fixturePackMode ||
-    report?.runtime?.fixturePackMode ||
-    persistence?.status ||
-    "not-run";
-  const text = String(raw);
-  const normalized = text.toLowerCase();
-  if (normalized.includes("cached")) return { value: text, label: "Cached fixture", tone: "cached" };
-  if (normalized.includes("synthetic")) return { value: text, label: "Synthetic fallback", tone: "fallback" };
-  if (normalized.includes("terrain") && normalized.includes("unavailable")) return { value: text, label: "Terrain unavailable", tone: "warning" };
-  if (normalized.includes("live") && normalized.includes("unavailable")) return { value: text, label: "Live unavailable", tone: "warning" };
-  if (normalized.includes("live") || normalized.includes("terrain")) return { value: text, label: "Live/terrain-backed", tone: "real" };
-  return { value: text, label: humanizeToken(text || "not-run"), tone: "warning" };
 }
 
 function statusTone(status) {
@@ -596,6 +576,7 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
         <MapPinned size={24} />
         <span>{sceneMode?.label || "Scene not run"}: map appears after the site is resolved.</span>
         <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Scene not run"}</em>
+        <SceneContextBadges sceneMode={sceneMode} />
       </div>
     );
   }
@@ -618,7 +599,26 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
           </ol>
         )}
         <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Unknown data mode"}</em>
+        <SceneContextBadges sceneMode={sceneMode} />
       </div>
+    </div>
+  );
+}
+
+function SceneContextBadges({ sceneMode }) {
+  const badges = toList(sceneMode?.badges);
+  if (!badges.length) return null;
+  return (
+    <div className="scene-context">
+      <div className="scene-badges" aria-label="Scene source and data mode">
+        {badges.slice(0, 6).map((badge) => (
+          <span className={`source-badge ${badge.tone || "warning"}`} key={`${badge.label}-${badge.value}`}>
+            <strong>{badge.label}</strong>
+            <em>{badge.value}</em>
+          </span>
+        ))}
+      </div>
+      {sceneMode.summary && <small>{sceneMode.summary}</small>}
     </div>
   );
 }
@@ -880,7 +880,13 @@ function WorkflowStatusPanel({ contracts }) {
           <span>Scene data mode</span>
           <strong>{sceneMode.label}</strong>
           <em className={`status ${sceneMode.tone}`}>{sceneMode.value}</em>
-          <p>Map and scene data are labelled as fixture, fallback, unavailable, or live-backed when configured.</p>
+          <MetaRow label="Sources" value={sceneMode.sourceIds?.length ? `${sceneMode.sourceIds.length} source(s)` : ""} />
+          <MetaRow label="Features" value={present(sceneMode.featureCount) ? `${sceneMode.featureCount} mapped feature(s)` : ""} />
+          <MetaRow label="Provider" value={sceneMode.provider} />
+          <MetaRow label="Location source" value={sceneMode.locationSource} />
+          <MetaRow label="Planning" value={sceneMode.planningStatus && humanizeToken(sceneMode.planningStatus)} />
+          <MetaRow label="Fallback" value={sceneMode.fallbackReason} />
+          <small>Review context only; source badges do not make public data authoritative site evidence.</small>
         </article>
       </div>
     </section>
