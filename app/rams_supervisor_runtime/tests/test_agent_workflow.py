@@ -439,6 +439,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         material = retrieved_pdf_material()
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_MOCK_RESPONSE="true",
             BEDROCK_SIMULATE_FAILURE=None,
             MATERIAL_EXTRACTION_MODEL_ID="amazon.nova-lite-v1:0",
@@ -476,6 +477,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         material = retrieved_text_material()
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_MOCK_RESPONSE="true",
             BEDROCK_SIMULATE_FAILURE=None,
             MATERIAL_EXTRACTION_MODEL_ID="amazon.nova-lite-v1:0",
@@ -531,7 +533,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         )
         self.assertEqual(unsupported["skipped"][0]["reason"], "unsupported_format")
 
-        with EnvPatch(ENABLE_BEDROCK="true", BEDROCK_SIMULATE_FAILURE="true", BEDROCK_MOCK_RESPONSE=None):
+        with EnvPatch(ENABLE_BEDROCK="true", RAMS_LLM_PROVIDER="bedrock", BEDROCK_SIMULATE_FAILURE="true", BEDROCK_MOCK_RESPONSE=None):
             failed = ingest_material_references(
                 [retrieved_text_material()],
                 case_id="case_material_extraction_001",
@@ -541,7 +543,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(failed["skipped"][0]["reason"], "extraction_failed")
 
         quiet_material = {**retrieved_text_material(), "materialId": "retrieved_text_quiet", "rawContent": "Meeting agenda only."}
-        with EnvPatch(ENABLE_BEDROCK="true", BEDROCK_MOCK_RESPONSE="true", BEDROCK_SIMULATE_FAILURE=None):
+        with EnvPatch(ENABLE_BEDROCK="true", RAMS_LLM_PROVIDER="bedrock", BEDROCK_MOCK_RESPONSE="true", BEDROCK_SIMULATE_FAILURE=None):
             no_relevant = ingest_material_references(
                 [quiet_material],
                 case_id="case_material_extraction_001",
@@ -834,6 +836,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
     def test_bedrock_mock_mode_updates_briefing_and_trace(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_MOCK_RESPONSE="true",
             BEDROCK_MOCK_UNSAFE_RESPONSE=None,
             AWS_REGION="eu-west-2",
@@ -864,6 +867,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
     def test_bedrock_requested_failure_uses_deterministic_fallback_metadata(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_SIMULATE_FAILURE="true",
             BEDROCK_MOCK_RESPONSE=None,
         ):
@@ -886,6 +890,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
     def test_bedrock_not_requested_ignores_simulated_failure(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_SIMULATE_FAILURE="true",
             BEDROCK_MOCK_RESPONSE=None,
         ):
@@ -928,6 +933,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
     def test_unsafe_bedrock_mock_briefing_is_downgraded_before_review(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_MOCK_RESPONSE="true",
             BEDROCK_MOCK_UNSAFE_RESPONSE="true",
             BEDROCK_MODEL_ID="anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -992,6 +998,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
     def test_bedrock_requested_failure_falls_back_without_blocking_report(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_MOCK_RESPONSE=None,
             BEDROCK_SIMULATE_FAILURE="true",
             BEDROCK_MOCK_UNSAFE_RESPONSE=None,
@@ -1014,6 +1021,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
     def test_bedrock_not_requested_never_uses_bedrock_even_when_env_enabled(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
+            RAMS_LLM_PROVIDER="bedrock",
             BEDROCK_SIMULATE_FAILURE="true",
         ):
             result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})

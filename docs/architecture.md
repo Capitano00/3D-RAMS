@@ -18,7 +18,7 @@ flowchart LR
     Agent --> Hazards["Extract candidate hazard notes"]
     Agent --> Annotations["Create 3D annotations"]
     Agent --> Brief["Generate deterministic briefing"]
-    Agent --> BedrockBrief["Optional Bedrock briefing"]
+    Agent --> LiveBrief["Optional OpenAI-compatible briefing"]
     Agent --> Safety["Safety gate"]
     Safety --> Output["Scene, briefing, evidence, trace, visualizer"]
     Output --> UI
@@ -122,32 +122,32 @@ sequenceDiagram
     A->>A: extract_hazard_notes
     A->>A: create_annotations
     A->>A: generate_site_brief
-    A->>A: generate_bedrock_briefing if enabled
+    A->>A: generate_bedrock_briefing if live model enabled
     A->>A: safety_gate
     A-->>API: JSON run object
     API-->>UI: scene, briefing, evidence, sources, trace, architecture
     UI-->>U: 3D briefing and workflow visualizer
 ```
 
-## Bedrock Briefing Path
+## OpenAI-Compatible Live Model Path
 
 ```mermaid
 sequenceDiagram
     participant A as Agent Runtime
     participant Adapter as Model Adapter
-    participant Bedrock as Amazon Bedrock
+    participant Gateway as OpenAI-compatible gateway
     participant Safety as Guardrails and Human Review
     participant Obs as CloudWatch
 
     A->>Adapter: Create structured briefing task
-    Adapter->>Bedrock: Invoke model with structured evidence prompt
-    Bedrock-->>Adapter: Draft extraction or briefing
+    Adapter->>Gateway: Invoke model with structured evidence prompt
+    Gateway-->>Adapter: Draft extraction or briefing
     Adapter->>Safety: Check unsafe claims and review requirement
     Safety-->>A: allow, block, or require approval
     A->>Obs: Emit trace, latency, status, and evidence ids
 ```
 
-Demo1 can run without Bedrock, but it now has a live Bedrock briefing path when `ENABLE_BEDROCK=true`. The deterministic briefing remains the fallback, and the Bedrock step is limited to one model call per agent run. The default UI uses the cached `public-lambeth-thames` pack anchored on 8 Albert Embankment. Runtime does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services.
+Demo1 can run without live model credentials, but hosted runtime can use the team's OpenAI-compatible gateway when `ENABLE_LIVE_MODEL=true`, `RAMS_LLM_PROVIDER=openai`, and gateway credentials are configured. The deterministic briefing remains the fallback. The default UI uses the cached `public-lambeth-thames` pack anchored on 8 Albert Embankment. Runtime does not call live Planning Data, OpenStreetMap, Environment Agency, Lambeth, TfL, Google, or OS services.
 
 ## Evidence, Trace, And Observability Flow
 
@@ -183,7 +183,7 @@ flowchart TB
     Block --> UIBlock["Show refusal and no annotations"]
     Review --> UIReview["Show briefing, limitations, and human-review boundary"]
     Review -. "future" .-> HITL["Human approval queue"]
-    Classify -. "future" .-> Guardrails["Bedrock Guardrails"]
+    Classify -. "future" .-> Guardrails["Policy guardrails"]
 ```
 
 The safety gate is deliberately visible. Judges and teammates should be able to see where the agent refuses high-risk claims and where a human review point would sit in production.
@@ -192,13 +192,13 @@ The safety gate is deliberately visible. Judges and teammates should be able to 
 
 | Area | Current Source | Current Status | Visible In UI | Production AWS Mapping | Upgrade Risk |
 | --- | --- | --- | --- | --- | --- |
-| Agent loop | AgentCore Python runtime | Real deterministic code plus optional Bedrock briefing | Tool timeline and trace | Bedrock model/tool planning | Model variability and evaluation |
+| Agent loop | AgentCore Python runtime | Real deterministic code plus optional OpenAI-compatible briefing | Tool timeline and trace | Hosted model/tool planning | Model variability and evaluation |
 | Public fixture pack | `fixtures/public-lambeth-thames` | Cached public-source metadata and attribution files | Source register, evidence, trace, briefing | S3 source pack plus source registry | Source freshness, licence handling, and overclaiming |
 | Request state | Browser form payload plus optional `caseId` report-store item | Real; DynamoDB write only when configured; lookup requires ASI/ASI:ONE identity or authorized session context | Run overview | DynamoDB report metadata keyed by `caseId` plus hashed report-access binding | Data privacy, retention, and access control |
 | 3D viewer | React/Vite + CesiumJS | Real token-free local scene plus overlay | 3D scene | Static frontend plus API runtime | Performance on low-power devices |
 | Geospatial features | Synthetic fixture or cached public pack | Mocked, cached-public, or fallback | Sources and annotations | S3 source object plus live geospatial APIs | Licensing, freshness, key management |
-| Planning context | Synthetic fixture or cached public pack | Synthetic, cached-public, or unavailable | Sources, evidence, briefing limits | S3 documents plus Bedrock extraction | Scraping reliability and citations |
-| Bedrock briefing | Amazon Bedrock when configured | Optional live AWS call with deterministic fallback | Runtime mode, trace, and briefing | Evaluated Bedrock adapter with CloudWatch traces | Cost, model access, latency, and fallback quality |
+| Planning context | Synthetic fixture or cached public pack | Synthetic, cached-public, or unavailable | Sources, evidence, briefing limits | S3 documents plus gateway-backed extraction | Scraping reliability and citations |
+| Live model briefing | OpenAI-compatible hosted gateway when configured | Optional live call with deterministic fallback | Runtime mode, trace, and briefing | Evaluated gateway adapter with CloudWatch traces | Cost, model access, latency, and fallback quality |
 | Safety gate | Python rules | Real Demo1 policy | Safety pill and visualizer | Guardrails plus human review queue | Overclaiming or hidden unsafe edge cases |
 | Evidence register | API response | Real response object | Evidence cards | S3 evidence pack | Source traceability |
 | Observability | JSON trace | Real response object | Trace and visualizer | CloudWatch logs, metrics, traces | Noise and cost control |
@@ -225,8 +225,8 @@ flowchart TB
     Edge --> Proxy
     Proxy --> Entry["asi_one_entry_agent"]
     Entry --> Runtime["rams_supervisor_runtime"]
-    Runtime --> Bedrock["Amazon Bedrock briefing generation"]
-    Runtime --> Guardrails["Bedrock Guardrails"]
+    Runtime --> Gateway["OpenAI-compatible model gateway"]
+    Runtime --> Guardrails["Policy guardrails"]
     Runtime --> DDB["DynamoDB report store by caseId + access binding"]
     Runtime --> S3["S3 evidence packs and source documents"]
     Runtime --> CloudWatch["CloudWatch logs, metrics, traces"]
@@ -245,7 +245,7 @@ Core fields:
 
 - `request`: submitted site name, coordinate, goal, toggles, and additional request;
 - `sources`: real, mocked, fallback, unavailable, and future source register;
-- `runtime`: deterministic, Bedrock, disabled, or fallback briefing mode;
+- `runtime`: deterministic, OpenAI-compatible, disabled, or fallback briefing mode;
 - `trace`: ordered tool calls with source ids, evidence ids, fallback reason, model metadata, and AWS mapping;
 - `evidence`: evidence register shown to the user;
 - `safety`: allow/block decision, triggered rules, review requirement, and decision id;

@@ -1,5 +1,7 @@
 # dev-chunteng Branch Handoff
 
+Provider note: issue #70 supersedes the older Bedrock live-model guidance in this handoff. Current hosted live-model testing should use the OpenAI-compatible gateway path; `bedrock-agentcore` names are AgentCore runtime plumbing only.
+
 This document is the merge handoff for the AgentCore architecture branch. It is intended to be read before merging product-prototype work into this branch or before asking another Codex session to reconcile this branch with another line of work.
 
 ## Branch Purpose

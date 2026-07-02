@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1320" height="560" viewBox="0 0 1320 560" role="img" aria-labelledby="title desc">
   <title id="title">3D-RAMS query-to-brief architecture flow</title>
-  <desc id="desc">User submits a coordinate and options to a React UI and AgentCore invocation endpoint. A deterministic agent loop runs fixture-backed tools, can optionally call Amazon Bedrock once for briefing text, passes through a safety gate, returns an inspectable review pack, and can later emit observability to AWS with human review in the loop.</desc>
+  <desc id="desc">User submits a coordinate and options to a React UI and AgentCore invocation endpoint. A deterministic agent loop runs fixture-backed tools, can optionally call an OpenAI-compatible hosted gateway for briefing text, passes through a safety gate, returns an inspectable review pack, and can later emit observability to AWS with human review in the loop.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" />
@@ -31,7 +31,7 @@
 
   <rect class="bg" width="1320" height="560" />
   <text class="title" x="48" y="54">3D-RAMS Architecture At A Glance</text>
-  <text class="subtitle" x="48" y="80">Coordinate input to inspectable 3D pre-visit briefing pack, with deterministic evidence flow, optional Bedrock drafting, safety gate, and future AWS observability.</text>
+  <text class="subtitle" x="48" y="80">Coordinate input to inspectable 3D pre-visit briefing pack, with deterministic evidence flow, optional hosted model drafting, safety gate, and future AWS observability.</text>
 
   <rect class="lane" x="40" y="112" width="308" height="324" rx="18" />
   <rect class="lane" x="372" y="112" width="188" height="324" rx="18" />
@@ -75,8 +75,8 @@
   <text class="small" x="822" y="347">Trace + fallback output</text>
 
   <rect class="node node-ai" x="612" y="288" width="154" height="66" rx="14" />
-  <text class="label" x="634" y="315">Optional Bedrock</text>
-  <text class="small" x="634" y="335">One briefing call per run</text>
+  <text class="label" x="634" y="315">Hosted model</text>
+  <text class="small" x="634" y="335">OpenAI-compatible</text>
 
   <rect class="node node-safety" x="612" y="370" width="154" height="66" rx="14" />
   <text class="step" x="634" y="397">05</text>
@@ -108,6 +108,6 @@
   <path class="arrow" d="M766 403 H1060" />
   <path class="arrow-future" d="M1256 398 H1276 V268 H1256" />
 
-  <text class="note" x="48" y="480">Demo1 boundary: deterministic evidence flow with public-safe fixtures and optional one-call Bedrock drafting. Future AWS observability and human review are planned paths, not live production claims.</text>
+  <text class="note" x="48" y="480">Demo1 boundary: deterministic evidence flow with public-safe fixtures and optional OpenAI-compatible drafting. Future AWS observability and human review are planned paths, not live production claims.</text>
   <text class="note" x="48" y="502">The review pack is for human pre-visit review only. It does not certify RAMS, approve work, provide emergency guidance, scrape live planning portals, or use real client data.</text>
 </svg>

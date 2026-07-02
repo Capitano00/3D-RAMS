@@ -164,7 +164,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start == -1 or end <= start:
-        raise IntakeLLMError("Bedrock entry intake response did not contain a JSON object.")
+        raise IntakeLLMError("Entry intake model response did not contain a JSON object.")
     return _coerce_json_object(stripped[start : end + 1])
 
 
@@ -172,9 +172,9 @@ def _coerce_json_object(raw: str) -> dict[str, Any]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise IntakeLLMError("Bedrock entry intake response was not valid JSON.") from exc
+        raise IntakeLLMError("Entry intake model response was not valid JSON.") from exc
     if not isinstance(parsed, dict):
-        raise IntakeLLMError("Bedrock entry intake response JSON must be an object.")
+        raise IntakeLLMError("Entry intake model response JSON must be an object.")
     return parsed
 
 
@@ -208,7 +208,7 @@ def select_model_json(
         return explicit_model_json
     if should_use_llm_intake(payload):
         provider = os.getenv("ENTRY_INTAKE_PROVIDER", "").strip().lower()
-        if provider == "openai" or (not provider and os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY")):
-            return openai_intake_model_json
-        return bedrock_intake_model_json
+        if provider == "bedrock":
+            return bedrock_intake_model_json
+        return openai_intake_model_json
     return None

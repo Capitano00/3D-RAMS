@@ -313,6 +313,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
             "os.environ",
             {
                 "ENABLE_BEDROCK": "true",
+                "RAMS_LLM_PROVIDER": "bedrock",
                 "BEDROCK_SIMULATE_FAILURE": "true",
             },
         ):

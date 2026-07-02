@@ -4,7 +4,7 @@
 
 3D-RAMS is a hackathon Demo1 agent that turns a site coordinate into a 3D pre-visit briefing pack.
 
-The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, or hosted infrastructure. The default UI uses a cached public Lambeth / Thames fixture pack, and the production-shaped path can also make one Amazon Bedrock call per run for briefing generation when AWS credentials are configured, while preserving deterministic fallback.
+The first slice is intentionally local-first: it can run without Google Maps keys, Cesium ion keys, live planning-portal scraping, hosted infrastructure, or live model credentials. The default UI uses a cached public Lambeth / Thames fixture pack, and the hosted live-model path uses the team's OpenAI-compatible gateway when configured, while preserving deterministic fallback.
 
 The hosted product surface is ASI/ASI:ONE-style entry, not a standalone FastAPI product API. In cloud mode, the browser calls a signed proxy through `VITE_CLOUD_ENTRY_PROXY_URL`; that proxy invokes the `asi_one_entry_agent` runtime, which owns intake, confirmation, and supervisor launch. The frontend FieldBrief surface is a development/debug simulation of that entry path.
 
@@ -53,11 +53,11 @@ No canonical product flow depends on `/api/chat`, `/api/run`, `/api/session/star
 | --- | --- | --- |
 | Agent workflow | Real Python code | Tool sequence, evidence, trace, safety gate, deterministic fallback, and response shape are implemented. |
 | Public data pack | Cached public fixture | `fixtures/public-lambeth-thames` includes source metadata for a Lambeth / Thames public-data pack anchored on 8 Albert Embankment. Runtime makes no live public-data calls. |
-| Bedrock briefing | Optional live AWS path | Uses one `InvokeModel` call per run when `ENABLE_BEDROCK=true`; deterministic briefing remains the fallback. |
+| Live model briefing | Optional hosted gateway path | Uses the OpenAI-compatible gateway when `ENABLE_LIVE_MODEL=true` and gateway credentials are configured; deterministic briefing remains the fallback. |
 | 3D viewer | Real React/Vite + CesiumJS UI | Uses a token-free Cesium canvas plus local scene overlay and annotations. |
 | Geospatial features | Cached-public or mocked fixture | Default pack uses cached public-source metadata; synthetic fallback uses `fixtures/geospatial_features.json`. |
 | Planning/context notes | Cached-public or synthetic fixture | Default pack uses cached public-safe notes and source metadata; synthetic fallback uses `fixtures/planning_report.txt`. |
-| AWS | Partially live when configured | Bedrock briefing, AgentCore runtimes, Harnesses, signed proxy, and DynamoDB report store can be configured; no-AWS remains the fallback baseline. |
+| AWS / hosted | Partially live when configured | AgentCore runtimes, Harnesses, signed proxy, DynamoDB report store, and the OpenAI-compatible model gateway can be configured; no-AWS remains the fallback baseline. |
 | Google Maps / Earth / 3D Tiles | Not used | Kept out of Demo1 to avoid key, cost, licensing, and freshness risk. |
 
 ## Quickstart
@@ -88,7 +88,7 @@ For repeatable local proof of the AgentCore workflow, run:
 python scripts/evaluate-demo.py
 ```
 
-The evaluation runner covers nine deterministic scenarios, including cached-public happy path, missing planning evidence, map fallback, Bedrock-disabled fallback, unsafe request blocking, low-confidence output, architecture payload shape, and unknown pack fallback. See [docs/evaluation.md](docs/evaluation.md).
+The evaluation runner covers nine deterministic scenarios, including cached-public happy path, missing planning evidence, map fallback, live-model-disabled fallback, unsafe request blocking, low-confidence output, architecture payload shape, and unknown pack fallback. See [docs/evaluation.md](docs/evaluation.md).
 
 GitHub Actions also runs the AgentCore tests, deterministic evaluation, frontend build, and HTTP runtime smoke on pushes and pull requests. See [docs/mvp-readiness.md](docs/mvp-readiness.md) for the current readiness snapshot, verified scenarios, and remaining gates.
 
@@ -137,30 +137,31 @@ python3 scripts/hosted-agentcore-asio-smoke.py
 
 That hosted smoke starts at `asi_one_entry_agent`, verifies supervisor launch, report-store write, identity-bound lookup, authorized/denied material references, and emits only redacted public-safe output.
 
-## Bedrock Mode
+## OpenAI-Compatible Live Model Mode
 
-The app defaults to deterministic fallback unless the AgentCore runtime is started with Bedrock enabled.
+The app defaults to deterministic fallback unless the AgentCore runtime is started with the OpenAI-compatible gateway enabled.
 
-Use the full optional setup guide in [docs/aws-bedrock-setup.md](docs/aws-bedrock-setup.md). Confirm cost guardrails before repeated live testing; the current recommendation is a small budget alert, one Bedrock call per agent run, `BEDROCK_MAX_TOKENS=1200`, and `BEDROCK_TEMPERATURE=0.2`.
+Keep gateway URLs and API keys in hosted secrets or a local untracked `.env`. Do not commit real credentials, signed URLs, runtime ARNs, account IDs, or private session details.
 
 Recommended local settings:
 
 ```bash
-ENABLE_BEDROCK=true
-AWS_PROFILE=3d-rams-dev
-AWS_REGION=eu-west-2
-BEDROCK_MODEL_ID=anthropic.claude-3-7-sonnet-20250219-v1:0
-BEDROCK_MAX_TOKENS=1200
-BEDROCK_TEMPERATURE=0.2
+ENABLE_LIVE_MODEL=true
+RAMS_LLM_PROVIDER=openai
+ENTRY_AGENT_PROVIDER=openai
+ENTRY_INTAKE_PROVIDER=openai
+OPENAI_BASE_URL=https://<gateway-host>/v1
+OPENAI_API_KEY=<local-or-hosted-secret>
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
 Run a low-volume smoke test:
 
 ```bash
-python scripts/bedrock-smoke.py
+python3 scripts/openai-gateway-smoke.py
 ```
 
-Do not commit `.env`, AWS credentials, SSO cache files, API keys, or real client/site data. The UI shows whether a run used Bedrock, deterministic mode, or fallback.
+The UI shows whether a run used the OpenAI-compatible provider, deterministic mode, or fallback. Legacy Bedrock provider settings remain explicit opt-in only; `bedrock-agentcore` names still refer to AWS AgentCore service/package plumbing.
 
 ## Local Developer Quickstart
 
@@ -202,7 +203,7 @@ curl -X POST http://localhost:8080/invocations ^
 | Cached public pack | Leave `Data pack` as `Lambeth public cache`, click `Run` | Sources include cached Planning Data / flood context and OSM-style access context with attribution and freshness labels. |
 | Missing data | Disable `Planning fixture`, click `Run` | Briefing continues with a planning-evidence limitation. |
 | Tool failure | Enable `Map fallback`, click `Run` | Trace marks geospatial loading as `fallback`. |
-| Bedrock fallback | Enable Bedrock in UI while AgentCore has no AWS config, or set `BEDROCK_SIMULATE_FAILURE=true` | Trace marks Bedrock step as `disabled` or `fallback`; deterministic briefing remains available. |
+| Live model fallback | Request live model mode while the gateway is not configured, or simulate provider failure in a test environment | Trace marks the model step as `disabled` or `fallback`; deterministic briefing remains available. |
 | Unsafe request | Click `Safety test` | Safety gate blocks certified RAMS/work approval behavior. |
 | Low confidence | Normal run | Imagery-derived bridge indicator is labelled low confidence. |
 | Architecture visualizer | Normal run | UI shows tool sequence, boundaries, AWS path, and real-vs-mocked status. |
@@ -215,7 +216,7 @@ Demo1 trace and response objects are shaped to map naturally to an AWS implement
 - A signed proxy as a transport bridge to the `asi_one_entry_agent` runtime.
 - AgentCore `asi_one_entry_agent` for intake, clarification, confirmation, and delivery summary.
 - AgentCore `rams_supervisor_runtime` for orchestration, evidence, trace, report assembly, and report lookup.
-- Amazon Bedrock for the live model-assisted briefing step.
+- OpenAI-compatible hosted gateway for the live model-assisted briefing step.
 - DynamoDB for versioned project state, approvals, and rollback records.
 - S3 for evidence packs, exported briefings, screenshots, and source documents.
 - CloudWatch for trace, latency, cost, and failure visibility.

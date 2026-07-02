@@ -55,6 +55,7 @@ def _wait_for(label: str, check, timeout_seconds: int) -> None:
 def _start_agentcore(api_port: int) -> subprocess.Popen:
     env = {
         **os.environ,
+        "ENABLE_LIVE_MODEL": "false",
         "ENABLE_BEDROCK": "false",
         "BEDROCK_MOCK_RESPONSE": "false",
         "BEDROCK_SIMULATE_FAILURE": "false",
@@ -85,6 +86,7 @@ def _start_agentcore(api_port: int) -> subprocess.Popen:
 def _start_local_runtime(api_port: int) -> subprocess.Popen:
     env = {
         **os.environ,
+        "ENABLE_LIVE_MODEL": "false",
         "ENABLE_BEDROCK": "false",
         "BEDROCK_MOCK_RESPONSE": "false",
         "BEDROCK_SIMULATE_FAILURE": "false",

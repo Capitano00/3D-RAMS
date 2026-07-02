@@ -55,7 +55,7 @@ Record these shorter clips if time allows. They help if the main demo fails or a
 | --- | --- | --- |
 | Missing planning | Turn off `Planning fixture`, then click `Run`. | Trace shows planning warning and briefing states the limitation. |
 | Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial fallback and the app still returns a briefing. |
-| Bedrock disabled | Leave `Bedrock` on while AgentCore is in no-AWS default mode. | Trace shows Bedrock disabled/fallback and deterministic briefing remains available. |
+| Live model disabled | Request live model mode while AgentCore is in no-credentials default mode. | Trace shows model disabled/fallback and deterministic briefing remains available. |
 | Low confidence | Run the default case and inspect annotations/evidence. | At least one low-confidence item is visible. |
 | API proof | Show `/ping` or run the one-command check. | AgentCore returns healthy or check stack passes. |
 
@@ -85,7 +85,7 @@ The recording is not usable as final proof if:
 - Use a desktop viewport first. Mobile proof can be a separate clip.
 - Keep terminal windows out of the recording unless showing the check result.
 - Do not show AWS account pages, credentials, billing pages, SSO cache, `.env`, API keys, or private coordination notes.
-- If live Bedrock is demonstrated, state that it is optional and budget-gated; default teammate testing remains no-AWS.
+- If the live OpenAI-compatible gateway is demonstrated, state that it is optional and default teammate testing remains no-AWS.
 
 ## File Naming
 

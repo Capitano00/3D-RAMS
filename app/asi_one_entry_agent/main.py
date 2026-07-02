@@ -811,11 +811,12 @@ def _product_metadata_output() -> dict[str, Any]:
 
 def _product_metadata_observability() -> dict[str, Any]:
     model_id = _safe_public_entry_agent_model_id()
+    provider = os.getenv("ENTRY_AGENT_PROVIDER", "openai").strip().lower()
     observability = {
         "schemaVersion": "3d-rams.runtime-observability.v1",
         "modelPath": "entry-product-meta",
         "modelId": model_id,
-        "provider": "amazon-bedrock" if model_id else "not_disclosed",
+        "provider": ("amazon-bedrock" if provider == "bedrock" else "openai-compatible") if model_id else "not_disclosed",
         "mode": "deterministic",
         "modelCallCount": 0,
         "bedrockRequested": False,
@@ -837,7 +838,7 @@ def _safe_public_entry_agent_model_id() -> str | None:
 
 
 def _entry_model_id() -> str:
-    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
+    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "gpt-5.4-mini"
 
 
 def _entry_waiting_progress(intake_result: dict[str, Any], conversation_id: str) -> dict[str, Any]:

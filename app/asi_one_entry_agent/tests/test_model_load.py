@@ -42,7 +42,7 @@ class ModelLoadTests(unittest.TestCase):
         self.assertEqual(calls["model_id"], "gpt-5.4-mini")
         self.assertEqual(calls["client_args"], {"api_key": "test-key", "base_url": "https://gateway.example/v1"})
 
-    def test_defaults_to_bedrock_model_without_gateway_env(self):
+    def test_bedrock_model_requires_explicit_provider(self):
         calls: dict[str, object] = {}
 
         class FakeBedrockModel:
@@ -56,7 +56,7 @@ class ModelLoadTests(unittest.TestCase):
             {"strands.models.bedrock": bedrock_module},
         ), mock.patch.dict(
             os.environ,
-            {"OPENAI_BASE_URL": "", "OPENAI_API_KEY": "", "ENTRY_AGENT_PROVIDER": ""},
+            {"OPENAI_BASE_URL": "", "OPENAI_API_KEY": "", "ENTRY_AGENT_PROVIDER": "bedrock"},
             clear=False,
         ):
             from model.load import load_model
@@ -64,6 +64,17 @@ class ModelLoadTests(unittest.TestCase):
             load_model()
 
         self.assertEqual(calls["model_id"], "amazon.nova-micro-v1:0")
+
+    def test_default_provider_requires_openai_gateway_env(self):
+        with mock.patch.dict(
+            os.environ,
+            {"OPENAI_BASE_URL": "", "OPENAI_API_KEY": "", "ENTRY_AGENT_PROVIDER": ""},
+            clear=False,
+        ):
+            from model.load import load_model
+
+            with self.assertRaisesRegex(RuntimeError, "OPENAI_BASE_URL and OPENAI_API_KEY"):
+                load_model()
 
 
 if __name__ == "__main__":
