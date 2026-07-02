@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 import os
@@ -73,6 +74,40 @@ class IntakeCoordinatorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "clarification_required")
         self.assertEqual(result["clarifyingQuestions"], ["What area should I cover around the site, for example a radius or boundary?"])
+
+    def test_pre_confirmation_activity_prompts_cover_fixed_first_families(self):
+        cases = {
+            "roof_access": "Roof access at 8 Albert Embankment within 500m",
+            "delivery": "Delivery visit to 8 Albert Embankment within 500m",
+            "survey_walkover": "Survey walkover at 8 Albert Embankment within 500m",
+            "maintenance": "Maintenance visit at 8 Albert Embankment within 500m",
+        }
+
+        for family, message in cases.items():
+            with self.subTest(family=family):
+                result = coordinate_intake({"message": message, "conversationId": f"activity-{family}"})
+                prompts = result["activityPrompts"]
+                families = {item["family"] for item in prompts["items"]}
+
+                self.assertEqual(result["status"], "confirmation_required")
+                self.assertIn(family, families)
+                self.assertEqual(prompts["notice"], "Generic considerations from your wording, not site evidence.")
+                self.assertNotIn("hazard", json.dumps(prompts).lower())
+                self.assertNotIn("approval", json.dumps(prompts).lower())
+
+    def test_activity_prompts_are_not_forwarded_after_confirmed_launch(self):
+        payload = {
+            "message": "Roof access at 8 Albert Embankment within 500m",
+            "conversationId": "activity-launch",
+            "confirmedByUser": True,
+        }
+
+        result = coordinate_intake(payload)
+        confirmed = build_confirmed_entry_payload(build_entry_turn(payload), result)
+
+        self.assertEqual(result["status"], "launch_ready")
+        self.assertNotIn("activityPrompts", result)
+        self.assertNotIn("activityPrompts", confirmed)
 
     def test_confirmed_intake_creates_case_id(self):
         payload = {

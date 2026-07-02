@@ -284,13 +284,23 @@ def _text_from_json(payload: dict[str, Any]) -> str:
 
 def _entry_agent_message(entry_agent: dict[str, Any]) -> str:
     message = str(entry_agent["assistantMessage"])
+    parts = [message]
     questions = entry_agent.get("clarifyingQuestions")
-    if not isinstance(questions, list) or not questions:
-        return message
-    question_lines = [f"- {question}" for question in questions if question]
-    if not question_lines:
-        return message
-    return f"{message}\n\n" + "\n".join(question_lines)
+    question_lines = [f"- {question}" for question in questions if question] if isinstance(questions, list) else []
+    if question_lines:
+        parts.append("\n".join(question_lines))
+    activity_prompts = entry_agent.get("activityPrompts")
+    items = activity_prompts.get("items") if isinstance(activity_prompts, dict) else None
+    if isinstance(items, list) and items:
+        lines = [str(activity_prompts.get("notice") or "Generic considerations from your wording, not site evidence.")]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            label = item.get("label") or item.get("family")
+            if label:
+                lines.append(f"- {label}")
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
 
 
 def _sign(key: bytes, message: str) -> bytes:
