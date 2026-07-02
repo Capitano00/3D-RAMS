@@ -78,7 +78,14 @@ class HostedAgentCoreAsioSmokeTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["caseId"], "case_hosted_smoke_unit_001")
-        self.assertEqual([check["status"] for check in result["checks"]], ["ok", "ok", "ok", "ok", "ok", "ok", "ok"])
+        self.assertEqual(
+            [check["status"] for check in result["checks"]],
+            ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"],
+        )
+        self.assertEqual(result["checks"][2]["name"], "guarded_follow_up_no_supervisor")
+        self.assertEqual(result["checks"][2]["route"], "follow_up")
+        self.assertEqual(result["checks"][2]["mode"], "guarded-conversation-router")
+        self.assertEqual(result["checks"][2]["modelCallCount"], 0)
         self.assertEqual(result["checks"][-1]["name"], "bedrock_requested_fallback")
         self.assertTrue(result["supervisor"]["structuredReport"])
 
