@@ -223,8 +223,7 @@ function addSiteCenterMarker(viewer, center, location) {
 }
 
 function addAnnotationMarkers(viewer, annotations) {
-  const showLabels = annotations.length > 0 && annotations.length <= 4;
-  annotations.forEach((annotation) => {
+  annotations.forEach((annotation, index) => {
     viewer.entities.add({
       name: annotation.title,
       position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
@@ -236,17 +235,17 @@ function addAnnotationMarkers(viewer, annotations) {
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       },
       label: {
-        text: annotation.title,
-        show: showLabels,
-        font: "12px sans-serif",
-        fillColor: Cesium.Color.fromCssColorString("#111827"),
+        text: String(index + 1),
+        show: true,
+        font: "700 11px sans-serif",
+        fillColor: Cesium.Color.WHITE,
         showBackground: true,
-        backgroundColor: Cesium.Color.WHITE.withAlpha(0.86),
-        pixelOffset: new Cesium.Cartesian2(0, -22),
+        backgroundColor: getAnnotationColor(Cesium, annotation.confidence).withAlpha(0.94),
+        pixelOffset: new Cesium.Cartesian2(0, -24),
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 900),
-        scaleByDistance: new Cesium.NearFarScalar(250, 1, 1400, 0.65),
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 1300),
+        scaleByDistance: new Cesium.NearFarScalar(250, 1, 1400, 0.75),
       },
     });
   });
@@ -467,6 +466,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
         />
         <SceneMetaPanel
           scene={scene}
+          annotations={validAnnotations}
           liveFeatureStatus={liveFeatureStatus}
           mapFeatures={validMapFeatures}
           providerState={providerState}
@@ -490,6 +490,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
         />
         <SceneMetaPanel
           scene={scene}
+          annotations={validAnnotations}
           liveFeatureStatus={liveFeatureStatus}
           mapFeatures={validMapFeatures}
           providerState={providerState}
@@ -506,6 +507,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
       <div className={`site-scene-status ${safeStatusClass(renderStatus)}`}>{renderStatus}</div>
       <SceneMetaPanel
         scene={scene}
+        annotations={validAnnotations}
         liveFeatureStatus={liveFeatureStatus}
         mapFeatures={validMapFeatures}
         providerState={providerState}
@@ -527,7 +529,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
   );
 }
 
-function SceneMetaPanel({ scene, liveFeatureStatus, mapFeatures, providerState, safety, layerState, setLayerState }) {
+function SceneMetaPanel({ scene, annotations, liveFeatureStatus, mapFeatures, providerState, safety, layerState, setLayerState }) {
   const status = liveFeatureStatus?.status || scene?.mode || "not-run";
   const badges = [
     sceneModeBadge(scene?.mode),
@@ -565,6 +567,19 @@ function SceneMetaPanel({ scene, liveFeatureStatus, mapFeatures, providerState, 
           ))}
         </div>
       </details>
+      {annotations.length > 0 && (
+        <details className="site-scene-marker-key">
+          <summary>Markers</summary>
+          <ol>
+            {annotations.map((annotation, index) => (
+              <li key={annotation.id}>
+                <span>{index + 1}</span>
+                <strong>{annotation.title}</strong>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
     </div>
   );
 }

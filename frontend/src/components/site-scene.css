@@ -84,7 +84,8 @@
   box-shadow: 0 8px 20px rgba(23, 32, 28, 0.08);
 }
 
-.site-scene-controls summary {
+.site-scene-controls summary,
+.site-scene-marker-key summary {
   cursor: pointer;
   padding: 7px 10px;
   color: #455a54;
@@ -92,6 +93,50 @@
   font-weight: 900;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.site-scene-marker-key {
+  width: min(300px, 100%);
+  border: 1px solid #ccd8d2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 20px rgba(23, 32, 28, 0.08);
+}
+
+.site-scene-marker-key ol {
+  display: grid;
+  gap: 6px;
+  max-height: 210px;
+  margin: 0;
+  padding: 0 8px 8px;
+  overflow: auto;
+  list-style: none;
+}
+
+.site-scene-marker-key li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  color: #33463f;
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+.site-scene-marker-key li span {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: #0b6f65;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.site-scene-marker-key li strong {
+  overflow-wrap: anywhere;
 }
 
 .site-scene-layers {
