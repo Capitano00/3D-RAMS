@@ -129,8 +129,11 @@ class DirectSubagentInvoker:
             location,
             simulate_failure=bool(request.get("simulateMapFailure")),
             fixture_pack=fixture_pack,
+            config=self.config,
+            location_confirmation=request.get("locationConfirmation"),
         )
         trace.append(step)
+        planning_data = step.get("output", {}).get("planningData", {})
 
         scene, step = build_scene_config(location, features, fixture_pack=fixture_pack)
         trace.append(step)
@@ -139,7 +142,7 @@ class DirectSubagentInvoker:
             "geospatial_subagent",
             status=_status_from_trace(trace),
             summary="Resolved location, loaded geospatial features, and built scene configuration.",
-            data={"location": location, "features": features, "scene": scene},
+            data={"location": location, "features": features, "scene": scene, "planningData": planning_data},
             trace=trace,
             warnings=_warnings_from_trace(trace),
             metadata=_harness_metadata(request, fixture_pack),

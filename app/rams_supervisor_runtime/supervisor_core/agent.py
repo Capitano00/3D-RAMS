@@ -114,6 +114,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     location = geospatial_data["location"]
     features = geospatial_data["features"]
     scene = geospatial_data["scene"]
+    geospatial_planning_data = _planning_data_payload(geospatial_data.get("planningData"))
     planning_text = planning_data["planningText"]
     trace.extend(_trace_steps(geospatial_result.get("trace"), "geospatial_subagent"))
     trace.extend(_trace_steps(planning_result.get("trace"), "planning_subagent"))
@@ -267,6 +268,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         fixture_pack=fixture_pack,
         planner_status=planner_result["plannerStatus"],
         location_confirmation=request_summary.get("locationConfirmation"),
+        planning_data=geospatial_planning_data,
     )
     sources.extend(material_sources)
     external_signals = {"openWeb": _open_web_payload(open_web_data.get("openWeb"))}
@@ -297,7 +299,8 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
             else "synthetic-default"
         )
     )
-    runtime["liveApiCalls"] = bool(external_signals["openWeb"].get("liveCallAttempted"))
+    runtime["planningData"] = geospatial_planning_data
+    runtime["liveApiCalls"] = bool(external_signals["openWeb"].get("liveCallAttempted") or geospatial_planning_data.get("liveCallAttempted"))
     runtime["subagentExecutionMode"] = subagents.execution_mode
     runtime["plannerMode"] = planner_result["plannerStatus"]
     runtime["activeAgentMode"] = planner_result["activeAgentMode"]
@@ -499,6 +502,18 @@ def _open_web_payload(value: Any) -> dict[str, Any]:
         payload["items"] = []
     if not isinstance(payload.get("warnings"), list):
         payload["warnings"] = []
+    return payload
+
+
+def _planning_data_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"status": "disabled", "liveCallAttempted": False, "featureCount": 0, "sourceIds": []}
+    payload = dict(value)
+    payload.setdefault("status", "disabled")
+    payload.setdefault("liveCallAttempted", False)
+    payload.setdefault("featureCount", 0)
+    payload.setdefault("sourceIds", [])
+    payload.pop("features", None)
     return payload
 
 

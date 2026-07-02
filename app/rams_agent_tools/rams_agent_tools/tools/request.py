@@ -167,6 +167,7 @@ def source_register(
     fixture_pack: dict[str, Any] | None = None,
     planner_status: str = "deterministic",
     location_confirmation: dict[str, Any] | None = None,
+    planning_data: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = [
         {
@@ -281,6 +282,20 @@ def source_register(
             },
         ]
     )
+    if planning_data and planning_data.get("status") in {"live", "partial", "failed"}:
+        sources.append(
+            {
+                "id": "planning-data-api",
+                "label": "Planning Data live feature lookup",
+                "kind": "planning_data_features",
+                "status": planning_data.get("status"),
+                "origin": planning_data.get("endpoint") or "https://www.planning.data.gov.uk/entity.json",
+                "trustBoundary": "Official public Planning Data API; default-off optional live lookup after confirmed location",
+                "awsMapping": "Future cached evidence object plus CloudWatch source metadata",
+                "attribution": planning_data.get("attribution"),
+                "freshness": planning_data.get("freshness"),
+            }
+        )
 
     if not fixture_pack:
         sources.append(
