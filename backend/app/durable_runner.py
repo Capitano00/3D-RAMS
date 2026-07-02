@@ -211,6 +211,7 @@ def execute_durable_run(run_id: str, config: RuntimeConfig) -> None:
         "requestSummary": request_summary,
         "fixturePack": fixture_pack,
         "fixturePackWarning": fixture_pack_warning,
+        "config": config,
         "sessionContext": _bounded_session_context(run["sessionId"], config),
         "executedTools": [],
         "trace": parse_trace[:],
@@ -257,6 +258,20 @@ def _plan_tools(
     session_context: dict[str, Any],
     config: RuntimeConfig,
 ) -> list[str]:
+    if config.app_env == "hosted" and not config.bedrock_mock_response and config.bedrock_max_model_calls <= 2:
+        append_step(
+            run_id,
+            name="planner_model_call",
+            status="fallback",
+            summary="Planner model call skipped to preserve the two-call budget for risk reasoning and final synthesis.",
+            output={
+                "mode": "deterministic-tool-plan",
+                "maxModelCalls": config.bedrock_max_model_calls,
+                "preservedPhases": ["reasoner", "compiler"],
+            },
+        )
+        return _initial_tool_sequence()
+
     if _consume_model_call(run_id, config, phase="planner"):
         try:
             phase_config = replace(config, bedrock_max_tokens=config.planner_output_tokens)
@@ -1459,17 +1474,36 @@ def _validate_tool_plan(requested: list[str]) -> dict[str, Any]:
 
 
 def _briefing_mode(run: dict[str, Any], config: RuntimeConfig) -> str:
-    if run.get("modelCallsUsed", 0) > 0 and config.bedrock_enabled:
+    successful_model_steps = [
+        step
+        for step in run.get("steps", [])
+        if step.get("name") in {"planner_model_call", "reasoner_model_call", "compiler_model_call", "output_evaluator_model_call"}
+        and step.get("status") == "ok"
+    ]
+    if successful_model_steps and config.bedrock_enabled:
         return "real" if not config.bedrock_mock_response else "mocked"
+    if run.get("modelCallsUsed", 0) > 0 and config.bedrock_enabled:
+        return "model-attempted-fallback"
     if run.get("fallbackReason"):
         return "fallback"
     return "deterministic"
 
 
 def _model_call_payload(run: dict[str, Any]) -> list[dict[str, Any]]:
+    model_step_names = {
+        "planner_model_call",
+        "planner_invalid_plan",
+        "planner_model_budget_exhausted",
+        "reasoner_model_call",
+        "reasoner_model_budget_exhausted",
+        "compiler_model_call",
+        "compiler_model_budget_exhausted",
+        "output_evaluator_model_call",
+        "output_evaluator_model_budget_exhausted",
+    }
     calls = []
     for step in run.get("steps", []):
-        if step["name"] in {"planner_model_call", "reasoner_model_call", "compiler_model_call", "output_evaluator_model_call"} and step["status"] == "ok":
+        if step.get("name") in model_step_names:
             output = step.get("output", {})
             calls.append(
                 {
@@ -1482,6 +1516,8 @@ def _model_call_payload(run: dict[str, Any]) -> list[dict[str, Any]]:
                     "latencyMs": output.get("latencyMs"),
                     "maxTokens": output.get("maxTokens"),
                     "phaseTokenBudget": output.get("phaseTokenBudget"),
+                    "errorType": output.get("errorType"),
+                    "mode": output.get("mode"),
                 }
             )
     return calls

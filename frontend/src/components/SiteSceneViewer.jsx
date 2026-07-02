@@ -329,6 +329,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
   const skippedAnnotationCount = toList(annotations).length - validAnnotations.length;
   const ionToken = (import.meta.env.VITE_CESIUM_ION_TOKEN || "").trim();
   const isLiveScene = String(scene?.mode || "").startsWith("live");
+  const locationLabel = location?.label || "";
 
   useEffect(() => {
     setRenderError("");
@@ -381,6 +382,8 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
         viewer.scene.globe.depthTestAgainstTerrain = true;
         viewer.scene.fog.enabled = false;
         viewer.scene.skyAtmosphere.show = true;
+        viewer.scene.requestRenderMode = true;
+        viewer.scene.maximumRenderTimeChange = Number.POSITIVE_INFINITY;
         viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#dfe8e4");
 
         try {
@@ -409,6 +412,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
         }));
 
         focusCameraOnSite(viewer, center, scene);
+        viewer.scene.requestRender();
 
         setRenderStatus(isLiveScene ? "live terrain-backed scene" : "terrain-backed scene");
       } catch (err) {
@@ -425,7 +429,7 @@ export function SiteSceneViewer({ scene, annotations, location, locationResoluti
       disposed = true;
       if (viewer && !viewer.isDestroyed()) viewer.destroy();
     };
-  }, [scene, center, validAnnotations, validMapFeatures, ionToken, layerState, isLiveScene, location]);
+  }, [scene, center, validAnnotations, validMapFeatures, ionToken, layerState, isLiveScene, locationLabel]);
 
   if (!scene) {
     const hasLocationCandidates = toList(locationResolution?.locationCandidates).length > 0;

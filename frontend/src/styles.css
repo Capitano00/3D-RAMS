@@ -301,6 +301,62 @@ textarea {
   padding-left: 18px;
 }
 
+.chat-activity-strip {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #edf2ef;
+  padding: 10px 14px;
+  background: #f7faf8;
+  color: #40564f;
+}
+
+.chat-activity-strip > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-activity-strip strong {
+  color: #17201c;
+  text-transform: capitalize;
+}
+
+.chat-activity-strip p {
+  margin: 0;
+  color: #526a62;
+  font-size: 0.86rem;
+}
+
+.chat-activity-strip ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-activity-strip li {
+  border: 1px solid #cddbd4;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #ffffff;
+  color: #39524a;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.activity-spin {
+  color: #0b6f65;
+  animation: activity-spin 0.9s linear infinite;
+}
+
+@keyframes activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .upload-strip {
   display: flex;
   align-items: center;

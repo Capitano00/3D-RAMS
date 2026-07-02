@@ -88,6 +88,7 @@ def _load_geospatial_features(context: dict[str, Any]) -> dict[str, Any]:
         context["location"],
         simulate_failure=bool(context["requestSummary"]["simulateMapFailure"]),
         fixture_pack=context.get("fixturePack"),
+        config=context.get("config"),
     )
     context["features"] = features
     context["mapFeatures"] = features

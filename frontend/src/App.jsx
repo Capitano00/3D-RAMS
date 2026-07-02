@@ -286,7 +286,20 @@ function AccessPanel({ onStart, loading }) {
   );
 }
 
-function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMockUpload, activeRun, onCancel }) {
+function ChatPanel({
+  messages,
+  prompt,
+  setPrompt,
+  onSend,
+  loading,
+  uploads,
+  onMockUpload,
+  activeRun,
+  onCancel,
+  confirmingLocation,
+  run,
+  conversationDebug,
+}) {
   return (
     <section className="agent-chat panel">
       <div className="panel-heading">
@@ -308,6 +321,13 @@ function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMo
           </article>
         ))}
       </div>
+      <ChatActivityStrip
+        loading={loading}
+        confirmingLocation={confirmingLocation}
+        runStatus={activeRun}
+        run={run}
+        conversationDebug={conversationDebug}
+      />
       <div className="upload-strip">
         <button className="secondary" type="button" onClick={onMockUpload}>
           <FileUp size={16} />
@@ -332,9 +352,61 @@ function ChatPanel({ messages, prompt, setPrompt, onSend, loading, uploads, onMo
   );
 }
 
-function RiskCards({ hazards, briefing, reviewMode }) {
-  const items = toList(hazards).slice(0, 6);
+function ChatActivityStrip({ loading, confirmingLocation, runStatus, run, conversationDebug }) {
+  const status = runStatus?.status || "";
+  const isRunning = confirmingLocation || loading || ["queued", "running"].includes(status);
+  if (!isRunning) return null;
+  const trace = toList(runStatus?.partialUiState?.trace || run?.uiState?.trace || run?.trace);
+  const latestTrace = trace[trace.length - 1];
+  const currentStep = confirmingLocation
+    ? "confirming_location"
+    : runStatus?.currentStep || conversationDebug?.observability?.phase || "routing";
+  const optimisticSteps = [
+    "Confirming location",
+    "Checking public map features",
+    "Checking planning context",
+    "Reasoning over risks",
+    "Compiling review pack",
+    "Running safety gate",
+  ];
+
+  return (
+    <div className="chat-activity-strip" aria-live="polite">
+      <div>
+        <RefreshCw className="activity-spin" size={16} />
+        <strong>{displayValue(currentStep).replace(/^tool:/, "").replaceAll("_", " ")}</strong>
+      </div>
+      <p>
+        {latestTrace?.summary
+          || (confirmingLocation
+            ? "The backend is running the review workflow. This Lambda path is synchronous, so live tool checkpoints appear after the confirm request returns."
+            : "The agent router or durable run is active.")}
+      </p>
+      {confirmingLocation && (
+        <ol>
+          {optimisticSteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function RiskCards({ hazards, briefing, reviewMode, reasoning, evaluation, runtime }) {
+  const reasonedRisks = toList(reasoning?.ranked_risks).map((risk, index) => ({
+    id: risk.id || risk.title || `reasoned-risk-${index}`,
+    title: risk.title || "Reasoned risk",
+    confidence: risk.confidence || "review",
+    reason: risk.reason || risk.note || "Reasoner retained this item from the current tool output.",
+    source: toList(risk.evidence_ids).join(", ") || "reasoning output",
+    dataMode: "reasoned-from-tool-output",
+  }));
+  const items = (reasonedRisks.length ? reasonedRisks : toList(hazards)).slice(0, 6);
   const confidenceLabel = (confidence) => `${confidence || "review"} confidence`;
+  const reasoningMode = reasonedRisks.length
+    ? `reasoned output${runtime?.briefingMode ? ` / ${runtime.briefingMode}` : ""}`
+    : "tool candidates pending reasoned ranking";
   return (
     <section className="panel">
       <div className="panel-heading">
@@ -346,6 +418,10 @@ function RiskCards({ hazards, briefing, reviewMode }) {
           {reviewMode}
         </div>
       )}
+      <div className={`review-mode ${reasonedRisks.length ? "" : "provisional"}`}>
+        {reasoningMode}
+        {evaluation && ` / quality ${evaluation.passed ? "passed" : "needs review"}`}
+      </div>
       <div className="risk-grid">
         {items.length ? (
           items.map((hazard) => (
@@ -1285,6 +1361,9 @@ function App() {
           onMockUpload={registerMockUpload}
           activeRun={runStatus}
           onCancel={cancelActiveRun}
+          confirmingLocation={confirmingLocation}
+          run={run}
+          conversationDebug={conversationDebug}
         />
         <section className="panel map-panel">
           <div className="panel-heading">
@@ -1314,7 +1393,14 @@ function App() {
       />
 
       <section className="insight-grid">
-        <RiskCards hazards={ui.hazards} briefing={ui.briefing} reviewMode={reviewMode} />
+        <RiskCards
+          hazards={ui.hazards}
+          briefing={ui.briefing}
+          reviewMode={reviewMode}
+          reasoning={ui.reasoning}
+          evaluation={ui.evaluation}
+          runtime={runtime}
+        />
         <EvidenceAndTrace evidence={ui.evidence} trace={ui.trace} safety={ui.safety} runtime={runtime} runStatus={runStatus} />
       </section>
 
