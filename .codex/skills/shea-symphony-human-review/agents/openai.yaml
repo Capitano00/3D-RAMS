@@ -1,3 +1,3 @@
 display_name: Shea Symphony Human Review
-short_description: Brief 3D-RAMS Human Review, guide UAT, and wait for confirmation.
-default_prompt: Brief one 3D-RAMS issue or PR for Human Review in the operator's language, run Shea CLI from the 3D-RAMS root by default for workflow readiness/routing, guide UAT one step at a time, and wait for explicit confirmation before any GitHub write.
+short_description: Brief the operator for Shea Symphony Human Review, guide UAT, and route only after explicit confirmation.
+default_prompt: Brief one Shea Symphony Human Review issue in the operator's session language, inspect Review Agent evidence and PR state, run required freshness preflight, then present a post-preflight review packet before asking for operator-owned UAT; prepare a Human Review Decision Note and wait for explicit confirmation before any state change.

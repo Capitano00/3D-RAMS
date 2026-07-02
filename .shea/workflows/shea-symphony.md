@@ -41,20 +41,20 @@ prompts:
   review_agent: ../prompts/3d-rams-review-agent.md
   merge_agent: ../prompts/3d-rams-merge-agent.md
 workpad_templates:
-  agent_review_run: template/workpad/agent-review.md
-  doctor_triage: template/workpad/doctor-triage.md
-  human_review_repair: template/workpad/doctor-triage.md
-  merge_run: template/workpad/merge-run.md
-  merge_repair: template/workpad/merge-run.md
-  forge_rework_run: template/workpad/rework-run.md
-  forge_rework_blocked: template/workpad/rework-run.md
+  agent_review_run: ../template/workpad/agent-review.md
+  doctor_triage: ../template/workpad/doctor-triage.md
+  human_review_repair: ../template/workpad/doctor-triage.md
+  merge_run: ../template/workpad/merge-run.md
+  merge_repair: ../template/workpad/merge-run.md
+  forge_rework_run: ../template/workpad/rework-run.md
+  forge_rework_blocked: ../template/workpad/rework-run.md
 polling:
   interval_ms: 5000
 artifacts:
-  root: $SHEA_SYMPHONY_ARTIFACT_ROOT
+  root: ../runtime/artifacts
   namespace: Capitano00/3D-RAMS
 workspace:
-  root: $SHEA_SYMPHONY_ARTIFACT_ROOT/Capitano00/3D-RAMS/default/worktrees
+  root: ../runtime/worktrees
   base_branch: dev-chunteng
 main_lane:
   backend: codex
@@ -87,7 +87,7 @@ verification:
   timeout_ms: 600000
   commands: []
 observability:
-  logs_root: $SHEA_SYMPHONY_ARTIFACT_ROOT/Capitano00/3D-RAMS/default/logs
+  logs_root: ../runtime/logs
 ---
 
 # 3D-RAMS Shea Symphony Workflow

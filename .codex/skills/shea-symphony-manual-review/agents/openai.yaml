@@ -1,3 +1,3 @@
 display_name: Shea Symphony Manual Review
-short_description: Run an evidence-backed manual review pass for 3D-RAMS.
-default_prompt: Review one 3D-RAMS issue or PR independently; run Shea CLI from the 3D-RAMS root by default for review-lane readiness/routing, then use gh, diff inspection, local checks, and a findings-first review handoff for focused fallback.
+short_description: Run an evidence-backed manual Review Agent pass for Shea Symphony.
+default_prompt: Review one Shea Symphony issue or PR as an independent Review Agent, preserve Main evidence, evaluate issue checklists from evidence, and route only through review commands.

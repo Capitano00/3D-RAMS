@@ -1,88 +1,100 @@
 ---
 name: shea-symphony-doctor
-description: Use when diagnosing 3D-RAMS workflow blockers, local verification failures, stuck issues or PRs, missing evidence, install-health gaps, and safety-boundary risks, then giving one concrete repair path.
+description: Use when diagnosing Shea Symphony doctor findings, Need Human Input items, issue or PR blockers, and install-health gaps, then giving an explicit repair recommendation and executing confirmed safe repairs in the same session when the workflow contract allows it.
+metadata:
+  short-description: Shea Symphony doctor triage
+  suite-version: 2026.05.22
 ---
 
 # Shea Symphony Doctor
 
-Use this skill for read-first triage in this 3D-RAMS repository. Keep the
-`shea-symphony` skill name; the migrated workflow targets 3D-RAMS.
+Use this skill for read-first operator triage around `doctor`, `debug`,
+install-health, local recovery findings, and stuck `Need Human Input` issues.
+After diagnosis, give one explicit repair recommendation and say whether it can
+be executed in the current Codex session.
 
 ## Repository
 
-Default repository: `Capitano00/3D-RAMS`
-
-Default local checkout: the current 3D-RAMS repo root.
-
-Project anchors:
-
-- `AGENTS.md`
-- `CONTRIBUTING.md`
-- `README.md`
-- `docs/`
-- `scripts/check-demo.sh`
-
-## CLI Defaults
-
-Default to the Shea CLI for workflow readiness and lane state. Run it from the
-3D-RAMS repo root, never from the `shea-symphony` engine checkout:
+Default repository:
 
 ```bash
-GH_TOKEN="$(gh auth token --user Alive24)" \
-cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
-autopilot plan .shea/workflows/shea-symphony.md
+cd "$(git rev-parse --show-toplevel)"
 ```
 
-For one automated lane tick, use:
+Canonical workflow:
 
 ```bash
-GH_TOKEN="$(gh auth token --user Alive24)" \
-cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
-autopilot loop .shea/workflows/shea-symphony.md --once --write
+.shea/workflows/shea-symphony.md
 ```
-
-Use `gh` reads, Git state, and local verification only for focused diagnosis or
-when the CLI command fails. Record the exact CLI blocker before falling back.
 
 ## Operating Rule
 
 Start with read-only diagnosis:
 
 ```bash
-git status --short --branch
-gh issue view <issue> --repo Capitano00/3D-RAMS --comments
-gh pr view <pr> --repo Capitano00/3D-RAMS --json number,title,state,url,isDraft,baseRefName,headRefName,mergeStateStatus,reviewDecision,statusCheckRollup
-bash scripts/check-demo.sh
+./.shea/bin/shea-symphony project state .shea/workflows/shea-symphony.md
+./.shea/bin/shea-symphony doctor .shea/workflows/shea-symphony.md
+./.shea/bin/shea-symphony debug .shea/workflows/shea-symphony.md
 ```
 
-Run only the commands that match the blocker. Do not run AWS, Bedrock, or hosted
-smokes unless the task explicitly needs them and credentials are already safe.
+For install-health checks, preview or validate the repo-owned suite:
+
+```bash
+node scripts/install-shea-symphony-skills.js --dry-run
+node scripts/install-shea-symphony-skills.js --validate
+```
 
 Report:
 
-- exact finding or failing check;
-- blocker vs warning;
-- affected issue, PR, worktree, file path, or local skill path;
-- safest repair path;
-- whether the repair can be executed in this session;
+- the exact doctor/debug finding;
+- whether it is a blocker or warning;
+- the safest CLI-owned or installer-owned repair path;
+- the exact target issue, PR, worktree, or local skill path;
+- whether the repair can be executed in this same session;
 - any operator decision still needed before writing.
 
-## Repair Shape
+When an operator has already asked for a specific repair, such as updating the
+local Doctor skill, treat that request as confirmation for that bounded write
+after printing the target paths. Do not broaden the repair to unrelated skills
+unless the operator asked for the whole suite.
 
-End with one concrete next action:
+For worktree or session ambiguity, use the current grouped command:
 
-- route to `$shea-symphony-manual-main`, `$shea-symphony-manual-review`,
-  `$shea-symphony-human-review`, or `$shea-symphony-manual-merge`;
-- apply a bounded local repair and run focused verification;
-- create or update a GitHub issue only after explicit confirmation;
-- ask one operator question when evidence depends on a human decision.
+```bash
+./.shea/bin/shea-symphony workspace show .shea/workflows/shea-symphony.md '#258'
+./.shea/bin/shea-symphony session list .shea/workflows/shea-symphony.md
+git worktree list --porcelain
+```
+
+## Explicit Repair Shape
+
+Do not stop at "route to #242", "use manual merge", or "needs operator". End
+with one concrete next action:
+
+- a lane handoff command, such as `$shea-symphony-manual-main`,
+  `$shea-symphony-manual-review`, or `$shea-symphony-manual-merge`;
+- a Shea Symphony CLI repair command, such as `project set-state`,
+  `project link-pr`, `doctor ... repair`, or `project timeline-comment`;
+- a local install-health command, such as suite dry-run, validate, or a targeted
+  copy/install path;
+- one operator question when the evidence still depends on a human decision.
+
+If the repair is confirmed and fits the workflow contract, continue in the same
+Codex session. Switch to the owning skill or lane workflow before doing normal
+Main, Review, Human Review, or Merging work.
 
 ## Boundaries
 
-- Do not start implementation, review, or merge work from this skill.
-- Do not mutate GitHub Project state directly when the CLI can perform the
-  workflow action.
-- Do not add secrets, client data, private planning notes, or live access codes.
-- Preserve 3D-RAMS safety language: no certified RAMS, emergency guidance,
-  legal/financial/medical advice, or approval-to-work claims.
-- Keep Demo1 runnable without cloud credentials or live map keys.
+- Do not start Main, Review, or Merge lane work from this skill.
+- Do not mutate Project state unless the operator explicitly approves a
+  documented Shea Symphony CLI repair command.
+- Doctor triage or repair evidence belongs in a standalone append-only
+  `Shea Symphony Doctor Triage` timeline comment. Use
+  `project timeline-comment` for operator-authored notes; do not use
+  `project workpad`, which is reserved for the persistent Main Agent Workpad.
+- Do not silently overwrite local skills; use the suite installer, show target
+  paths, and require confirmation before writing.
+- Local skill writes are allowed only when the operator explicitly asked for
+  them or confirmed the printed target paths. Prefer targeted Doctor-skill
+  updates when the request is only about Doctor; use the full suite installer
+  only when the operator asks for the whole suite.

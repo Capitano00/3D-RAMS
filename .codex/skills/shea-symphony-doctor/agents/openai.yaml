@@ -1,3 +1,3 @@
 display_name: Shea Symphony Doctor
-short_description: Diagnose 3D-RAMS blockers and propose one concrete repair path.
-default_prompt: Inspect a 3D-RAMS issue, PR, local failure, or workflow blocker; run Shea CLI from the 3D-RAMS root by default for workflow readiness, then use local checks plus gh readbacks for focused diagnosis or fallback.
+short_description: Diagnose Shea Symphony doctor findings and execute confirmed safe repairs.
+default_prompt: Inspect Shea Symphony doctor output, identify the exact blocker, propose one concrete repair path, and execute the confirmed same-session repair only when the workflow contract and target paths are clear.

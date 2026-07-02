@@ -1,3 +1,3 @@
 display_name: Shea Symphony Issue Forge
-short_description: Shape and create 3D-RAMS issues through a conversational flow.
-default_prompt: Create a 3D-RAMS issue from rough intent. Run Shea CLI from the 3D-RAMS root by default for workflow readiness, discuss execution-critical details, draft a quality-gated issue body, and create with gh only after explicit confirmation.
+short_description: Shape and create Shea Symphony issues through a conversational quality-gated flow.
+default_prompt: Create a Shea Symphony issue from my rough intent. Discuss the execution-critical details with me first, then draft, validate, and create it through forge create after confirmation.
