@@ -120,13 +120,19 @@ Harness trace entries should be explicit, bounded, and UI/log safe:
   "summary": "Loaded cached planning context fixture.",
   "sourceIds": [],
   "evidenceIds": [],
+  "policyDecision": {
+    "tool_name": "load_planning_context",
+    "decision": "allow | skip | reject | downgrade",
+    "reason_code": "runtime_path_allowed",
+    "source": "supervisor_runtime"
+  },
   "startedAt": "ISO-8601 timestamp",
   "endedAt": "ISO-8601 timestamp",
   "durationMs": 42
 }
 ```
 
-Trace must not include hidden chain-of-thought, secrets, private notes, raw credentials, signed URLs, or confidential material content.
+`policyDecision` is optional for older Harnesses, but when present it is limited to `tool_name`, `decision`, `reason_code`, and `source`. It records public-safe execution-policy decisions only; trace must not include hidden chain-of-thought, secrets, private notes, raw credentials, signed URLs, or confidential material content.
 
 ## Relationship To Existing ADRs
 

@@ -176,6 +176,16 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         self.assertTrue(result["evidence"])
         self.assertTrue(result["findings"])
         self.assertTrue(any(step["name"] == "ingest_material_references" for step in result["trace"]))
+        material_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
+        self.assertEqual(
+            material_step["policyDecision"],
+            {
+                "tool_name": "ingest_material_references",
+                "decision": "allow",
+                "reason_code": "runtime_path_allowed",
+                "source": "supervisor_runtime",
+            },
+        )
 
     def test_agentcore_material_invoker_uses_material_harness_arn(self):
         config = RuntimeConfig.from_env(request_bedrock=False)
@@ -242,6 +252,16 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         self.assertFalse(
             any(step.get("name") == "agentcore_harness_schema_fallback" for step in result.get("trace", []))
         )
+        policy_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_invocation")
+        self.assertEqual(
+            policy_step["policyDecision"],
+            {
+                "tool_name": "planning_subagent",
+                "decision": "allow",
+                "reason_code": "agentcore_harness_output_contract_valid",
+                "source": "agentcore_harness_invoker",
+            },
+        )
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(
             client.calls[0]["harnessArn"],
@@ -262,6 +282,15 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         fallback_step = result["trace"][-1]
         self.assertEqual(fallback_step["name"], "agentcore_harness_schema_fallback")
         self.assertEqual(fallback_step["fallbackReason"], "agentcore_harness_output_contract_invalid")
+        self.assertEqual(
+            fallback_step["policyDecision"],
+            {
+                "tool_name": "planning_subagent",
+                "decision": "downgrade",
+                "reason_code": "agentcore_harness_output_contract_invalid",
+                "source": "agentcore_harness_invoker",
+            },
+        )
         self.assertTrue(any("schemaVersion" in item for item in result["metadata"]["contractValidationIssues"]))
 
     def test_malformed_trace_uses_fallback_trace(self):
@@ -320,6 +349,8 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         fallback_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_failure_fallback")
         self.assertEqual(fallback_step["status"], "fallback")
         self.assertEqual(fallback_step["fallbackReason"], "bedrock_timeout")
+        self.assertEqual(fallback_step["policyDecision"]["decision"], "downgrade")
+        self.assertEqual(fallback_step["policyDecision"]["reason_code"], "bedrock_timeout")
 
     def test_invoke_material_harness_returns_safe_ingestion_payload(self):
         config = RuntimeConfig.from_env(request_bedrock=False)

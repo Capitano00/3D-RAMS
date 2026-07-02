@@ -31,9 +31,10 @@ def trace_step(
     evidence_ids: list[str] | None = None,
     fallback_reason: str | None = None,
     duration_ms: int = 0,
+    policy_decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     timestamp = datetime.now(timezone.utc).isoformat()
-    return {
+    step = {
         "id": f"trace-{name}",
         "name": name,
         "type": "tool",
@@ -52,3 +53,56 @@ def trace_step(
         },
         "output": output,
     }
+    step["policyDecision"] = _policy_decision(name, status, fallback_reason, policy_decision)
+    return step
+
+
+def _policy_decision(
+    name: str,
+    status: str,
+    fallback_reason: str | None,
+    policy_decision: dict[str, Any] | None,
+) -> dict[str, str]:
+    default_decision = _decision_from_status(status, fallback_reason)
+    if not policy_decision:
+        return {
+            "tool_name": name,
+            "decision": default_decision,
+            "reason_code": _reason_code(status, fallback_reason, default_decision),
+            "source": "supervisor_runtime",
+        }
+    return {
+        "tool_name": str(policy_decision.get("tool_name") or name),
+        "decision": str(policy_decision.get("decision") or default_decision),
+        "reason_code": _safe_code(policy_decision.get("reason_code"))
+        or _reason_code(status, fallback_reason, default_decision),
+        "source": str(policy_decision.get("source") or "supervisor_runtime"),
+    }
+
+
+def _decision_from_status(status: str, fallback_reason: str | None) -> str:
+    if status == "blocked":
+        return "reject"
+    if status == "disabled":
+        return "skip"
+    if status == "fallback" or fallback_reason:
+        return "downgrade"
+    return "allow"
+
+
+def _reason_code(status: str, fallback_reason: str | None, decision: str) -> str:
+    return _safe_code(fallback_reason) or {
+        "allow": "runtime_path_allowed",
+        "skip": "runtime_path_skipped",
+        "reject": "runtime_path_rejected",
+        "downgrade": "runtime_path_downgraded",
+    }.get(decision, _safe_code(status) or "runtime_policy_decision")
+
+
+def _safe_code(value: Any) -> str:
+    code = str(value or "").strip().lower()
+    if not code or len(code) > 80:
+        return ""
+    if any(ch and not (ch.isalnum() or ch == "_") for ch in code):
+        return ""
+    return code

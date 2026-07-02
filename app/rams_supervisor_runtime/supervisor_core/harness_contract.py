@@ -10,6 +10,7 @@ HARNESS_OUTPUT_SCHEMA_VERSION = "3d-rams.harness-output.v1"
 
 HARNESS_OUTPUT_STATUSES = {"ok", "warning", "fallback", "blocked"}
 HARNESS_TRACE_STATUSES = {"ok", "warning", "fallback", "blocked", "disabled"}
+POLICY_DECISIONS = {"allow", "skip", "reject", "downgrade"}
 
 DOMAIN_DATA_KEYS = {
     "geospatial_subagent": ["location", "features", "scene"],
@@ -233,6 +234,21 @@ def _trace_issues(item: Any, index: int) -> list[str]:
     for field in ("sourceIds", "evidenceIds"):
         if not isinstance(item.get(field), list):
             issues.append(f"trace[{index}].{field} must be a list.")
+    policy_decision = item.get("policyDecision")
+    if policy_decision is not None:
+        issues.extend(_policy_decision_issues(policy_decision, index))
+    return issues
+
+
+def _policy_decision_issues(item: Any, trace_index: int) -> list[str]:
+    if not isinstance(item, dict):
+        return [f"trace[{trace_index}].policyDecision must be an object."]
+    issues: list[str] = []
+    for field in ("tool_name", "reason_code", "source"):
+        if not isinstance(item.get(field), str) or not item.get(field):
+            issues.append(f"trace[{trace_index}].policyDecision.{field} must be a non-empty string.")
+    if item.get("decision") not in POLICY_DECISIONS:
+        issues.append(f"trace[{trace_index}].policyDecision.decision must be a valid policy decision.")
     return issues
 
 

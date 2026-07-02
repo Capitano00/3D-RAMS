@@ -232,9 +232,9 @@ Important `output.structuredReport` fields:
 | `reviewGate` | Independent review output with decision, status, issues, caveats, and bounded revision count. |
 | `dataQuality` | Completeness flags, warnings, and gaps surfaced by fixture fallback, disabled data, or limitations. |
 | `externalSignals` | Placeholder for future Tavily/open-web signals. Current prototype marks this as `not_configured`. |
-| `trace` | Ordered tool timeline for debugging and evidence inspection. |
+| `trace` | Ordered tool timeline for debugging and evidence inspection, including optional public-safe `policyDecision` metadata with `tool_name`, `decision`, `reason_code`, and `source`. |
 
-The trace is case-correlated. Each supervisor trace step includes `caseId`, and the step `output` includes the same id where the output is an object. This is the field to map into future CloudWatch search and trace correlation.
+The trace is case-correlated. Each supervisor trace step includes `caseId`, and the step `output` includes the same id where the output is an object. Policy-decision metadata must stay public-safe and must not expose hidden reasoning, credentials, private Harness payloads, signed URLs, or private material content. This is the field to map into future CloudWatch search and trace correlation.
 
 Important `output.persistence` fields:
 
