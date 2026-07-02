@@ -305,7 +305,10 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["plannerMode"] = planner_result["plannerStatus"]
     runtime["activeAgentMode"] = planner_result["activeAgentMode"]
     runtime["modelCallCount"] = len(planner_result["modelCalls"])
-    runtime["bedrockUsed"] = bedrock_status in {"real", "mocked"} or planner_result["plannerStatus"] in {"real", "mocked"}
+    runtime["bedrockUsed"] = (
+        runtime.get("modelProvider") != "openai-compatible"
+        and (bedrock_status in {"real", "mocked"} or planner_result["plannerStatus"] in {"real", "mocked"})
+    )
     runtime["caseId"] = case_id
     runtime["materialIngestionStatus"] = material_result["status"]
     runtime["materialEvidenceCount"] = len(material_evidence)
