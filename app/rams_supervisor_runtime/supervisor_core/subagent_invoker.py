@@ -511,7 +511,27 @@ class AgentCoreHarnessInvoker:
             )
             if validation_issues:
                 return self._fallback_json(group, payload, validation_issues=validation_issues, raw_result=result)
-            return flatten_harness_output(result)
+            flattened = flatten_harness_output(result)
+            flattened.setdefault("trace", [])
+            flattened["trace"].append(
+                trace_step(
+                    "agentcore_harness_invocation",
+                    "ok",
+                    "Supervisor accepted the AgentCore Harness response for this subagent group.",
+                    {
+                        "group": group,
+                        "harness": harness_name,
+                        "schemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
+                    },
+                    policy_decision={
+                        "tool_name": group,
+                        "decision": "allow",
+                        "reason_code": "agentcore_harness_output_contract_valid",
+                        "source": "agentcore_harness_invoker",
+                    },
+                )
+            )
+            return flattened
 
         raise RuntimeError(f"Harness '{harness_name}' exceeded local tool-loop limit.")
 
@@ -533,6 +553,12 @@ class AgentCoreHarnessInvoker:
                     "executionFailureSummary": summary,
                 },
                 fallback_reason=str(error_output["fallbackReason"]),
+                policy_decision={
+                    "tool_name": group,
+                    "decision": "downgrade",
+                    "reason_code": error_output["fallbackReason"],
+                    "source": "agentcore_harness_invoker",
+                },
             )
         )
         return result
@@ -577,6 +603,12 @@ class AgentCoreHarnessInvoker:
                     "rawResultKeys": sorted(raw_result.keys()),
                 },
                 fallback_reason="agentcore_harness_output_contract_invalid",
+                policy_decision={
+                    "tool_name": group,
+                    "decision": "downgrade",
+                    "reason_code": "agentcore_harness_output_contract_invalid",
+                    "source": "agentcore_harness_invoker",
+                },
             )
         )
         return result
