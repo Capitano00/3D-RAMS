@@ -159,12 +159,38 @@ function contractStateFrom({ run, entryResponse, persistence }) {
   const output = entryResponse?.agentcoreOutput || {};
   const report = reportFromRun(run, entryResponse);
   return {
+    entryRouting: normalizeEntryRouting(entryResponse),
     progress: normalizeProgress(progressSource(run, entryResponse, output, report), run, output, report, entryResponse),
     locationGate: normalizeLocationGate(locationGateSource(run, entryResponse, output, report), entryResponse),
     repair: normalizeRepair(repairSource(run, output, report)),
     review: normalizeReview(reviewGateFromRun(run) || output.reviewMetadata || output.reviewGate || report?.reviewGate),
     sceneMode: sceneModeFrom(run, report, persistence),
   };
+}
+
+function normalizeEntryRouting(entryResponse) {
+  if (!entryResponse) return null;
+  const runtime = firstObject(entryResponse.runtimeObservability) || {};
+  const route = entryResponse.route || "";
+  const status = entryResponse.status || "";
+  const confirmationRequired = status === "confirmation_required" || entryResponse.needsConfirmation;
+  const toolsStarted = toolsStartedSummary(runtime.toolsStarted);
+  return {
+    route,
+    status: confirmationRequired ? "confirmation_required" : status,
+    tone: statusTone(confirmationRequired ? "confirmation_required" : status),
+    activeAgentMode: runtime.activeAgentMode || runtime.entryAgentMode || "",
+    noToolReason: runtime.noToolReason || "",
+    toolsStarted,
+  };
+}
+
+function toolsStartedSummary(value) {
+  if (!present(value)) return "";
+  if (typeof value === "boolean") return value ? "Started" : "Not started";
+  if (Array.isArray(value)) return value.length ? "Started" : "Not started";
+  if (typeof value === "object") return Object.values(value).some(Boolean) ? "Started" : "Not started";
+  return "";
 }
 
 function progressSource(run, entryResponse, output, report) {
@@ -753,7 +779,7 @@ function ReviewAndDataQuality({ report }) {
 }
 
 function WorkflowStatusPanel({ contracts }) {
-  const { progress, locationGate, repair, review, sceneMode } = contracts;
+  const { entryRouting, progress, locationGate, repair, review, sceneMode } = contracts;
   return (
     <section className="panel contract-panel">
       <div className="panel-heading">
@@ -761,6 +787,20 @@ function WorkflowStatusPanel({ contracts }) {
         <h2>Progress + Gate State</h2>
       </div>
       <div className="contract-grid">
+        <article>
+          <span>Entry routing</span>
+          {entryRouting ? (
+            <>
+              <strong>{humanizeToken(entryRouting.route || entryRouting.status || "entry")}</strong>
+              <em className={`status ${entryRouting.tone}`}>{humanizeToken(entryRouting.status || "available")}</em>
+              <MetaRow label="Agent mode" value={entryRouting.activeAgentMode && humanizeToken(entryRouting.activeAgentMode)} />
+              <MetaRow label="Tools" value={entryRouting.toolsStarted} />
+              <MetaRow label="No-tool reason" value={entryRouting.noToolReason && humanizeToken(entryRouting.noToolReason)} />
+            </>
+          ) : (
+            <p>Entry routing metadata not returned yet.</p>
+          )}
+        </article>
         <article>
           <span>Run progress</span>
           {progress ? (
