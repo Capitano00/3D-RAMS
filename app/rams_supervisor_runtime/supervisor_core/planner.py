@@ -72,9 +72,9 @@ def plan_subagent_workflow(
         }
 
     reason = (
-        "Bedrock planner was not requested for this run; deterministic Harness planner was used."
+        "Live model planner was not requested for this run; deterministic Harness planner was used."
         if not config.bedrock_requested
-        else "ENABLE_BEDROCK is not true; deterministic Harness planner was used."
+        else "ENABLE_LIVE_MODEL is not true; deterministic Harness planner was used."
     )
     return _deterministic_result(
         request_summary=request_summary,

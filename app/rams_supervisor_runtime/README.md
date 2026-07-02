@@ -12,7 +12,7 @@ commands like `deploy`, `dev`, and `invoke` rely on the configuration stored her
 
 The main entrypoint is `main.py`. It uses the AgentCore SDK `@app.entrypoint` decorator and delegates invocation handling to `supervisor_core.agentcore_adapter`.
 
-The current migration preserves the existing deterministic 3D-RAMS workflow under `supervisor_core/` ("supervisor-core" in architecture notes). Bedrock remains optional and environment-controlled.
+The current migration preserves the existing deterministic 3D-RAMS workflow under `supervisor_core/` ("supervisor-core" in architecture notes). The live model path is OpenAI-compatible and environment-controlled.
 
 Reusable tools live in the shared `app/rams_agent_tools` package and are grouped by capability so future Harness subagents can expose only the functions they need. The supervisor runtime imports those tools; it does not own them.
 
@@ -25,7 +25,8 @@ Runtime-required fixture data is packaged under `fixtures/` so local mock and ca
 | Variable | Required | Description |
 | --- | --- | --- |
 | `LOCAL_DEV` | No | Set to `1` to use `.env.local` instead of AgentCore Identity. |
-| `ENABLE_BEDROCK` | No | Set to `true` only when AWS credentials and model access are ready. Defaults to deterministic fallback. |
+| `ENABLE_LIVE_MODEL` | No | Set to `true` only when OpenAI-compatible gateway credentials are ready. Defaults to deterministic fallback. |
+| `RAMS_LLM_PROVIDER` | No | Defaults to `openai`; set `bedrock` only for explicit legacy provider testing. |
 | `RUNTIME_DATA_MODE` | No | Use `fixture_first` for Demo1 and no-AWS validation. |
 | `RAMS_SUBAGENT_EXECUTION_MODE` | No | Defaults to `direct`, which runs the shared Python tool functions locally. Set to `agentcore_harness` only after Harness ARNs and IAM are configured. |
 | `RAMS_HARNESS_ARNS` | For `agentcore_harness` mode | JSON object mapping Harness names to deployed Harness ARNs. Individual variables such as `RAMS_GEOSPATIAL_HARNESS_ARN` can be used instead. |

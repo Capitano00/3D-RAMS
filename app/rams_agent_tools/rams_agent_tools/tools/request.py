@@ -256,29 +256,33 @@ def source_register(
             },
             {
                 "id": "bedrock-planner",
-                "label": "Amazon Bedrock supervisor planner",
+                "label": "Live model supervisor planner",
                 "kind": "llm_planner",
                 "status": planner_status,
                 "origin": (
-                    f"{config.bedrock_model_id} in {config.aws_region}"
+                    f"{config.openai_model_id} via OpenAI-compatible gateway"
+                    if config.llm_provider == "openai" and config.bedrock_enabled
+                    else f"{config.bedrock_model_id} in {config.aws_region}"
                     if config.bedrock_enabled
-                    else "Deterministic/mock planner unless ENABLE_BEDROCK=true and request uses Bedrock"
+                    else "Deterministic/mock planner unless ENABLE_LIVE_MODEL=true and the run requests live model use"
                 ),
-                "trustBoundary": "AWS account boundary when enabled",
-                "awsMapping": "Amazon Bedrock InvokeModel for supervisor subagent planning",
+                "trustBoundary": "Hosted model gateway boundary when enabled",
+                "awsMapping": "Hosted OpenAI-compatible gateway for supervisor subagent planning",
             },
             {
                 "id": "bedrock-briefing",
-                "label": "Amazon Bedrock briefing adapter",
+                "label": "Live model briefing adapter",
                 "kind": "llm_adapter",
                 "status": bedrock_status,
                 "origin": (
-                    f"{config.bedrock_model_id} in {config.aws_region}"
+                    f"{config.openai_model_id} via OpenAI-compatible gateway"
+                    if config.llm_provider == "openai" and config.bedrock_enabled
+                    else f"{config.bedrock_model_id} in {config.aws_region}"
                     if config.bedrock_enabled
-                    else "Disabled unless ENABLE_BEDROCK=true and request uses Bedrock"
+                    else "Disabled unless ENABLE_LIVE_MODEL=true and the run requests live model use"
                 ),
-                "trustBoundary": "AWS account boundary when enabled",
-                "awsMapping": "Amazon Bedrock InvokeModel for one briefing step per run",
+                "trustBoundary": "Hosted model gateway boundary when enabled",
+                "awsMapping": "Hosted OpenAI-compatible gateway for one briefing step per run",
             },
         ]
     )

@@ -19,7 +19,7 @@ This page is a public-safe readiness snapshot for teammates, judges, and contrib
 | Architecture visualizer | Ready for demo use | UI and [architecture.md](architecture.md) show tool sequence, boundaries, trace, and AWS path. |
 | Safety gate | Verified for demo boundary | Unsafe certified RAMS/work-approval requests are blocked in tests and evaluation. |
 | CI | Active | GitHub Actions runs the local verification stack on push and pull request. |
-| Live Bedrock | Optional dogfood path | Available only when explicitly configured; deterministic fallback remains the safe baseline. |
+| Live model gateway | Optional dogfood path | OpenAI-compatible path available only when explicitly configured; deterministic fallback remains the safe baseline. |
 
 ## One-Command Checks
 
@@ -69,7 +69,7 @@ The deterministic evaluation runner covers:
 - synthetic fallback path;
 - missing planning/context evidence;
 - map/geospatial fallback;
-- Bedrock requested while disabled;
+- live model requested while disabled;
 - unsafe certified RAMS/work-approval request;
 - low-confidence output visibility;
 - architecture visualizer response contract;
@@ -82,7 +82,7 @@ The deterministic evaluation runner covers:
 | Planning data | Cached fixture only; no live planning portal scraping in MVP. |
 | Public source freshness | Source metadata is visible, but the app does not refresh sources at runtime. |
 | 3D map data | Token-free local Cesium view and fixture overlay; no Google Earth/3D Tiles. |
-| Bedrock | Optional model-assisted briefing when configured; deterministic fallback remains valid. |
+| OpenAI-compatible gateway | Optional model-assisted briefing when configured; deterministic fallback remains valid. |
 | DynamoDB report store | Optional `caseId` report persistence when configured; lookup requires ASI/ASI:ONE identity or authorized session context. Local no-AWS demos skip persistence and may use an explicit dev-local lookup context. |
 | Hosted entry | ASI/ASI:ONE or hosted FieldBrief simulation through the signed proxy; direct `/api/chat`, `/api/run`, `/api/session/start`, and `/api/upload-url` are not canonical. |
 | AWS production path | AgentCore runtimes, Harnesses, signed proxy, and optional report store are dogfood surfaces; S3, CloudWatch, Guardrails, and deeper deployment hardening remain future work. |

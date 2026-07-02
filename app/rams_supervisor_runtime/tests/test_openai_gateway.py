@@ -229,6 +229,14 @@ class OpenAIGatewayTests(unittest.TestCase):
         self.assertEqual(calls["model_id"], "gpt-5.4-mini")
         self.assertEqual(calls["client_args"], {"api_key": "test-key", "base_url": "https://gateway.example/v1"})
 
+    def test_runtime_config_defaults_to_openai_provider(self):
+        with mock.patch.dict(os.environ, {"RAMS_LLM_PROVIDER": "", "ENABLE_LIVE_MODEL": "true"}, clear=False):
+            config = RuntimeConfig.from_env(request_bedrock=True)
+
+        self.assertEqual(config.llm_provider, "openai")
+        self.assertTrue(config.bedrock_enabled)
+        self.assertEqual(config.public_runtime(status="disabled")["modelProvider"], "openai-compatible")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -56,12 +56,12 @@ class SiteBriefRequest(BaseModel):
     )
     useBedrock: bool = Field(
         default=True,
-        description="Whether the run requests the optional Bedrock briefing path. Environment config still controls whether Bedrock is actually used.",
+        description="Legacy field name for requesting the optional live model path. Environment config controls whether the OpenAI-compatible gateway is used.",
     )
     agentMode: str = Field(
         default="llm-planner",
         max_length=80,
-        description="Requested supervisor mode. Planner phase is always present; Bedrock availability controls whether it is LLM-backed or deterministic.",
+        description="Requested supervisor mode. Planner phase is always present; live model availability controls whether it is LLM-backed or deterministic.",
     )
     additionalRequest: str | None = Field(
         default=None,

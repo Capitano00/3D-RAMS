@@ -8,9 +8,9 @@ It is separate from `app/rams_supervisor_runtime`, which remains the 3D-RAMS sup
 
 ## Runtime Role
 
-- Accept chat-style prompts or Bedrock-style message payloads from the AgentVerse hosted adapter.
+- Accept chat-style prompts and AgentCore/AgentVerse message payloads from the hosted adapter.
 - Accept structured frontend/proxy payloads with confirmed intake and launch the supervisor runtime.
-- Use a fast Bedrock-backed intake path for entry-agent clarification and confirmation when configured.
+- Use the OpenAI-compatible gateway for entry-agent clarification and confirmation when configured.
 - Preserve AgentCore session/user identity so memory can be used when configured.
 - Stay thin: intake and delivery UX live here, while deeper site-review orchestration belongs in `rams_supervisor_runtime`.
 
@@ -20,13 +20,16 @@ The entry turn path supports the ADR 0011 LLM-first mode with deterministic fall
 
 ```bash
 ENTRY_INTAKE_MODE=llm_first
-ENTRY_INTAKE_MODEL_ID=amazon.nova-micro-v1:0
+ENTRY_INTAKE_PROVIDER=openai
+OPENAI_BASE_URL=https://<gateway-host>/v1
+OPENAI_API_KEY=<hosted-secret>
+OPENAI_MODEL=gpt-5.4-mini
 ENTRY_INTAKE_FALLBACK=deterministic
 ENTRY_INTAKE_MAX_RETRIES=1
 ENTRY_INTAKE_TIMEOUT_SECONDS=20
 ```
 
-When `runtimeOptions.useBedrock` is false or `ENTRY_INTAKE_MODE=deterministic`, the runtime uses the deterministic coordinator directly. When LLM intake is enabled but Bedrock credentials, timeout, or model JSON validation fail, the runtime falls back to deterministic intake and returns `entryAgent.intakeMode: "fallback"` plus a `fallbackReason`. Invalid model output is never allowed to launch the supervisor.
+When `runtimeOptions.useBedrock` is false or `ENTRY_INTAKE_MODE=deterministic`, the runtime uses the deterministic coordinator directly. When LLM intake is enabled but gateway credentials, timeout, or model JSON validation fail, the runtime falls back to deterministic intake and returns `entryAgent.intakeMode: "fallback"` plus a `fallbackReason`. Invalid model output is never allowed to launch the supervisor.
 
 ## Cloud Supervisor Handoff
 
@@ -42,7 +45,7 @@ Report lookup also routes through the supervisor runtime. The entry runtime forw
 
 ## Local Development
 
-The deployed/runtime entry agent uses AWS/Bedrock and Strands for meaningful model responses:
+The deployed/runtime entry agent uses Strands with the OpenAI-compatible gateway for meaningful model responses. AWS AgentCore service/package names may still include `bedrock-agentcore`; that is runtime plumbing, not the model-provider dependency.
 
 ```bash
 agentcore dev --runtime asi_one_entry_agent --skip-deploy --no-browser --no-traces --logs --port 8082

@@ -75,7 +75,7 @@ echo "Running AgentVerse proxy boundary tests"
 "$PYTHON_BIN" -m unittest discover -s agentverse/tests -q
 
 echo "Running deterministic no-AWS demo evaluation"
-ENABLE_BEDROCK=false "$PYTHON_BIN" scripts/evaluate-demo.py
+ENABLE_LIVE_MODEL=false ENABLE_BEDROCK=false "$PYTHON_BIN" scripts/evaluate-demo.py
 
 echo "Building frontend"
 (

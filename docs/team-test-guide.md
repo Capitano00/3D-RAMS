@@ -1,6 +1,6 @@
 # Team Test Guide
 
-Use this guide to test the Demo1 flow before judging or submission. The primary dogfood path is ASI/ASI:ONE or the hosted FieldBrief entry simulation when access exists. The local no-AWS path remains the baseline fallback: it should run with public fixtures only, without Google Maps keys, Cesium ion tokens, live planning portals, client data, or real site data. Bedrock mode is available only when the AgentCore runtime has AWS credentials and `ENABLE_BEDROCK=true`; deterministic fallback remains available.
+Use this guide to test the Demo1 flow before judging or submission. The primary dogfood path is ASI/ASI:ONE or the hosted FieldBrief entry simulation when access exists. The local no-AWS path remains the baseline fallback: it should run with public fixtures only, without Google Maps keys, Cesium ion tokens, live planning portals, client data, real site data, or live model credentials. The hosted live-model path uses the team's OpenAI-compatible gateway only when configured; deterministic fallback remains available.
 
 3D-RAMS turns a site request into an inspectable 3D pre-visit briefing pack. The current dogfood flow is:
 
@@ -16,7 +16,7 @@ The default fixture path uses the cached `public-lambeth-thames` pack for a Lamb
 6. candidate hazard extraction;
 7. 3D annotations;
 8. RAMS-style briefing;
-9. optional Bedrock briefing generation;
+9. optional OpenAI-compatible live-model briefing generation;
 10. safety gate;
 11. evidence register, trace, and architecture visualizer.
 
@@ -147,7 +147,7 @@ Use demo fixture data only. Do not enter real client sites, confidential project
 | Synthetic fallback pack | Change `Data pack` to `Synthetic default`, then click `Run`. | App still works using the original synthetic fixture path. |
 | Missing planning fixture | Turn off `Planning fixture`, then click `Run`. | App still works and explains planning evidence limitations. |
 | Map fallback | Turn on `Map fallback`, then click `Run`. | Trace shows geospatial loading using fallback. |
-| Bedrock disabled/fallback | Leave `Bedrock` on, but run without AWS config, or ask a project maintainer to simulate failure. | App still works; trace shows Bedrock as disabled or fallback and keeps deterministic briefing. |
+| Live model disabled/fallback | Request live model mode without gateway credentials, or ask a project maintainer to simulate provider failure. | App still works; trace shows the model step as disabled or fallback and keeps deterministic briefing. |
 | Safety refusal | Click `Safety test`. | Agent refuses certified RAMS or work-approval claims. |
 | Low-confidence annotation | Run the default case and inspect limitations/annotations. | At least one item is labelled low confidence. |
 | Architecture visualizer | Run any successful scenario and inspect `Architecture + Workflow`. | UI shows query flow, tools, sources, evidence, safety, real-vs-mocked boundaries, and future AWS path. |
@@ -248,30 +248,31 @@ Open `http://localhost:5173`.
 
 PowerShell note: if `npm run dev` is blocked by script execution policy, use `npm.cmd run dev`.
 
-## Optional Bedrock Setup
+## Optional OpenAI-Compatible Gateway Setup
 
-Only use this if you are testing the live AWS path. Do not paste secrets into chat or commit `.env`.
+Only use this if you are testing the hosted live model path. Do not paste secrets into chat or commit `.env`.
 
-The full optional setup and troubleshooting guide is [aws-bedrock-setup.md](aws-bedrock-setup.md). Confirm payment preferences and a small budget alert before repeated live testing. Normal teammate testing does not need AWS.
+Normal teammate testing does not need live model credentials. Keep gateway URLs and API keys in hosted secrets or a local untracked `.env`.
 
 AgentCore runtime environment:
 
 ```bash
-ENABLE_BEDROCK=true
-AWS_PROFILE=3d-rams-dev
-AWS_REGION=eu-west-2
-BEDROCK_MODEL_ID=anthropic.claude-3-7-sonnet-20250219-v1:0
-BEDROCK_MAX_TOKENS=1200
-BEDROCK_TEMPERATURE=0.2
+ENABLE_LIVE_MODEL=true
+RAMS_LLM_PROVIDER=openai
+ENTRY_AGENT_PROVIDER=openai
+ENTRY_INTAKE_PROVIDER=openai
+OPENAI_BASE_URL=https://<gateway-host>/v1
+OPENAI_API_KEY=<local-or-hosted-secret>
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
 Low-volume smoke test:
 
 ```bash
-python scripts/bedrock-smoke.py
+python3 scripts/openai-gateway-smoke.py
 ```
 
-Keep usage low: one Bedrock call per agent run, short fixture prompts only, and no real client/site data.
+Keep usage low: short fixture prompts only, and no real client/site data.
 
 ## Health Check
 
@@ -293,7 +294,7 @@ Expected response includes:
 - The RAMS-style briefing and its limitations.
 - Evidence register entries and source labels.
 - Trace rows with tool names and statuses.
-- Briefing mode pill: deterministic disabled, Bedrock real, or fallback.
+- Briefing mode pill: deterministic disabled, OpenAI-compatible real, or fallback.
 - `Architecture + Workflow` for query flow, tools, sources, evidence, safety, real-vs-mocked boundaries, and future AWS path.
 - `docs/architecture.md` for written architecture diagrams and trace shape.
 - `docs/impact-baseline.md` if you are helping measure manual-vs-agent timing.

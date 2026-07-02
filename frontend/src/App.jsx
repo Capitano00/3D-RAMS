@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -159,12 +159,38 @@ function contractStateFrom({ run, entryResponse, persistence }) {
   const output = entryResponse?.agentcoreOutput || {};
   const report = reportFromRun(run, entryResponse);
   return {
+    entryRouting: normalizeEntryRouting(entryResponse),
     progress: normalizeProgress(progressSource(run, entryResponse, output, report), run, output, report, entryResponse),
     locationGate: normalizeLocationGate(locationGateSource(run, entryResponse, output, report), entryResponse),
     repair: normalizeRepair(repairSource(run, output, report)),
     review: normalizeReview(reviewGateFromRun(run) || output.reviewMetadata || output.reviewGate || report?.reviewGate),
     sceneMode: sceneModeFrom(run, report, persistence),
   };
+}
+
+function normalizeEntryRouting(entryResponse) {
+  if (!entryResponse) return null;
+  const runtime = firstObject(entryResponse.runtimeObservability) || {};
+  const route = entryResponse.route || "";
+  const status = entryResponse.status || "";
+  const confirmationRequired = status === "confirmation_required" || entryResponse.needsConfirmation;
+  const toolsStarted = toolsStartedSummary(runtime.toolsStarted);
+  return {
+    route,
+    status: confirmationRequired ? "confirmation_required" : status,
+    tone: statusTone(confirmationRequired ? "confirmation_required" : status),
+    activeAgentMode: runtime.activeAgentMode || runtime.entryAgentMode || "",
+    noToolReason: runtime.noToolReason || "",
+    toolsStarted,
+  };
+}
+
+function toolsStartedSummary(value) {
+  if (!present(value)) return "";
+  if (typeof value === "boolean") return value ? "Started" : "Not started";
+  if (Array.isArray(value)) return value.length ? "Started" : "Not started";
+  if (typeof value === "object") return Object.values(value).some(Boolean) ? "Started" : "Not started";
+  return "";
 }
 
 function progressSource(run, entryResponse, output, report) {
@@ -474,6 +500,16 @@ function frontendReportSessionId() {
 
 function SceneViewer({ scene, annotations, location, sceneMode }) {
   const containerRef = useRef(null);
+  const markerItems = useMemo(
+    () =>
+      toList(annotations).map((annotation, index) => ({
+        annotation,
+        marker: String(index + 1),
+        title: annotation.title || annotation.label || annotation.id || `Marker ${index + 1}`,
+        status: annotation.confidence || annotation.status || annotation.source_type || "review",
+      })),
+    [annotations],
+  );
 
   useEffect(() => {
     if (!containerRef.current || !scene?.center) return undefined;
@@ -518,9 +554,9 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
       },
     });
 
-    toList(annotations).forEach((annotation) => {
+    markerItems.forEach(({ annotation, marker, title }) => {
       viewer.entities.add({
-        name: annotation.title,
+        name: title,
         position: Cesium.Cartesian3.fromDegrees(annotation.longitude, annotation.latitude, 24),
         point: {
           pixelSize: annotation.confidence === "low" ? 12 : 10,
@@ -529,18 +565,19 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
           outlineWidth: 2,
         },
         label: {
-          text: annotation.title,
-          font: "12px sans-serif",
+          text: marker,
+          font: "700 13px sans-serif",
           fillColor: Cesium.Color.fromCssColorString("#111827"),
           showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.84),
-          pixelOffset: new Cesium.Cartesian2(0, -22),
+          backgroundColor: Cesium.Color.WHITE.withAlpha(0.9),
+          pixelOffset: new Cesium.Cartesian2(0, -20),
         },
       });
     });
 
+    const cameraRange = Number(scene.camera?.rangeMeters) || 1500;
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, 1500),
+      destination: Cesium.Cartesian3.fromDegrees(center.longitude, center.latitude, cameraRange),
       orientation: {
         heading: Cesium.Math.toRadians(scene.camera?.headingDegrees || 0),
         pitch: Cesium.Math.toRadians(scene.camera?.pitchDegrees || -48),
@@ -551,13 +588,13 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
     return () => {
       if (!viewer.isDestroyed()) viewer.destroy();
     };
-  }, [scene, annotations]);
+  }, [scene, markerItems]);
 
   if (!scene) {
     return (
       <div className="empty-map">
         <MapPinned size={24} />
-        <span>Map updates after the agent resolves a site.</span>
+        <span>{sceneMode?.label || "Scene not run"}: map appears after the site is resolved.</span>
         <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Scene not run"}</em>
       </div>
     );
@@ -568,7 +605,18 @@ function SceneViewer({ scene, annotations, location, sceneMode }) {
       <div ref={containerRef} className="scene-viewer" />
       <div className="map-caption">
         <strong>{location?.label || "Selected site"}</strong>
-        <span>{toList(annotations).length} mapped risk marker(s)</span>
+        <span>{markerItems.length} mapped risk marker(s)</span>
+        {markerItems.length > 0 && (
+          <ol className="marker-key" aria-label="3D marker key">
+            {markerItems.map(({ annotation, marker, title, status }) => (
+              <li key={annotation.id || `${marker}-${title}`}>
+                <span>{marker}</span>
+                <strong>{title}</strong>
+                <em className={`status ${status}`}>{status}</em>
+              </li>
+            ))}
+          </ol>
+        )}
         <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Unknown data mode"}</em>
       </div>
     </div>
@@ -753,7 +801,7 @@ function ReviewAndDataQuality({ report }) {
 }
 
 function WorkflowStatusPanel({ contracts }) {
-  const { progress, locationGate, repair, review, sceneMode } = contracts;
+  const { entryRouting, progress, locationGate, repair, review, sceneMode } = contracts;
   return (
     <section className="panel contract-panel">
       <div className="panel-heading">
@@ -761,6 +809,20 @@ function WorkflowStatusPanel({ contracts }) {
         <h2>Progress + Gate State</h2>
       </div>
       <div className="contract-grid">
+        <article>
+          <span>Entry routing</span>
+          {entryRouting ? (
+            <>
+              <strong>{humanizeToken(entryRouting.route || entryRouting.status || "entry")}</strong>
+              <em className={`status ${entryRouting.tone}`}>{humanizeToken(entryRouting.status || "available")}</em>
+              <MetaRow label="Agent mode" value={entryRouting.activeAgentMode && humanizeToken(entryRouting.activeAgentMode)} />
+              <MetaRow label="Tools" value={entryRouting.toolsStarted} />
+              <MetaRow label="No-tool reason" value={entryRouting.noToolReason && humanizeToken(entryRouting.noToolReason)} />
+            </>
+          ) : (
+            <p>Entry routing metadata not returned yet.</p>
+          )}
+        </article>
         <article>
           <span>Run progress</span>
           {progress ? (

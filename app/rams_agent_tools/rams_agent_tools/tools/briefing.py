@@ -128,29 +128,30 @@ def apply_bedrock_briefing(
         return briefing, trace_step(
             "generate_bedrock_briefing",
             "disabled",
-            "Bedrock briefing was not requested for this run; deterministic briefing remains active.",
+            "Live model briefing was not requested for this run; deterministic briefing remains active.",
             {"mode": "deterministic", "requested": False},
-            source_ids=["bedrock-briefing"],
+            source_ids=["model-briefing"],
             evidence_ids=[item["id"] for item in evidence],
-        ), "disabled", "Bedrock was not requested."
+        ), "disabled", "Live model briefing was not requested."
 
     if not config.bedrock_enabled:
         return briefing, trace_step(
             "generate_bedrock_briefing",
             "disabled",
-            "Bedrock briefing is disabled by environment; deterministic briefing remains active.",
+            "Live model briefing is disabled by environment; deterministic briefing remains active.",
             {
                 "mode": "deterministic",
                 "requested": True,
                 "enabled": False,
+                "modelProvider": "openai-compatible" if config.llm_provider == "openai" else "bedrock",
                 "modelId": None,
                 "maxTokens": None,
                 "temperature": None,
             },
-            source_ids=["bedrock-briefing"],
+            source_ids=["model-briefing"],
             evidence_ids=[item["id"] for item in evidence],
-            fallback_reason="Set ENABLE_BEDROCK=true with AWS credentials to use the live Bedrock path.",
-        ), "disabled", "ENABLE_BEDROCK is not true."
+            fallback_reason="Set ENABLE_LIVE_MODEL=true with OpenAI-compatible gateway credentials to use the live model path.",
+        ), "disabled", "ENABLE_LIVE_MODEL is not true."
 
     try:
         bedrock_briefing, metadata = generate_bedrock_briefing(
@@ -167,7 +168,7 @@ def apply_bedrock_briefing(
         return briefing, trace_step(
             "generate_bedrock_briefing",
             "fallback",
-            "Bedrock briefing failed; deterministic briefing remains active.",
+            "Live model briefing failed; deterministic briefing remains active.",
             {
                 "mode": "deterministic-fallback",
                 "modelId": config.bedrock_model_id,
@@ -176,7 +177,7 @@ def apply_bedrock_briefing(
                 "temperature": config.bedrock_temperature,
                 **error_output,
             },
-            source_ids=["bedrock-briefing"],
+            source_ids=["model-briefing"],
             evidence_ids=[item["id"] for item in evidence],
             fallback_reason=fallback_reason,
         ), "fallback", fallback_reason
