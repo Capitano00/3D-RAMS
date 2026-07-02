@@ -22,6 +22,7 @@ from rams_agent_tools.tools import (
     load_planning_context,
     resolve_location,
     safety_gate,
+    sanitize_material_references,
     search_open_web_signals,
     trace_step,
 )
@@ -64,6 +65,15 @@ class SubagentInvoker(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def invoke_material(
+        self,
+        request: Any,
+        *,
+        case_id: str | None,
+        upstream_context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        ...
+
     def invoke_open_web(
         self,
         location: dict[str, Any],
@@ -100,6 +110,9 @@ class SubagentInvoker(Protocol):
 
 class DirectSubagentInvoker:
     execution_mode = "direct-local-harness-adapter"
+
+    def __init__(self, *, config: RuntimeConfig | None = None) -> None:
+        self.config = config
 
     def invoke_geospatial(
         self,
@@ -151,6 +164,38 @@ class DirectSubagentInvoker:
             trace=trace,
             warnings=_warnings_from_trace(trace),
             metadata=_harness_metadata(request, fixture_pack),
+        )
+
+    def invoke_material(
+        self,
+        request: Any,
+        *,
+        case_id: str | None,
+        upstream_context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        materials = request.get("materials") if isinstance(request, dict) else request
+        material_ingestion = ingest_material_references(
+            materials,
+            case_id=case_id,
+            upstream_context=upstream_context,
+            config=self.config,
+        )
+        trace = _trace_list(material_ingestion.get("trace"))
+        accepted = int(material_ingestion.get("accepted") or 0)
+        skipped = int(material_ingestion.get("skippedCount") or 0)
+        return build_harness_output(
+            "material_subagent",
+            status=_status_from_trace(trace),
+            summary=(
+                f"Validated ASI/ASI:ONE material references; {accepted} accepted and {skipped} skipped."
+            ),
+            data={"materialIngestion": _public_material_ingestion(material_ingestion)},
+            evidence=_list(material_ingestion.get("evidence")),
+            findings=_list(material_ingestion.get("findings")),
+            trace=trace,
+            references=_list(material_ingestion.get("sources")),
+            warnings=_warnings_from_trace(trace),
+            metadata=_harness_metadata({"caseId": case_id}, None),
         )
 
     def invoke_hazard(
@@ -304,6 +349,30 @@ class AgentCoreHarnessInvoker:
                 "includePlanningFixture": bool(request.get("includePlanningFixture", True)),
                 "fixturePack": _fixture_pack_name(fixture_pack),
                 "requiredDataKeys": DOMAIN_DATA_KEYS["planning_subagent"],
+            },
+        )
+
+    def invoke_material(
+        self,
+        request: Any,
+        *,
+        case_id: str | None,
+        upstream_context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        materials = request.get("materials") if isinstance(request, dict) else request
+        use_bedrock = bool(request.get("useBedrock")) if isinstance(request, dict) else False
+        return self._invoke_json(
+            "material_subagent",
+            {
+                "task": (
+                    "Validate authorized ASI/ASI:ONE material references and extract bounded evidence summaries. "
+                    "Return JSON only and never include raw material content, tokens, or signed URLs."
+                ),
+                "materials": sanitize_material_references(materials),
+                "caseId": case_id,
+                "upstream": upstream_context or {},
+                "useBedrock": use_bedrock,
+                "requiredDataKeys": DOMAIN_DATA_KEYS["material_subagent"],
             },
         )
 
@@ -507,7 +576,7 @@ class AgentCoreHarnessInvoker:
 
     def _direct_fallback(self, group: str, payload: dict[str, Any]) -> dict[str, Any]:
         fixture_pack = _load_tool_fixture_pack(payload.get("fixturePack"))
-        direct = DirectSubagentInvoker()
+        direct = DirectSubagentInvoker(config=self.config)
 
         if group == "geospatial_subagent":
             return direct.invoke_geospatial(_dict(payload.get("request")), fixture_pack=fixture_pack)
@@ -515,6 +584,12 @@ class AgentCoreHarnessInvoker:
             return direct.invoke_planning(
                 {"includePlanningFixture": bool(payload.get("includePlanningFixture", True))},
                 fixture_pack=fixture_pack,
+            )
+        if group == "material_subagent":
+            return direct.invoke_material(
+                {"materials": payload.get("materials"), "useBedrock": bool(payload.get("useBedrock"))},
+                case_id=str(payload.get("caseId")) if payload.get("caseId") else None,
+                upstream_context=_dict(payload.get("upstream")),
             )
         if group == "hazard_subagent":
             return direct.invoke_hazard(
@@ -546,7 +621,7 @@ class AgentCoreHarnessInvoker:
 def build_subagent_invoker(config: RuntimeConfig) -> SubagentInvoker:
     mode = os.getenv("RAMS_SUBAGENT_EXECUTION_MODE", "direct").strip().lower()
     if mode in {"direct", "local", "fixture", "fixture_first"}:
-        return DirectSubagentInvoker()
+        return DirectSubagentInvoker(config=config)
     if mode in {"agentcore_harness", "harness", "aws"}:
         return AgentCoreHarnessInvoker(config=config)
     raise RuntimeError(f"Unsupported RAMS_SUBAGENT_EXECUTION_MODE '{mode}'.")
@@ -579,6 +654,7 @@ def _load_harness_arns() -> dict[str, str]:
     for group, spec in {
         "rams_geospatial_harness": "RAMS_GEOSPATIAL_HARNESS_ARN",
         "rams_planning_harness": "RAMS_PLANNING_HARNESS_ARN",
+        "rams_material_harness": "RAMS_MATERIAL_HARNESS_ARN",
         "rams_hazard_harness": "RAMS_HAZARD_HARNESS_ARN",
         "rams_open_web_harness": "RAMS_OPEN_WEB_HARNESS_ARN",
         "rams_annotation_harness": "RAMS_ANNOTATION_HARNESS_ARN",
@@ -734,10 +810,12 @@ def _execute_inline_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
         )
         return {"openWeb": open_web, "trace": [step]}
     if name == "ingest_material_references":
+        config = RuntimeConfig.from_env(request_bedrock=bool(payload.get("useBedrock")))
         result = ingest_material_references(
             payload.get("materials"),
             case_id=str(payload.get("caseId")) if payload.get("caseId") else None,
             upstream_context=_dict(payload.get("upstream")),
+            config=config,
         )
         return result
     if name == "create_annotations":
@@ -817,6 +895,14 @@ def _list(value: Any) -> list[dict[str, Any]]:
     return value if isinstance(value, list) else []
 
 
+def _trace_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [value]
+    return []
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -856,3 +942,25 @@ def _harness_metadata(request: dict[str, Any], fixture_pack: dict[str, Any] | No
         "fixturePack": _fixture_pack_name(fixture_pack),
         "mode": "fixture" if fixture_pack else "fixture",
     }
+
+
+def _public_material_ingestion(material_ingestion: dict[str, Any]) -> dict[str, Any]:
+    public_keys = {
+        "schemaVersion",
+        "referenceSchemaVersion",
+        "status",
+        "mode",
+        "caseId",
+        "upstreamSource",
+        "received",
+        "accepted",
+        "skippedCount",
+        "references",
+        "acceptedReferences",
+        "skipped",
+        "citations",
+        "extractions",
+        "sourceIds",
+        "evidenceIds",
+    }
+    return {key: value for key, value in material_ingestion.items() if key in public_keys}

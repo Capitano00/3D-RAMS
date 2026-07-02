@@ -17,15 +17,21 @@ Default repository: `Capitano00/3D-RAMS`
 
 Default local checkout: the current 3D-RAMS repo root.
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for Project reads and backlog seed creation when one
-exists. In 3D-RAMS it temporarily cannot be used: there is no Shea Symphony
-Dream/Forge CLI or workflow file. Do not run legacy `project state`,
-`inspect`, `doctor`, or `forge create` commands. Approximate the workflow with
-bounded local reads, `gh` reads, Dream Logs under `docs/dream-log/`, and GitHub
-issue creation only after explicit confirmation. Record skipped CLI steps as
-`CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for Project readiness before backlog mining. Run it
+from the 3D-RAMS repo root, never from the `shea-symphony` engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot plan .shea/workflows/shea-symphony.md
+```
+
+Dream is still a skill behavior, not a dedicated CLI subcommand. Use bounded
+local reads, `gh` reads, Dream Logs under `docs/dream-log/`, and GitHub issue
+creation only after explicit confirmation. Record the exact CLI blocker before
+falling back from supported CLI reads.
 
 ## Operating Rules
 

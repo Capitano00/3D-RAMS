@@ -11,7 +11,7 @@ from rams_agent_tools.fixtures import load_fixture_pack
 from rams_agent_tools.tools import (
     architecture_snapshot,
     harness_for_group,
-    ingest_material_references,
+    location_confirmation_gate,
     normalize_request,
     safety_gate,
     source_register,
@@ -22,6 +22,13 @@ from .subagent_invoker import build_subagent_invoker
 from .harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, harness_contract_summary, harness_data
 from .planner import plan_subagent_workflow
 from .reasoning import reason_over_evidence
+from .report_grounding_repair import (
+    MAX_REPAIR_ATTEMPTS,
+    assess_report_grounding,
+    downgrade_briefing_for_review,
+    repair_metadata,
+    repair_trace,
+)
 from .review_loop import run_independent_review_loop
 from .runtime_observability import runtime_observability
 
@@ -42,6 +49,11 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         request_summary["siteName"] = pack_location["label"]
         request_summary["latitude"] = float(pack_location["latitude"])
         request_summary["longitude"] = float(pack_location["longitude"])
+
+    location_gate = location_confirmation_gate(request, request_summary, fixture_pack)
+    if location_gate:
+        return _location_confirmation_run(request_summary, upstream_context, case_id, location_gate)
+    tool_request = {**request, **request_summary}
 
     config = RuntimeConfig.from_env(request_bedrock=request_summary["useBedrock"])
     subagents = build_subagent_invoker(config)
@@ -75,38 +87,42 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
                 "harnesses": {
                     "geospatial_subagent": harness_for_group("geospatial_subagent"),
                     "planning_subagent": harness_for_group("planning_subagent"),
+                    "material_subagent": harness_for_group("material_subagent"),
                 },
                 "plannerMode": planner_result["activeAgentMode"],
                 "caseId": case_id,
             },
         )
     )
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="rams-initial-tools") as executor:
-        geospatial_future = executor.submit(subagents.invoke_geospatial, request, fixture_pack=fixture_pack)
-        planning_future = executor.submit(subagents.invoke_planning, request, fixture_pack=fixture_pack)
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="rams-initial-tools") as executor:
+        geospatial_future = executor.submit(subagents.invoke_geospatial, tool_request, fixture_pack=fixture_pack)
+        planning_future = executor.submit(subagents.invoke_planning, tool_request, fixture_pack=fixture_pack)
+        material_future = executor.submit(
+            subagents.invoke_material,
+            request,
+            case_id=case_id,
+            upstream_context=upstream_context if isinstance(upstream_context, dict) else None,
+        )
 
         geospatial_result = geospatial_future.result()
         planning_result = planning_future.result()
+        material_subagent_result = material_future.result()
 
-    subagent_outputs.extend([geospatial_result, planning_result])
+    subagent_outputs.extend([geospatial_result, planning_result, material_subagent_result])
     geospatial_data = harness_data(geospatial_result)
     planning_data = harness_data(planning_result)
+    material_data = harness_data(material_subagent_result)
     location = geospatial_data["location"]
     features = geospatial_data["features"]
     scene = geospatial_data["scene"]
     planning_text = planning_data["planningText"]
     trace.extend(_trace_steps(geospatial_result.get("trace"), "geospatial_subagent"))
     trace.extend(_trace_steps(planning_result.get("trace"), "planning_subagent"))
-
-    material_result = ingest_material_references(
-        request.get("materials"),
-        case_id=case_id,
-        upstream_context=upstream_context,
-    )
-    trace.extend(_trace_steps(material_result.get("trace"), "material_ingestion"))
-    material_findings = _dict_list(material_result.get("findings"), "material_ingestion", "findings")
-    material_evidence = _dict_list(material_result.get("evidence"), "material_ingestion", "evidence")
-    material_sources = _dict_list(material_result.get("sources"), "material_ingestion", "sources")
+    trace.extend(_trace_steps(material_subagent_result.get("trace"), "material_subagent"))
+    material_result = _dict(material_data.get("materialIngestion"))
+    material_findings = _dict_list(material_subagent_result.get("findings"), "material_subagent", "findings")
+    material_evidence = _dict_list(material_subagent_result.get("evidence"), "material_subagent", "evidence")
+    material_sources = _dict_list(material_subagent_result.get("references"), "material_subagent", "references")
 
     sequential_groups = subagent_plan["sequentialGroups"]
     evidence_groups = [
@@ -187,14 +203,61 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     briefing_data = harness_data(briefing_result)
     annotations = _dict_list(annotation_data.get("annotations"), "annotation_subagent", "annotations")
     briefing = _briefing_payload(briefing_data.get("briefing"))
-    _merge_material_briefing(briefing, material_result)
+    _merge_material_briefing(briefing, {**material_result, "findings": material_findings})
     evidence = _evidence_items(briefing_data.get("evidence")) + material_evidence
     bedrock_status = briefing_data["bedrockStatus"]
     bedrock_fallback_reason = briefing_data["bedrockFallbackReason"]
     trace.extend(_trace_steps(annotation_result.get("trace"), "annotation_subagent"))
     trace.extend(_trace_steps(briefing_result.get("trace"), "briefing_subagent"))
 
-    safety, safety_step = safety_gate(request, briefing)
+    repair_attempt_count = 0
+    repair_assessment = assess_report_grounding(
+        location=location,
+        hazards=hazards,
+        briefing=briefing,
+    )
+    while repair_assessment["repairableIssueCount"] and repair_attempt_count < MAX_REPAIR_ATTEMPTS:
+        repair_attempt_count += 1
+        briefing_result = subagents.invoke_briefing(
+            config,
+            location,
+            hazards,
+            planning_text,
+            fixture_pack=fixture_pack,
+        )
+        subagent_outputs.append(briefing_result)
+        briefing_data = harness_data(briefing_result)
+        briefing = _briefing_payload(briefing_data.get("briefing"))
+        _merge_material_briefing(briefing, {**material_result, "findings": material_findings})
+        evidence = _evidence_items(briefing_data.get("evidence")) + material_evidence
+        bedrock_status = briefing_data["bedrockStatus"]
+        bedrock_fallback_reason = briefing_data["bedrockFallbackReason"]
+        trace.extend(_trace_steps(briefing_result.get("trace"), "briefing_subagent"))
+        repair_assessment = assess_report_grounding(
+            location=location,
+            hazards=hazards,
+            briefing=briefing,
+        )
+
+    repair_stop_reason = "passed"
+    if repair_assessment["issueCount"]:
+        repair_stop_reason = "downgraded_after_cap" if repair_attempt_count else "downgraded_unrepairable"
+        downgrade_briefing_for_review(
+            briefing=briefing,
+            location=location,
+            hazards=hazards,
+            assessment=repair_assessment,
+        )
+    elif repair_attempt_count:
+        repair_stop_reason = "passed_after_retry"
+    grounding_repair = repair_metadata(
+        repair_assessment,
+        attempt_count=repair_attempt_count,
+        stop_reason=repair_stop_reason,
+    )
+    trace.append(repair_trace(grounding_repair))
+
+    safety, safety_step = safety_gate(tool_request, briefing)
     trace.append(safety_step)
 
     sources = source_register(
@@ -204,6 +267,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         config=config,
         fixture_pack=fixture_pack,
         planner_status=planner_result["plannerStatus"],
+        location_confirmation=request_summary.get("locationConfirmation"),
     )
     sources.extend(material_sources)
     external_signals = {"openWeb": _open_web_payload(open_web_data.get("openWeb"))}
@@ -225,7 +289,15 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime_fallback_reason = _runtime_fallback_reason(planner_result, bedrock_fallback_reason)
     runtime = config.public_runtime(status=bedrock_status, fallback_reason=runtime_fallback_reason)
     runtime["fixturePack"] = fixture_pack["name"] if fixture_pack else None
-    runtime["fixturePackMode"] = "cached-public-fixture" if fixture_pack else "synthetic-default"
+    runtime["fixturePackMode"] = (
+        "cached-public-fixture"
+        if fixture_pack
+        else (
+            "confirmed-location-synthetic-features"
+            if request_summary.get("locationConfirmation", {}).get("status") == "confirmed"
+            else "synthetic-default"
+        )
+    )
     runtime["liveApiCalls"] = bool(external_signals["openWeb"].get("liveCallAttempted"))
     runtime["subagentExecutionMode"] = subagents.execution_mode
     runtime["plannerMode"] = planner_result["plannerStatus"]
@@ -238,6 +310,9 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime["materialSkippedCount"] = len(material_result.get("skipped") or [])
     runtime["harnessOutputSchemaVersion"] = HARNESS_OUTPUT_SCHEMA_VERSION
     runtime["harnessContract"] = harness_contract_summary(subagent_outputs)
+    runtime["repairAttemptCount"] = grounding_repair["repairAttemptCount"]
+    runtime["repairStopReason"] = grounding_repair["repairStopReason"]
+    runtime["repairIssueCount"] = grounding_repair["repairIssueCount"]
     trace = _correlate_trace(trace, case_id)
 
     run = {
@@ -252,6 +327,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "modelCalls": planner_result["modelCalls"],
         "tokenUsage": planner_result["tokenUsage"],
         "fallback": planner_result["fallback"],
+        "locationConfirmation": request_summary.get("locationConfirmation"),
         "location": location,
         "scene": scene,
         "hazards": hazards if safety["allowed"] else [],
@@ -263,6 +339,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "materialIngestion": _material_public_result(material_result),
         "externalSignals": external_signals,
         "safety": safety,
+        "reportGroundingRepair": grounding_repair,
         "trace": trace,
     }
     runtime["runtimeObservability"] = runtime_observability(runtime, run)
@@ -289,6 +366,94 @@ def _case_id_for_request(request_summary: dict[str, Any], upstream_context: Any)
     }
     digest = hashlib.sha256(json.dumps(seed, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     return f"case_{digest[:12]}"
+
+
+def _location_confirmation_run(
+    request_summary: dict[str, Any],
+    upstream_context: Any,
+    case_id: str,
+    gate: dict[str, Any],
+) -> dict[str, Any]:
+    confirmation = gate["confirmation"]
+    public_request = dict(request_summary)
+    if not public_request.get("_hasExplicitCoordinates"):
+        public_request["latitude"] = None
+        public_request["longitude"] = None
+    for key in list(public_request):
+        if key.startswith("_"):
+            public_request.pop(key)
+    trace = _correlate_trace([gate["trace"]], case_id)
+    runtime = {
+        "briefingMode": "not_started",
+        "bedrockRequested": bool(request_summary.get("useBedrock")),
+        "bedrockEnabled": False,
+        "bedrockUsed": False,
+        "fixturePack": None,
+        "fixturePackMode": "location-confirmation-required",
+        "liveApiCalls": False,
+        "subagentExecutionMode": "not_started",
+        "plannerMode": "not_started",
+        "activeAgentMode": "location-confirmation-gate",
+        "modelCallCount": 0,
+        "caseId": case_id,
+        "materialIngestionStatus": "not_started",
+        "materialEvidenceCount": 0,
+        "materialSkippedCount": 0,
+        "harnessOutputSchemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
+        "harnessContract": {"contractCompliant": True, "observedSubagents": [], "fallbackCount": 0},
+    }
+    return {
+        "runId": "demo1-local-run",
+        "caseId": case_id,
+        "upstream": upstream_context,
+        "request": public_request,
+        "runtime": runtime,
+        "llmPlan": {},
+        "subagentPlan": {},
+        "subagentOutputs": [],
+        "modelCalls": [],
+        "tokenUsage": {},
+        "fallback": {"status": "not_used", "reason": None},
+        "locationConfirmation": confirmation,
+        "locationCandidates": confirmation["candidates"],
+        "location": None,
+        "scene": None,
+        "hazards": [],
+        "annotations": [],
+        "briefing": {
+            "site": request_summary.get("siteName"),
+            "headline": "Location confirmation is required before report generation.",
+            "summary": [confirmation["message"]],
+            "priority_checks": [],
+            "limitations": ["No site-specific map, evidence, risk, or briefing tools have run yet."],
+        },
+        "evidence": [gate["evidence"]],
+        "sources": [
+            {
+                "id": "user-request",
+                "label": "Submitted location evidence",
+                "kind": "request",
+                "status": "real",
+                "origin": "Request payload",
+                "trustBoundary": "User input",
+                "awsMapping": "DynamoDB run record",
+            },
+            gate["source"],
+        ],
+        "reasoning": {},
+        "materialIngestion": {"status": "not_started", "accepted": 0, "skipped": []},
+        "externalSignals": {"openWeb": {"status": "not_started", "items": [], "warnings": [], "liveCallAttempted": False}},
+        "safety": {
+            "allowed": False,
+            "level": "location_confirmation_required",
+            "message": "Location confirmation is required before non-certified site-specific review output.",
+            "triggeredRules": ["unconfirmed_location"],
+            "requiresHumanReview": True,
+        },
+        "trace": trace,
+        "finalReportStatus": "location_confirmation_required",
+        "reviewGate": {"status": "location_confirmation_required", "message": confirmation["message"]},
+    }
 
 
 def _correlate_trace(trace: list[dict[str, Any]], case_id: str) -> list[dict[str, Any]]:
@@ -369,6 +534,10 @@ def _dict_list(value: Any, source: str, field: str) -> list[dict[str, Any]]:
     return []
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _briefing_payload(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -393,6 +562,10 @@ def _merge_material_briefing(briefing: dict[str, Any], material_result: dict[str
         briefing["summary"].append(
             f"{len(accepted)} authorized material reference(s) produced safe evidence summaries for human review."
         )
+        for finding in _dict_list(material_result.get("findings"), "material_ingestion", "findings")[:3]:
+            title = str(finding.get("title") or "").strip()
+            if title:
+                briefing["priority_checks"].append(f"Review material-derived observation: {title}.")
         briefing["limitations"].append(
             "Material-derived output uses ASI/ASI:ONE-authorized summaries or fixtures; raw private material content is not stored in the report."
         )
@@ -416,7 +589,9 @@ def _material_public_result(material_result: dict[str, Any]) -> dict[str, Any]:
         "references",
         "acceptedReferences",
         "skipped",
+        "extractions",
         "citations",
+        "extractions",
         "sourceIds",
         "evidenceIds",
     }

@@ -7,6 +7,7 @@ import {
   GitBranch,
   MapPinned,
   MessageSquare,
+  Radar,
   RotateCcw,
   Send,
   ShieldCheck,
@@ -42,6 +43,14 @@ function toList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function firstObject(...values) {
+  return values.find((value) => value && typeof value === "object" && !Array.isArray(value)) || null;
+}
+
+function present(value) {
+  return value !== undefined && value !== null && value !== "";
+}
+
 function humanizeToken(value) {
   return String(value || "")
     .replace(/[-_]+/g, " ")
@@ -59,19 +68,60 @@ function listText(value) {
   return toList(value).map(firstText).filter(Boolean);
 }
 
+function latestTraceSummary(trace) {
+  return [...toList(trace)].reverse().find((step) => firstText(step)) || null;
+}
+
 function riskItemsFromRun(run) {
   const hazards = toList(run?.hazards);
   if (hazards.length) return hazards;
   return toList(run?.structuredReport?.findings);
 }
 
-function attachStructuredReport(run, structuredReport, reviewMetadata) {
-  if (!run || !structuredReport) return run;
-  const reviewGate = reviewMetadata || run.reviewMetadata || run.reviewGate || structuredReport.reviewGate || null;
+function attachStructuredReport(run, structuredReport, reviewMetadata, output = {}, entryResponse = {}) {
+  if (!run) return run;
+  const report = structuredReport || run.structuredReport || {};
+  const reviewGate = reviewMetadata || run.reviewMetadata || run.reviewGate || report.reviewGate || null;
+  const progress = firstObject(
+    output.progress,
+    output.progressState,
+    output.runProgress,
+    run.progress,
+    run.progressState,
+    entryResponse.progress,
+    entryResponse.progressState,
+  );
+  const locationGate = firstObject(
+    output.locationGate,
+    output.locationConfirmationGate,
+    output.locationConfirmation,
+    run.locationGate,
+    run.locationConfirmationGate,
+    run.locationConfirmation,
+    report.locationGate,
+    report.locationConfirmationGate,
+    entryResponse.locationGate,
+    entryResponse.locationConfirmationGate,
+    entryResponse.locationConfirmation,
+  );
+  const repairMetadata = firstObject(
+    output.repairMetadata,
+    output.reportRepair,
+    output.groundingRepair,
+    run.repairMetadata,
+    run.reportRepair,
+    run.groundingRepair,
+    report.repairMetadata,
+    report.reportRepair,
+    report.groundingRepair,
+  );
   return {
     ...run,
-    structuredReport,
+    ...(structuredReport ? { structuredReport } : {}),
     ...(reviewGate ? { reviewGate, reviewMetadata: reviewGate } : {}),
+    ...(progress ? { progress } : {}),
+    ...(locationGate ? { locationGate } : {}),
+    ...(repairMetadata ? { repairMetadata } : {}),
   };
 }
 
@@ -99,6 +149,204 @@ function runToUiState(run) {
     trace: run.trace,
     structuredReport: run.structuredReport,
   };
+}
+
+function reportFromRun(run, entryResponse) {
+  return run?.structuredReport || entryResponse?.agentcoreOutput?.structuredReport || null;
+}
+
+function contractStateFrom({ run, entryResponse, persistence }) {
+  const output = entryResponse?.agentcoreOutput || {};
+  const report = reportFromRun(run, entryResponse);
+  return {
+    progress: normalizeProgress(progressSource(run, entryResponse, output, report), run, output, report, entryResponse),
+    locationGate: normalizeLocationGate(locationGateSource(run, entryResponse, output, report), entryResponse),
+    repair: normalizeRepair(repairSource(run, output, report)),
+    review: normalizeReview(reviewGateFromRun(run) || output.reviewMetadata || output.reviewGate || report?.reviewGate),
+    sceneMode: sceneModeFrom(run, report, persistence),
+  };
+}
+
+function progressSource(run, entryResponse, output, report) {
+  return firstObject(
+    run?.progress,
+    run?.progressState,
+    output.progress,
+    output.progressState,
+    output.runProgress,
+    entryResponse?.progress,
+    entryResponse?.progressState,
+    report?.progress,
+    report?.progressState,
+  );
+}
+
+function normalizeProgress(source, run, output, report, entryResponse) {
+  const latestStep = latestTraceSummary(run?.trace || report?.trace || entryResponse?.trace);
+  const fallback =
+    source ||
+    (entryResponse?.status
+      ? {
+          status: entryResponse.status,
+          currentStep: entryResponse.needsConfirmation ? "Awaiting operator confirmation" : "Entry intake",
+          latestTraceSummary: entryResponse.assistantMessage,
+        }
+      : null) ||
+    (run
+      ? {
+          status: output.reportStatus || report?.status || "completed",
+          currentStep: "Report payload available",
+          latestTraceSummary: latestStep?.summary || latestStep?.message || "Supervisor output is loaded.",
+        }
+      : null);
+  if (!fallback) return null;
+  const status =
+    fallback.status ||
+    fallback.runStatus ||
+    fallback.state ||
+    output.reportStatus ||
+    report?.status ||
+    (fallback.blocked || fallback.blockedReason ? "blocked" : "") ||
+    (fallback.failed || fallback.errorSummary || fallback.error ? "failed" : "") ||
+    (fallback.completed || fallback.done ? "completed" : "") ||
+    "unknown";
+  return {
+    status,
+    tone: statusTone(status),
+    currentStep: fallback.currentStep || fallback.current_step || fallback.step || fallback.phase || latestStep?.name || "",
+    summary:
+      fallback.latestTraceSummary ||
+      fallback.latestStepSummary ||
+      fallback.traceSummary ||
+      fallback.summary ||
+      fallback.message ||
+      latestStep?.summary ||
+      "",
+    completed: firstObject(fallback.completedState, fallback.completion)?.status || fallback.completed || fallback.done,
+    failed: fallback.failed || fallback.errorSummary || fallback.error,
+    blocked: fallback.blocked || fallback.blockedReason,
+    updatedAt: fallback.updatedAt || fallback.updated_at || fallback.timestamp || "",
+    modelCallCount: fallback.modelCallCount ?? fallback.modelCalls ?? run?.runtime?.modelCallCount ?? report?.runtime?.modelCallCount,
+    fallbackReason: fallback.fallbackReason || run?.runtime?.fallbackReason || report?.runtime?.fallbackReason || "",
+  };
+}
+
+function locationGateSource(run, entryResponse, output, report) {
+  return (
+    firstObject(
+      run?.locationGate,
+      run?.locationConfirmationGate,
+      run?.locationConfirmation,
+      output.locationGate,
+      output.locationConfirmationGate,
+      output.locationConfirmation,
+      report?.locationGate,
+      report?.locationConfirmationGate,
+      report?.locationConfirmation,
+      entryResponse?.locationGate,
+      entryResponse?.locationConfirmationGate,
+      entryResponse?.locationConfirmation,
+    ) ||
+    (entryResponse?.intake?.locationCandidate
+      ? {
+          status: entryResponse.status,
+          candidate: entryResponse.intake.locationCandidate,
+          source: entryResponse.intakeMode || entryResponse.mode || "entry intake",
+          reason: entryResponse.confirmation?.summary,
+          requiresOperatorConfirmation: entryResponse.status === "confirmation_required" || entryResponse.needsConfirmation,
+        }
+      : null)
+  );
+}
+
+function normalizeLocationGate(source, entryResponse) {
+  if (!source) return null;
+  const candidate = firstObject(source.candidate, source.locationCandidate, source.selectedCandidate) || {};
+  return {
+    status: source.status || source.state || entryResponse?.status || "available",
+    tone: statusTone(source.status || source.state || entryResponse?.status),
+    candidateLabel: candidate.label || candidate.name || source.candidateLabel || source.label || source.name || "",
+    source: candidate.source || source.source || source.sourceSystem || source.mode || "",
+    confidence: candidate.confidence ?? source.confidence ?? "",
+    dataMode: candidate.dataMode || source.dataMode || source.mode || "",
+    reason: source.reason || source.message || source.summary || "",
+    requiresOperatorConfirmation:
+      source.requiresOperatorConfirmation ?? source.operatorConfirmationRequired ?? source.requiresConfirmation ?? source.confirmationRequired,
+  };
+}
+
+function repairSource(run, output, report) {
+  return firstObject(
+    run?.repairMetadata,
+    run?.reportRepair,
+    run?.groundingRepair,
+    output.repairMetadata,
+    output.reportRepair,
+    output.groundingRepair,
+    report?.repairMetadata,
+    report?.reportRepair,
+    report?.groundingRepair,
+  );
+}
+
+function normalizeRepair(source) {
+  if (!source) return null;
+  return {
+    status: source.status || source.state || source.decision || "",
+    tone: statusTone(source.status || source.state || source.decision),
+    attemptCount: source.attemptCount ?? source.repairAttemptCount ?? source.attempts?.length ?? "",
+    stopReason: source.stopReason || source.reason || source.message || "",
+  };
+}
+
+function normalizeReview(reviewGate) {
+  if (!reviewGate) return null;
+  const status = reviewGate.status || reviewGate.decision || "review_required";
+  return {
+    status,
+    tone: reviewToneFromStatus(status),
+    attemptCount: reviewGate.attemptCount ?? reviewGate.revisionCount ?? "",
+    stopReason: reviewGate.stopReason || reviewGate.message || "",
+    requiresHumanReview: reviewGate.requiresHumanReview !== false,
+  };
+}
+
+function sceneModeFrom(run, report, persistence) {
+  const raw =
+    run?.scene?.dataMode ||
+    run?.location?.dataMode ||
+    report?.visualization?.scene?.dataMode ||
+    report?.site?.dataMode ||
+    report?.dataQuality?.dataMode ||
+    run?.runtime?.fixturePackMode ||
+    report?.runtime?.fixturePackMode ||
+    persistence?.status ||
+    "not-run";
+  const text = String(raw);
+  const normalized = text.toLowerCase();
+  if (normalized.includes("cached")) return { value: text, label: "Cached fixture", tone: "cached" };
+  if (normalized.includes("synthetic")) return { value: text, label: "Synthetic fallback", tone: "fallback" };
+  if (normalized.includes("terrain") && normalized.includes("unavailable")) return { value: text, label: "Terrain unavailable", tone: "warning" };
+  if (normalized.includes("live") && normalized.includes("unavailable")) return { value: text, label: "Live unavailable", tone: "warning" };
+  if (normalized.includes("live") || normalized.includes("terrain")) return { value: text, label: "Live/terrain-backed", tone: "real" };
+  return { value: text, label: humanizeToken(text || "not-run"), tone: "warning" };
+}
+
+function statusTone(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized.includes("fail") || normalized.includes("block") || normalized.includes("denied")) return "blocked";
+  if (normalized.includes("complete") || normalized.includes("pass") || normalized.includes("stored") || normalized.includes("loaded")) return "passed";
+  if (normalized.includes("running") || normalized.includes("live")) return "real";
+  return "warning";
+}
+
+function hasContractPayload(output, entryResponse) {
+  return Boolean(
+    firstObject(output.progress, output.progressState, output.runProgress, entryResponse?.progress, entryResponse?.progressState) ||
+      firstObject(output.locationGate, output.locationConfirmationGate, output.locationConfirmation) ||
+      firstObject(output.repairMetadata, output.reportRepair, output.groundingRepair) ||
+      output.reportStatus,
+  );
 }
 
 function isConfirmationText(value) {
@@ -224,7 +472,7 @@ function frontendReportSessionId() {
   return generated;
 }
 
-function SceneViewer({ scene, annotations, location }) {
+function SceneViewer({ scene, annotations, location, sceneMode }) {
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -310,6 +558,7 @@ function SceneViewer({ scene, annotations, location }) {
       <div className="empty-map">
         <MapPinned size={24} />
         <span>Map updates after the agent resolves a site.</span>
+        <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Scene not run"}</em>
       </div>
     );
   }
@@ -320,6 +569,7 @@ function SceneViewer({ scene, annotations, location }) {
       <div className="map-caption">
         <strong>{location?.label || "Selected site"}</strong>
         <span>{toList(annotations).length} mapped risk marker(s)</span>
+        <em className={`status ${sceneMode?.tone || "warning"}`}>{sceneMode?.label || "Unknown data mode"}</em>
       </div>
     </div>
   );
@@ -502,6 +752,89 @@ function ReviewAndDataQuality({ report }) {
   );
 }
 
+function WorkflowStatusPanel({ contracts }) {
+  const { progress, locationGate, repair, review, sceneMode } = contracts;
+  return (
+    <section className="panel contract-panel">
+      <div className="panel-heading">
+        <Radar size={18} />
+        <h2>Progress + Gate State</h2>
+      </div>
+      <div className="contract-grid">
+        <article>
+          <span>Run progress</span>
+          {progress ? (
+            <>
+              <strong>{humanizeToken(progress.status)}</strong>
+              <em className={`status ${progress.tone}`}>{humanizeToken(progress.status)}</em>
+              <p>{progress.currentStep || "Current step not returned yet."}</p>
+              {progress.summary && <small>{progress.summary}</small>}
+              <MetaRow label="Model calls" value={progress.modelCallCount} />
+              <MetaRow label="Updated" value={progress.updatedAt} />
+              <MetaRow label="Fallback" value={progress.fallbackReason} />
+            </>
+          ) : (
+            <p>Progress contract not returned yet.</p>
+          )}
+        </article>
+        <article>
+          <span>Location confirmation</span>
+          {locationGate ? (
+            <>
+              <strong>{locationGate.candidateLabel || "Candidate not named"}</strong>
+              <em className={`status ${locationGate.tone}`}>{humanizeToken(locationGate.status)}</em>
+              <MetaRow label="Source" value={locationGate.source} />
+              <MetaRow label="Confidence" value={locationGate.confidence} />
+              <MetaRow label="Data mode" value={locationGate.dataMode} />
+              <MetaRow
+                label="Operator confirmation"
+                value={present(locationGate.requiresOperatorConfirmation) ? (locationGate.requiresOperatorConfirmation ? "Required" : "Not required") : ""}
+              />
+              {locationGate.reason && <small>{locationGate.reason}</small>}
+            </>
+          ) : (
+            <p>Location gate fields not returned yet.</p>
+          )}
+        </article>
+        <article>
+          <span>Repair + review</span>
+          {repair || review ? (
+            <>
+              <strong>{humanizeToken(repair?.status || review?.status || "review_required")}</strong>
+              <em className={`status ${repair?.tone || review?.tone || "warning"}`}>
+                {repair ? "Repair" : "Review"}
+              </em>
+              <MetaRow label="Repair attempts" value={repair?.attemptCount} />
+              <MetaRow label="Repair stop" value={repair?.stopReason} />
+              <MetaRow label="Review status" value={review?.status && humanizeToken(review.status)} />
+              <MetaRow label="Review attempts" value={review?.attemptCount} />
+              <small>Human-review-only output; not certification, emergency guidance, or approval to work.</small>
+            </>
+          ) : (
+            <p>Repair and review metadata not returned yet.</p>
+          )}
+        </article>
+        <article>
+          <span>Scene data mode</span>
+          <strong>{sceneMode.label}</strong>
+          <em className={`status ${sceneMode.tone}`}>{sceneMode.value}</em>
+          <p>Map and scene data are labelled as fixture, fallback, unavailable, or live-backed when configured.</p>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function MetaRow({ label, value }) {
+  if (!present(value)) return null;
+  return (
+    <dl className="meta-row">
+      <dt>{label}</dt>
+      <dd>{String(value)}</dd>
+    </dl>
+  );
+}
+
 function reviewStateFromReport(report) {
   const reviewGate = report?.reviewGate || {};
   const raw = String(reviewGate.decision || reviewGate.status || report?.status || "review_required").toLowerCase();
@@ -537,6 +870,7 @@ function App() {
 
   const ui = entryResponse?.uiState || runToUiState(run);
   const runtime = entryResponse?.runtime || run?.runtime || {};
+  const contracts = contractStateFrom({ run, entryResponse, persistence });
   const reviewGate = reviewGateFromRun(run);
   const reviewStatus = reviewGate?.status || reviewGate?.decision || "";
   const reviewTone = reviewToneFromStatus(reviewStatus);
@@ -598,9 +932,13 @@ function App() {
         nextEntryResponse?.run || payload.output?.run,
         output.structuredReport,
         output.reviewMetadata || output.reviewGate,
+        output,
+        nextEntryResponse || {},
       );
-      if (!nextRun) throw new Error("Entry agent response did not include a supervisor run");
-      const nextCaseId = output.caseId || nextEntryResponse?.caseId || nextRun.caseId || "";
+      if (!nextRun && !hasContractPayload(output, nextEntryResponse)) {
+        throw new Error("Entry agent response did not include a supervisor run or progress contract");
+      }
+      const nextCaseId = output.caseId || nextEntryResponse?.caseId || nextRun?.caseId || "";
       setCaseId(nextCaseId);
       if (nextCaseId && output.persistence?.status === "stored") {
         window.history.replaceState(null, "", `/case/${encodeURIComponent(nextCaseId)}`);
@@ -630,12 +968,20 @@ function App() {
       const payload = await response.json();
       const output = payload.output || {};
       setPersistence(output.persistence || null);
-      if (!output.run) {
+      if (!output.run && !hasContractPayload(output, null)) {
         throw new Error(`No stored report found for ${nextCaseId}.`);
       }
       setEntryResponse(null);
       setCaseId(output.caseId || nextCaseId);
-      setRun(attachStructuredReport(output.run, output.structuredReport, output.reviewMetadata || output.reviewGate));
+      const nextRun = attachStructuredReport(output.run, output.structuredReport, output.reviewMetadata || output.reviewGate, output);
+      setRun(nextRun);
+      if (!nextRun) {
+        setEntryResponse({
+          status: output.progress?.status || output.progressState?.status || output.reportStatus || "report_lookup",
+          assistantMessage: output.progress?.summary || output.progressState?.summary || "Report lookup returned status metadata.",
+          agentcoreOutput: output,
+        });
+      }
       setMessages([
         {
           id: `case-${nextCaseId}`,
@@ -820,9 +1166,11 @@ function App() {
             <MapPinned size={18} />
             <h2>3D Site Risk Scene</h2>
           </div>
-          <SceneViewer scene={ui.scene} annotations={ui.annotations} location={ui.location} />
+          <SceneViewer scene={ui.scene} annotations={ui.annotations} location={ui.location} sceneMode={contracts.sceneMode} />
         </section>
       </section>
+
+      <WorkflowStatusPanel contracts={contracts} />
 
       <section className="insight-grid">
         <RiskCards hazards={ui.hazards} briefing={ui.briefing} />

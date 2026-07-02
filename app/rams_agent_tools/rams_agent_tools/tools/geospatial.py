@@ -31,22 +31,28 @@ def resolve_location(
             source_ids=["user-request", *pack_location.get("source_ids", [])],
         )
 
+    confirmation = request.get("locationConfirmation") if isinstance(request.get("locationConfirmation"), dict) else {}
+    candidate = confirmation.get("candidate") if isinstance(confirmation.get("candidate"), dict) else {}
+    source_ids = [candidate.get("sourceId") or "location-fixture"]
+    data_mode = candidate.get("dataMode") if candidate else "synthetic-fixture"
     latitude = float(request.get("latitude", 52.2053))
     longitude = float(request.get("longitude", -1.6022))
     location = {
         "label": request.get("siteName") or "Demo rural field fixture",
         "latitude": latitude,
         "longitude": longitude,
-        "authority": "Syntheticshire District Council",
+        "authority": candidate.get("authority") or "Syntheticshire District Council",
         "coordinate_system": "WGS84",
-        "confidence": "high" if request.get("latitude") and request.get("longitude") else "medium",
+        "confidence": candidate.get("confidence") or ("high" if request.get("latitude") and request.get("longitude") else "medium"),
+        "dataMode": data_mode,
+        "sourceIds": source_ids,
     }
     return location, trace_step(
         "resolve_location",
         "ok",
-        "Resolved the submitted coordinate to the public-safe demo location fixture.",
-        {"location": location, "dataMode": "synthetic-fixture"},
-        source_ids=["user-request", "location-fixture"],
+        "Resolved the confirmed location evidence for supervisor tooling.",
+        {"location": location, "dataMode": data_mode, "locationConfirmation": confirmation or None},
+        source_ids=["user-request", *source_ids],
     )
 
 
@@ -127,7 +133,7 @@ def build_scene_config(
         "terrain": "ellipsoid fallback",
         "featureCount": len(features),
         "fixturePack": fixture_pack["name"] if fixture_pack else None,
-        "dataMode": "cached-public-fixture" if fixture_pack else "synthetic-fixture",
+        "dataMode": "cached-public-fixture" if fixture_pack else location.get("dataMode") or "synthetic-fixture",
         "note": "No Google Maps, Google Earth, Cesium ion key, or live geospatial API is required for Demo1.",
     }
     return scene, trace_step(

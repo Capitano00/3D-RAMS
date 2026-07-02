@@ -109,6 +109,28 @@ def _review_input(run: dict[str, Any], revision_count: int) -> dict[str, Any]:
 
 
 def _review(run: dict[str, Any], mode: str, revision_count: int) -> dict[str, Any]:
+    grounding_repair = _dict(run.get("reportGroundingRepair"))
+    if grounding_repair.get("status") == "review_required":
+        issues = [
+            _issue(
+                str(issue.get("id") or "report-grounding-repair"),
+                str(issue.get("severity") or "medium"),
+                "Report grounding repair requires human review before delivery.",
+                _strings(issue.get("affects")) or ["briefing"],
+                "human_review_required",
+            )
+            for issue in _list(grounding_repair.get("issues"))
+        ] or [
+            _issue(
+                "report-grounding-repair",
+                "medium",
+                "Report grounding repair requires human review before delivery.",
+                ["briefing"],
+                "human_review_required",
+            )
+        ]
+        return _output("revise", mode, revision_count, issues=issues, required=issues)
+
     forced = str(_dict(run.get("request")).get("_reviewDecision") or "").strip().lower()
     if forced in {"pass", "pass_with_caveats", "block"}:
         return _output(forced, mode, revision_count)

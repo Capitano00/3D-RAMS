@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -17,7 +19,7 @@ for app_root in (TOOLS_ROOT, SUPERVISOR_APP_ROOT, ENTRY_APP_ROOT):
         sys.path.insert(0, str(app_root))
 
 from agentcore_client import extract_text_body  # noqa: E402
-from main import handle_invocation, invoke_local  # noqa: E402
+from main import _CONVERSATION_STATE, _PENDING_INTAKES, handle_invocation, invoke_local  # noqa: E402
 from supervisor_core.agentcore_adapter import handle_invocation as invoke_supervisor_local  # noqa: E402
 from supervisor_adapter import (  # noqa: E402
     AdapterValidationError,
@@ -74,12 +76,19 @@ def confirmed_entry_payload() -> dict:
 
 
 class AgentVerseAdapterTests(unittest.TestCase):
+    def setUp(self):
+        _PENDING_INTAKES.clear()
+        _CONVERSATION_STATE.clear()
+
     def assert_user_readable_response(self, response: dict) -> str:
         text = extract_text_body(json.dumps(response))
         self.assertTrue(text.strip())
         self.assertFalse(text.lstrip().startswith("{"))
         self.assertNotIn('"entryAgent"', text)
         return text
+
+    def patch_env(self, **updates: str):
+        return mock.patch.dict(os.environ, updates, clear=False)
 
     def test_rejects_unconfirmed_entry_payload(self):
         payload = confirmed_entry_payload()
@@ -110,6 +119,8 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(agent_input["siteName"], "Lambeth Thames public fixture")
         self.assertEqual(agent_input["latitude"], 51.4908)
         self.assertEqual(agent_input["longitude"], -0.1216)
+        self.assertEqual(agent_input["locationConfirmation"]["status"], "confirmed")
+        self.assertEqual(agent_input["locationCandidate"]["source"], "ASI/entry-agent confirmed intake")
         self.assertEqual(agent_input["fixturePack"], "public-lambeth-thames")
         self.assertFalse(agent_input["useBedrock"])
         self.assertEqual(agent_input["upstream"]["source"], "AGENTVERSE")
@@ -125,7 +136,7 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertNotIn("signedUrl", agent_input["materials"][0])
         self.assertNotIn("early feasibility walkover", agent_input["additionalRequest"])
 
-    def test_material_access_retrieval_artifacts_are_marked_not_exposed(self):
+    def test_material_access_retrieval_artifacts_forward_only_to_supervisor_input(self):
         payload = confirmed_entry_payload()
         payload["intake"]["materials"] = [
             {
@@ -168,14 +179,13 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(materials[0]["access"]["sessionId"], "agentverse-session-id")
         self.assertEqual(materials[0]["access"]["retrieval"], {"method": "retrieval_url", "provided": True})
         self.assertEqual(materials[1]["access"]["retrieval"], {"method": "api_handle", "provided": True})
+        self.assertEqual(materials[0]["access"]["retrievalUrl"], "https://materials.example.invalid/private.pdf?token=secret-token")
+        self.assertEqual(materials[1]["access"]["apiHandle"], "asi-material-handle-secret")
         for secret in (
-            "retrievalUrl",
-            "apiHandle",
-            "secret-token",
             "another-secret-token",
             "signed-secret",
             "private document text",
-            "asi-material-handle-secret",
+            "bearerToken",
         ):
             self.assertNotIn(secret, serialized)
 
@@ -203,6 +213,57 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertTrue(delivery["deepReport"]["visualizationReady"])
         self.assertGreaterEqual(delivery["deepReport"]["evidenceCount"], 1)
         self.assertGreaterEqual(delivery["deepReport"]["traceCount"], 9)
+        self.assertEqual(delivery["locationConfirmation"]["status"], "not_required")
+        self.assertEqual(delivery["locationConfirmation"]["dataMode"], "cached-public-fixture")
+
+    def test_delivery_exposes_location_confirmation_required_payload(self):
+        entry_payload = confirmed_entry_payload()
+        agentcore_response = {
+            "output": {
+                "caseId": "case_test_agentverse_001",
+                "reportStatus": "location_confirmation_required",
+                "workflowMode": "location_confirmation",
+                "locationConfirmation": {
+                    "status": "confirmation_required",
+                    "required": True,
+                    "candidates": [
+                        {
+                            "candidateId": "location-candidate-test",
+                            "label": "Coordinate-only test",
+                            "latitude": 51.5,
+                            "longitude": -0.12,
+                            "source": "User-supplied coordinates",
+                            "confidence": "medium",
+                            "dataMode": "user-supplied",
+                            "reason": "Coordinates need confirmation.",
+                        }
+                    ],
+                },
+                "run": {
+                    "runId": "demo1-local-run",
+                    "caseId": "case_test_agentverse_001",
+                    "locationConfirmation": {
+                        "status": "confirmation_required",
+                        "required": True,
+                        "candidates": [],
+                    },
+                    "briefing": {"headline": "Location confirmation is required."},
+                    "safety": {"message": "Location confirmation is required before review."},
+                    "trace": [],
+                    "evidence": [],
+                },
+            }
+        }
+
+        delivery = build_delivery_payload(agentcore_response, entry_payload=entry_payload)
+
+        self.assertEqual(delivery["status"], "location_confirmation_required")
+        self.assertEqual(delivery["workflowMode"], "location_confirmation")
+        self.assertEqual(delivery["locationConfirmation"]["status"], "confirmation_required")
+        self.assertEqual(
+            delivery["deepReport"]["locationConfirmation"]["candidates"][0]["candidateId"],
+            "location-candidate-test",
+        )
 
     def test_entry_cloud_handoff_invokes_supervisor_runtime(self):
         calls: list[dict] = []
@@ -238,7 +299,7 @@ class AgentVerseAdapterTests(unittest.TestCase):
 
     def test_entry_intake_clarifies_without_location(self):
         response = handle_invocation(
-            {"entryTurn": True, "message": "Can you help me?", "conversationId": "c1"},
+            {"entryTurn": True, "message": "Please prepare this", "conversationId": "c1"},
             supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
             invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
         )
@@ -248,6 +309,159 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(entry["status"], "clarification_required")
         self.assertTrue(entry["clarifyingQuestions"])
         self.assertIn("Which site", self.assert_user_readable_response(response))
+
+    def test_conversation_routes_do_not_invoke_supervisor_runtime(self):
+        cases = [
+            ("hi", "greeting"),
+            ("help", "help"),
+            ("status", "status"),
+            ("what do you mean?", "follow_up"),
+            ("no, wrong site", "reject_location"),
+            ("start over", "start_over_without_site"),
+        ]
+        for message, route in cases:
+            with self.subTest(route=route):
+                response = handle_invocation(
+                    {"entryTurn": True, "message": message, "conversationId": f"route-{route}"},
+                    supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                    invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
+                )
+
+                entry = response["output"]["entryAgent"]
+                self.assertEqual(entry["mode"], "guarded-conversation-router")
+                self.assertEqual(entry["route"], route)
+                self.assertEqual(entry["runtimeObservability"]["modelCallCount"], 0)
+
+    def test_product_metadata_route_does_not_invoke_supervisor_or_leak_sensitive_fields(self):
+        previous_model_id = os.environ.get("ENTRY_AGENT_MODEL_ID")
+        os.environ["ENTRY_AGENT_MODEL_ID"] = "amazon.nova-micro-v1:0"
+        try:
+            response = handle_invocation(
+                {
+                    "entryTurn": True,
+                    "message": "What LLM model are you? token secret-token https://example.invalid/private?sig=abc",
+                    "conversationId": "private-session-id-42",
+                    "runtimeOptions": {"useBedrock": True},
+                },
+                supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
+                model_json=lambda _: self.fail("entry model should not be called"),
+            )
+        finally:
+            if previous_model_id is None:
+                os.environ.pop("ENTRY_AGENT_MODEL_ID", None)
+            else:
+                os.environ["ENTRY_AGENT_MODEL_ID"] = previous_model_id
+
+        output = response["output"]
+        entry = output["entryAgent"]
+        observability = entry["runtimeObservability"]
+        serialized = json.dumps(response)
+
+        self.assertEqual(entry["route"], "product_meta")
+        self.assertEqual(output["workflowMode"], "entry_conversation")
+        self.assertIsNone(output["run"])
+        self.assertIsNone(output["structuredReport"])
+        self.assertEqual(observability["modelPath"], "entry-product-meta")
+        self.assertEqual(observability["modelId"], "amazon.nova-micro-v1:0")
+        self.assertEqual(observability["modelCallCount"], 0)
+        self.assertEqual(observability["noToolReason"], "product_runtime_metadata_answer")
+        self.assertFalse(any(observability["toolsStarted"].values()))
+        self.assertIn("Map, evidence, risk, and briefing tools did not start", self.assert_user_readable_response(response))
+        for sensitive in (
+            "secret-token",
+            "sig=abc",
+            "https://example.invalid",
+            "private-session-id-42",
+            "123456789012",
+            "runtime/supervisor-test",
+            "tokenUsage",
+            "chain-of-thought",
+            "scratchpad",
+        ):
+            self.assertNotIn(sensitive, serialized)
+
+    def test_location_rejection_blocks_stale_confirmation_until_correction_resumes_intake(self):
+        calls: list[dict] = []
+
+        def fake_invoke_runtime(**kwargs):
+            calls.append(kwargs)
+            return invoke_supervisor_local(kwargs["payload"])
+
+        first = handle_invocation(
+            {
+                "entryTurn": True,
+                "caller": "frontend",
+                "message": "I want to visit 8 Albert Embankment tomorrow for a survey for 2km",
+                "conversationId": "reject-then-correct",
+                "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": False},
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+        self.assertEqual(first["output"]["entryAgent"]["status"], "confirmation_required")
+
+        rejected = handle_invocation(
+            {"entryTurn": True, "caller": "frontend", "message": "no, wrong site", "conversationId": "reject-then-correct"},
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+        self.assertEqual(rejected["output"]["entryAgent"]["route"], "reject_location")
+        self.assertEqual(rejected["output"]["entryAgent"]["pendingAction"], "awaiting_location_correction")
+
+        stale_confirm = handle_invocation(
+            {"entryTurn": True, "caller": "frontend", "message": "confirm", "conversationId": "reject-then-correct"},
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+        self.assertEqual(stale_confirm["output"]["entryAgent"]["route"], "confirm_by_chat")
+        self.assertEqual(calls, [])
+
+        corrected = handle_invocation(
+            {
+                "entryTurn": True,
+                "caller": "frontend",
+                "message": "Use 48 Quernmore Road within 800m for a survey",
+                "conversationId": "reject-then-correct",
+                "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": False},
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+        self.assertEqual(corrected["output"]["entryAgent"]["route"], "location_correction")
+        self.assertEqual(corrected["output"]["entryAgent"]["status"], "confirmation_required")
+        self.assertEqual(calls, [])
+
+        launched = handle_invocation(
+            {
+                "entryTurn": True,
+                "caller": "frontend",
+                "message": "yes",
+                "conversationId": "reject-then-correct",
+                "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": False},
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=fake_invoke_runtime,
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(launched["output"]["entryAgent"]["route"], "confirm_by_chat")
+
+    def test_bounded_conversation_context_redacts_sensitive_user_summary(self):
+        response = handle_invocation(
+            {
+                "entryTurn": True,
+                "message": "Can you help? access code ABC123 token secret-token https://example.invalid/upload?sig=private",
+                "conversationId": "privacy-route",
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
+        )
+
+        serialized = json.dumps(response)
+        self.assertEqual(response["output"]["entryAgent"]["route"], "help")
+        for secret in ("ABC123", "secret-token", "sig=private", "https://example.invalid"):
+            self.assertNotIn(secret, serialized)
+        self.assertIn("[redacted", serialized)
 
     def test_entry_uses_llm_model_json_for_intake_when_available(self):
         def fake_model_json(prompt):
@@ -290,6 +504,44 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(progress["currentStep"], "confirm_location_before_launch")
         self.assertTrue(progress["runId"].startswith("run_"))
         self.assertIn("Model Parsed Site", self.assert_user_readable_response(response))
+
+    def test_entry_selects_openai_compatible_intake_from_env(self):
+        with self.patch_env(
+            ENTRY_INTAKE_PROVIDER="openai",
+            OPENAI_BASE_URL="https://example.invalid/v1",
+            OPENAI_API_KEY="test-key",
+            OPENAI_MODEL="gpt-5.4-mini",
+            ENTRY_INTAKE_MOCK_RESPONSE=json.dumps(
+                {
+                    "status": "confirmation_required",
+                    "assistantMessage": "Please confirm launch.",
+                    "confirmation": {"summary": "Confirm Model Parsed Site."},
+                    "intake": {
+                        "locationText": "Model Parsed Site",
+                        "locationCandidate": {"label": "Model Parsed Site", "lat": 51.5, "lng": -0.12, "confidence": 0.91},
+                        "areaScope": {"type": "radius", "meters": 1200},
+                        "userGoal": "inspection pre-review",
+                        "userNotes": "Parsed by mock OpenAI-compatible model.",
+                        "materials": [],
+                    },
+                }
+            ),
+        ):
+            response = handle_invocation(
+                {
+                    "entryTurn": True,
+                    "caller": "agentverse",
+                    "message": "Please inspect the site by the river.",
+                    "conversationId": "openai-model-case-test",
+                    "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": True},
+                },
+                supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                invoke_runtime=lambda **_: self.fail("supervisor should not be invoked before confirmation"),
+            )
+
+        observability = response["output"]["entryAgent"]["runtimeObservability"]
+        self.assertEqual(observability["modelProvider"], "openai-compatible")
+        self.assertEqual(observability["modelId"], "gpt-5.4-mini")
 
     def test_entry_raw_message_confirmation_then_launch(self):
         calls: list[dict] = []

@@ -363,6 +363,10 @@ textarea {
   font-size: 0.82rem;
 }
 
+.map-caption .status {
+  margin-top: 4px;
+}
+
 .empty-map {
   min-height: 676px;
   display: grid;
@@ -370,6 +374,64 @@ textarea {
   gap: 10px;
   color: #61726d;
   font-weight: 800;
+}
+
+.contract-panel {
+  margin-top: 14px;
+}
+
+.contract-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.contract-grid article {
+  display: grid;
+  align-content: start;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 6px 10px;
+  min-height: 168px;
+  border: 1px solid #dce4e0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfb;
+}
+
+.contract-grid article > span {
+  color: #5f706a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.contract-grid p,
+.contract-grid small,
+.meta-row {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #4d625b;
+}
+
+.contract-grid small {
+  font-size: 0.82rem;
+}
+
+.meta-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.meta-row dt {
+  color: #5f706a;
+  font-weight: 800;
+}
+
+.meta-row dd {
+  margin: 0;
 }
 
 .risk-grid {
@@ -559,7 +621,8 @@ textarea {
   .insight-grid,
   .evidence-trace-grid,
   .assurance-grid,
-  .runtime-strip {
+  .runtime-strip,
+  .contract-grid {
     grid-template-columns: 1fr;
   }
 

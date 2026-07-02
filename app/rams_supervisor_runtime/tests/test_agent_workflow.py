@@ -1,9 +1,11 @@
+import base64
 import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -14,9 +16,11 @@ for path in (TOOLS_ROOT, APP_ROOT):
 
 from rams_agent_tools import fixtures as fixture_module  # noqa: E402
 from rams_agent_tools.config import RuntimeConfig  # noqa: E402
+from rams_agent_tools.tools import SUPERVISOR_HARNESS_SUBAGENTS, harness_for_group, tools_for_group  # noqa: E402
+from rams_agent_tools.tools.materials import ingest_material_references  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
 from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, validate_harness_output  # noqa: E402
-from supervisor_core.subagent_invoker import AgentCoreHarnessInvoker  # noqa: E402
+from supervisor_core.subagent_invoker import AgentCoreHarnessInvoker, DirectSubagentInvoker  # noqa: E402
 
 
 def authorized_material(case_id: str = "case_material_test_001") -> dict:
@@ -35,6 +39,33 @@ def authorized_material(case_id: str = "case_material_test_001") -> dict:
             "token": "DUMMY_MATERIAL_ACCESS_MARKER_SHOULD_NOT_LEAK",
         },
         "rawContent": "DUMMY RAW MATERIAL CONTENT SHOULD NOT LEAK",
+    }
+
+
+def retrieved_text_material(case_id: str = "case_material_extraction_001") -> dict:
+    return {
+        "materialId": "retrieved_text_access_note",
+        "sourceSystem": "asio",
+        "type": "text/plain",
+        "label": "Retrieved access note",
+        "caseId": case_id,
+        "sizeBytes": 220,
+        "access": {"mode": "asio_authorized_reference", "expiresAt": "2099-01-01T00:00:00Z"},
+        "rawContent": "Access route uses a public realm interface. Buried services records need competent review.",
+    }
+
+
+def retrieved_pdf_material(case_id: str = "case_material_extraction_002") -> dict:
+    pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF"
+    return {
+        "materialId": "retrieved_pdf_access_plan",
+        "sourceSystem": "asio",
+        "type": "application/pdf",
+        "label": "Retrieved PDF access plan",
+        "caseId": case_id,
+        "sizeBytes": len(pdf_bytes),
+        "access": {"mode": "asio_authorized_reference", "expiresAt": "2099-01-01T00:00:00Z"},
+        "contentBytesBase64": base64.b64encode(pdf_bytes).decode("ascii"),
     }
 
 
@@ -61,9 +92,10 @@ class EnvPatch:
 
 class SiteBriefingAgentTests(unittest.TestCase):
     def test_happy_path_returns_scene_annotations_evidence_and_trace(self):
-        result = run_site_briefing({"latitude": 52.2053, "longitude": -1.6022})
+        result = run_site_briefing({})
 
         self.assertEqual(result["scene"]["provider"], "cesium-local-fixture")
+        self.assertEqual(result["locationConfirmation"]["status"], "not_required")
         self.assertGreaterEqual(len(result["annotations"]), 5)
         self.assertGreaterEqual(len(result["evidence"]), 2)
         self.assertGreaterEqual(len(result["trace"]), 8)
@@ -71,13 +103,20 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("request", result)
         self.assertIn("runtime", result)
         self.assertEqual(result["runtime"]["briefingMode"], "disabled")
+        self.assertEqual(result["runtime"]["repairAttemptCount"], 0)
+        self.assertEqual(result["runtime"]["repairStopReason"], "passed")
+        self.assertEqual(result["runtime"]["repairIssueCount"], 0)
+        self.assertEqual(result["reportGroundingRepair"]["status"], "ok")
         self.assertTrue(result["runtime"]["bedrockRequested"])
         self.assertFalse(result["runtime"]["bedrockEnabled"])
         self.assertFalse(result["runtime"]["bedrockUsed"])
         self.assertEqual(result["runtime"]["plannerMode"], "deterministic")
         self.assertEqual(result["runtime"]["activeAgentMode"], "deterministic-planner")
         self.assertEqual(result["runtime"]["modelCallCount"], 0)
-        self.assertEqual(result["llmPlan"]["initialParallelGroups"], ["geospatial_subagent", "planning_subagent"])
+        self.assertEqual(
+            result["llmPlan"]["initialParallelGroups"],
+            ["geospatial_subagent", "planning_subagent", "material_subagent"],
+        )
         self.assertEqual(result["llmPlan"]["reportParallelGroups"], ["annotation_subagent", "briefing_subagent"])
         self.assertEqual(result["reasoning"]["mode"], "deterministic")
         self.assertIn("reportFit", result["reasoning"])
@@ -92,9 +131,74 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertIn("sources", result)
         self.assertTrue(any(step["name"] == "plan_subagent_workflow" for step in result["trace"]))
         self.assertTrue(any(step["name"] == "reason_over_evidence" for step in result["trace"]))
+        self.assertTrue(any(step["name"] == "report_grounding_repair" for step in result["trace"]))
         self.assertTrue(any(step["name"] == "independent_review_gate" for step in result["trace"]))
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
+
+    def test_name_only_arbitrary_site_requires_location_confirmation_without_tools(self):
+        result = run_site_briefing({"siteName": "Example Riverside Yard", "goal": "pre-visit review"})
+
+        self.assertEqual(result["finalReportStatus"], "location_confirmation_required")
+        self.assertEqual(result["runtime"]["fixturePackMode"], "location-confirmation-required")
+        self.assertEqual(result["locationConfirmation"]["status"], "evidence_required")
+        self.assertIsNone(result["request"]["latitude"])
+        self.assertIsNone(result["request"]["longitude"])
+        self.assertIsNone(result["scene"])
+        self.assertEqual(result["hazards"], [])
+        self.assertEqual(result["annotations"], [])
+        self.assertEqual(result["subagentOutputs"], [])
+        self.assertEqual([step["name"] for step in result["trace"]], ["location_confirmation_gate"])
+        self.assertNotIn("resolve_location", [step["name"] for step in result["trace"]])
+
+        candidate = result["locationConfirmation"]["candidates"][0]
+        self.assertEqual(candidate["label"], "Example Riverside Yard")
+        self.assertEqual(candidate["source"], "User-supplied location text")
+        self.assertEqual(candidate["confidence"], "low")
+        self.assertEqual(candidate["dataMode"], "user-supplied")
+        self.assertIn("candidateId", candidate)
+        self.assertIn("postcode", result["locationConfirmation"]["message"])
+        serialized = json.dumps(result)
+        self.assertNotIn("52.2053", serialized)
+        self.assertNotIn("-1.6022", serialized)
+
+    def test_user_supplied_coordinates_require_confirmation_first(self):
+        result = run_site_briefing({"siteName": "Coordinate-only test", "latitude": 51.5, "longitude": -0.12})
+
+        self.assertEqual(result["locationConfirmation"]["status"], "confirmation_required")
+        self.assertIsNone(result["scene"])
+        self.assertEqual(result["subagentOutputs"], [])
+        candidate = result["locationConfirmation"]["candidates"][0]
+        self.assertEqual(candidate["latitude"], 51.5)
+        self.assertEqual(candidate["longitude"], -0.12)
+        self.assertEqual(candidate["source"], "User-supplied coordinates")
+        self.assertEqual(candidate["dataMode"], "user-supplied")
+        self.assertEqual(result["evidence"][0]["candidate"], candidate)
+
+    def test_confirmed_candidate_reaches_normal_supervisor_workflow(self):
+        result = run_site_briefing(
+            {
+                "siteName": "Confirmed coordinate test",
+                "latitude": 51.5,
+                "longitude": -0.12,
+                "locationConfirmation": {"status": "confirmed"},
+                "useBedrock": False,
+            }
+        )
+
+        self.assertEqual(result["locationConfirmation"]["status"], "confirmed")
+        self.assertEqual(result["runtime"]["fixturePackMode"], "confirmed-location-synthetic-features")
+        self.assertEqual(result["scene"]["provider"], "cesium-local-fixture")
+        self.assertGreaterEqual(len(result["subagentOutputs"]), 7)
+        self.assertTrue(any(step["name"] == "resolve_location" for step in result["trace"]))
+        self.assertEqual(result["location"]["sourceIds"], ["user-supplied-coordinate"])
+
+    def test_location_gate_stays_offline_when_map_fallback_requested(self):
+        result = run_site_briefing({"siteName": "Offline location test", "simulateMapFailure": True})
+
+        self.assertEqual(result["locationConfirmation"]["status"], "evidence_required")
+        self.assertFalse(result["externalSignals"]["openWeb"]["liveCallAttempted"])
+        self.assertEqual([step["name"] for step in result["trace"]], ["location_confirmation_gate"])
 
     def test_reasoning_pass_is_mandatory_and_after_subagent_evidence(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
@@ -157,6 +261,8 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["location"]["authority"], "London Borough of Lambeth")
         self.assertEqual(result["scene"]["provider"], "cesium-local-cached-fixture")
         self.assertEqual(result["scene"]["dataMode"], "cached-public-fixture")
+        self.assertEqual(result["locationConfirmation"]["status"], "not_required")
+        self.assertEqual(result["locationConfirmation"]["dataMode"], "cached-public-fixture")
         self.assertTrue(result["safety"]["allowed"])
 
         source_statuses = {source["id"]: source["status"] for source in result["sources"]}
@@ -216,13 +322,131 @@ class SiteBriefingAgentTests(unittest.TestCase):
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "ok")
         self.assertEqual(trace_step["output"]["accepted"], 1)
+        self.assertEqual(trace_step["output"]["acceptedReferences"][0]["status"], "authorized-material-fixture")
         self.assertIn("ev-material-asio-material-site-access-plan", trace_step["evidenceIds"])
+        material_output = next(output for output in result["subagentOutputs"] if output["subagent"]["name"] == "material_subagent")
+        self.assertEqual(material_output["subagent"]["harness"], "rams_material_harness")
+        self.assertEqual(material_output["data"]["materialIngestion"]["accepted"], 1)
 
         serialized = json.dumps(result)
         self.assertNotIn("DUMMY_MATERIAL_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
         self.assertNotIn("DUMMY_RETRIEVAL_URL_SHOULD_NOT_LEAK", serialized)
         self.assertNotIn("retrievalUrl", serialized)
         self.assertNotIn("DUMMY RAW MATERIAL CONTENT SHOULD NOT LEAK", serialized)
+
+    def test_retrieved_pdf_material_uses_nova_lite_mock_extraction_without_raw_leakage(self):
+        material = retrieved_pdf_material()
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_MOCK_RESPONSE="true",
+            BEDROCK_SIMULATE_FAILURE=None,
+            MATERIAL_EXTRACTION_MODEL_ID="amazon.nova-lite-v1:0",
+        ):
+            result = run_site_briefing(
+                {
+                    "caseId": "case_material_extraction_002",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": True,
+                    "materials": [material],
+                }
+            )
+
+        ingestion = result["materialIngestion"]
+        self.assertEqual(ingestion["accepted"], 1)
+        extraction = ingestion["extractions"][0]
+        self.assertEqual(extraction["status"], "extracted")
+        self.assertEqual(extraction["model"]["modelId"], "amazon.nova-lite-v1:0")
+        self.assertTrue(extraction["observations"])
+        self.assertFalse(extraction["rawContentStored"])
+
+        evidence_by_id = {item["id"]: item for item in result["evidence"]}
+        material_evidence = evidence_by_id["ev-material-retrieved-pdf-access-plan"]
+        self.assertEqual(material_evidence["status"], "extracted")
+        self.assertEqual(
+            material_evidence["extraction"]["limitations"][0],
+            "Mock extraction for local verification; use live Bedrock only with authorized public-safe material.",
+        )
+
+        serialized = json.dumps(result)
+        self.assertNotIn(material["contentBytesBase64"], serialized)
+        self.assertNotIn("%PDF-1.4", serialized)
+
+    def test_retrieved_text_material_uses_bedrock_mock_extraction_without_raw_leakage(self):
+        material = retrieved_text_material()
+        with EnvPatch(
+            ENABLE_BEDROCK="true",
+            BEDROCK_MOCK_RESPONSE="true",
+            BEDROCK_SIMULATE_FAILURE=None,
+            MATERIAL_EXTRACTION_MODEL_ID="amazon.nova-lite-v1:0",
+        ):
+            result = run_site_briefing(
+                {
+                    "caseId": "case_material_extraction_001",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": True,
+                    "materials": [material],
+                }
+            )
+
+        ingestion = result["materialIngestion"]
+        self.assertEqual(ingestion["accepted"], 1)
+        self.assertEqual(ingestion["extractions"][0]["status"], "extracted")
+        self.assertEqual(ingestion["extractions"][0]["observations"][0]["citationAnchor"], "page/section hint unavailable in mock")
+        hazard_ids = {item["id"] for item in result["hazards"]}
+        self.assertIn("material-retrieved-text-access-note-observation-1", hazard_ids)
+
+        serialized = json.dumps(result)
+        self.assertNotIn("Access route uses a public realm interface", serialized)
+        self.assertNotIn('"rawContent":', serialized)
+
+    def test_retrieved_material_reports_model_not_configured_and_extraction_failed(self):
+        with EnvPatch(ENABLE_BEDROCK=None, BEDROCK_MOCK_RESPONSE=None, BEDROCK_SIMULATE_FAILURE=None):
+            disabled = ingest_material_references(
+                [retrieved_text_material()],
+                case_id="case_material_extraction_001",
+                config=RuntimeConfig.from_env(request_bedrock=False),
+            )
+        self.assertEqual(disabled["accepted"], 0)
+        self.assertEqual(disabled["skipped"][0]["reason"], "model_not_configured")
+
+        skipped = ingest_material_references(
+            [{key: value for key, value in retrieved_text_material().items() if key != "rawContent"}],
+            case_id="case_material_extraction_001",
+            config=RuntimeConfig.from_env(request_bedrock=False),
+        )
+        self.assertEqual(skipped["skipped"][0]["reason"], "retrieval_not_configured")
+
+        unsupported = ingest_material_references(
+            [
+                {
+                    **retrieved_text_material(),
+                    "materialId": "retrieved_image_photo",
+                    "type": "image/png",
+                    "label": "Retrieved image photo",
+                }
+            ],
+            case_id="case_material_extraction_001",
+            config=RuntimeConfig.from_env(request_bedrock=False),
+        )
+        self.assertEqual(unsupported["skipped"][0]["reason"], "unsupported_format")
+
+        with EnvPatch(ENABLE_BEDROCK="true", BEDROCK_SIMULATE_FAILURE="true", BEDROCK_MOCK_RESPONSE=None):
+            failed = ingest_material_references(
+                [retrieved_text_material()],
+                case_id="case_material_extraction_001",
+                config=RuntimeConfig.from_env(request_bedrock=True),
+            )
+        self.assertEqual(failed["accepted"], 0)
+        self.assertEqual(failed["skipped"][0]["reason"], "extraction_failed")
+
+        quiet_material = {**retrieved_text_material(), "materialId": "retrieved_text_quiet", "rawContent": "Meeting agenda only."}
+        with EnvPatch(ENABLE_BEDROCK="true", BEDROCK_MOCK_RESPONSE="true", BEDROCK_SIMULATE_FAILURE=None):
+            no_relevant = ingest_material_references(
+                [quiet_material],
+                case_id="case_material_extraction_001",
+                config=RuntimeConfig.from_env(request_bedrock=True),
+            )
+        self.assertEqual(no_relevant["acceptedReferences"][0]["status"], "no_relevant_content")
 
     def test_denied_expired_and_oversized_materials_are_skipped_without_secret_leakage(self):
         result = run_site_briefing(
@@ -263,6 +487,33 @@ class SiteBriefingAgentTests(unittest.TestCase):
                         "sizeBytes": 10 * 1024 * 1024 + 1,
                         "access": {"mode": "asio_authorized_reference"},
                     },
+                    {
+                        "materialId": "asio_material_unsupported",
+                        "sourceSystem": "asio",
+                        "type": "application/msword",
+                        "label": "Unsupported material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
+                    {
+                        "materialId": "asio_material_skipped",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Skipped material",
+                        "caseId": "case_material_test_002",
+                        "access": {
+                            "mode": "asio_authorized_reference",
+                            "status": "skipped",
+                        },
+                    },
+                    {
+                        "materialId": "asio_material_extraction_failed",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Extraction failed material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
                 ],
             }
         )
@@ -271,11 +522,20 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(ingestion["status"], "warning")
         self.assertEqual(ingestion["accepted"], 0)
         reasons = {item["reason"] for item in ingestion["skipped"]}
-        self.assertEqual(reasons, {"denied", "expired", "oversized"})
+        self.assertEqual(
+            reasons,
+            {"denied", "expired", "oversized", "unsupported_type", "skipped", "extraction_failed"},
+        )
+        statuses = {item["status"] for item in ingestion["skipped"]}
+        self.assertEqual(statuses, {"denied", "expired", "skipped", "unsupported", "extraction_failed"})
 
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "warning")
         self.assertEqual({item["reason"] for item in trace_step["output"]["skipped"]}, reasons)
+        material_output = next(output for output in result["subagentOutputs"] if output["subagent"]["name"] == "material_subagent")
+        self.assertEqual(material_output["status"], "warning")
+        self.assertEqual(material_output["data"]["materialIngestion"]["skippedCount"], len(reasons))
+        self.assertEqual({item["status"] for item in trace_step["output"]["skipped"]}, statuses)
 
         serialized = json.dumps(result)
         self.assertNotIn("DENIED_DUMMY_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
@@ -355,16 +615,23 @@ class SiteBriefingAgentTests(unittest.TestCase):
         dispatch_steps = {
             step["name"]: step
             for step in result["trace"]
-            if step["name"] in {"dispatch_parallel_tool_groups", "dispatch_parallel_report_groups"}
+            if step["name"] in {
+                "dispatch_parallel_tool_groups",
+                "dispatch_parallel_report_groups",
+            }
         }
 
         self.assertEqual(
             dispatch_steps["dispatch_parallel_tool_groups"]["output"]["groups"],
-            ["geospatial_subagent", "planning_subagent"],
+            ["geospatial_subagent", "planning_subagent", "material_subagent"],
         )
         self.assertEqual(
             dispatch_steps["dispatch_parallel_tool_groups"]["output"]["harnesses"]["geospatial_subagent"],
             "rams_geospatial_harness",
+        )
+        self.assertEqual(
+            dispatch_steps["dispatch_parallel_tool_groups"]["output"]["harnesses"]["material_subagent"],
+            "rams_material_harness",
         )
         self.assertEqual(
             dispatch_steps["dispatch_parallel_report_groups"]["output"]["groups"],
@@ -380,18 +647,24 @@ class SiteBriefingAgentTests(unittest.TestCase):
         )
         self.assertEqual(result["runtime"]["subagentExecutionMode"], "direct-local-harness-adapter")
 
+    def test_material_subagent_is_registered_for_planner_and_tools(self):
+        self.assertEqual(harness_for_group("material_subagent"), "rams_material_harness")
+        self.assertEqual(tools_for_group("material_subagent"), ["ingest_material_references"])
+        self.assertEqual(SUPERVISOR_HARNESS_SUBAGENTS["material_subagent"]["phase"], "initial_parallel_research")
+
     def test_subagent_outputs_use_shared_harness_envelope(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
 
         self.assertEqual(result["runtime"]["harnessOutputSchemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
         self.assertTrue(result["runtime"]["harnessContract"]["contractCompliant"])
         self.assertEqual(result["runtime"]["harnessContract"]["fallbackCount"], 0)
-        self.assertEqual(len(result["subagentOutputs"]), 6)
+        self.assertEqual(len(result["subagentOutputs"]), 7)
         self.assertEqual(
             result["runtime"]["harnessContract"]["observedSubagents"],
             [
                 "geospatial_subagent",
                 "planning_subagent",
+                "material_subagent",
                 "hazard_subagent",
                 "open_web_subagent",
                 "annotation_subagent",
@@ -522,7 +795,36 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertFalse(result["runtime"]["bedrockUsed"])
         self.assertFalse(any(step.get("fallbackReason") == "bedrock_simulated_failure" for step in result["trace"]))
 
-    def test_unsafe_bedrock_mock_briefing_is_blocked_after_generation(self):
+    def test_grounding_repair_retries_missing_briefing_sections_before_review(self):
+        original = DirectSubagentInvoker.invoke_briefing
+        calls = 0
+
+        def flaky_briefing(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            result = original(self, *args, **kwargs)
+            if calls == 1:
+                bad = dict(result["briefing"])
+                bad["priority_checks"] = ["Generic check not tied to a current finding."]
+                bad.pop("before_site_visit", None)
+                result["briefing"] = bad
+                result["data"] = dict(result["data"], briefing=bad)
+            return result
+
+        with patch.object(DirectSubagentInvoker, "invoke_briefing", flaky_briefing):
+            result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(result["runtime"]["repairAttemptCount"], 1)
+        self.assertEqual(result["runtime"]["repairStopReason"], "passed_after_retry")
+        self.assertEqual(result["runtime"]["repairIssueCount"], 0)
+        self.assertEqual(result["reportGroundingRepair"]["status"], "ok")
+        self.assertEqual(result["reviewGate"]["status"], "passed_with_caveats")
+        repair_step = next(step for step in result["trace"] if step["name"] == "report_grounding_repair")
+        self.assertEqual(repair_step["output"]["repairAttemptCount"], 1)
+        self.assertEqual(repair_step["output"]["repairIssueCount"], 0)
+
+    def test_unsafe_bedrock_mock_briefing_is_downgraded_before_review(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",
             BEDROCK_MOCK_RESPONSE="true",
@@ -532,10 +834,17 @@ class SiteBriefingAgentTests(unittest.TestCase):
             result = run_site_briefing({"useBedrock": True})
 
         self.assertEqual(result["runtime"]["briefingMode"], "mocked")
-        self.assertFalse(result["safety"]["allowed"])
-        self.assertEqual(result["safety"]["level"], "blocked")
-        self.assertEqual(result["annotations"], [])
-        self.assertEqual(result["reviewGate"]["status"], "blocked")
+        self.assertEqual(result["runtime"]["repairAttemptCount"], 1)
+        self.assertEqual(result["runtime"]["repairStopReason"], "downgraded_after_cap")
+        self.assertGreater(result["runtime"]["repairIssueCount"], 0)
+        self.assertEqual(result["reportGroundingRepair"]["status"], "review_required")
+        self.assertEqual(result["briefing"]["generation_mode"], "grounding-repair-fallback")
+        self.assertTrue(result["safety"]["allowed"])
+        self.assertEqual(result["reviewGate"]["status"], "review_required")
+        self.assertEqual(result["finalReportStatus"], "review_required")
+        serialized = json.dumps(result["briefing"]).lower()
+        self.assertNotIn("approved for work", serialized)
+        self.assertNotIn("certified rams briefing", serialized)
 
     def test_independent_review_pass_path_is_visible(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False, "_reviewDecision": "pass"})

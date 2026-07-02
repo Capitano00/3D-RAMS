@@ -1,6 +1,6 @@
 ---
 name: shea-symphony-manual-merge
-description: Use when manually handling 3D-RAMS merge-lane work: checking approved PR readiness, repairing mechanical merge blockers when safe, preserving evidence, and landing only after approval is clear.
+description: "Use when manually handling 3D-RAMS merge-lane work: checking approved PR readiness, repairing mechanical merge blockers when safe, preserving evidence, and landing only after approval is clear."
 ---
 
 # Shea Symphony Manual Merging Agent
@@ -14,15 +14,22 @@ Default repository: `Capitano00/3D-RAMS`
 
 Default local checkout: the current 3D-RAMS repo root.
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for merge selection, claim locks, state changes, and
-merge evidence when one exists. In 3D-RAMS it temporarily cannot be used: there
-is no Shea Symphony Cargo CLI or merge-loop workflow file. Do not run legacy
-`merge loop`, `project issue`, or `project set-state` commands. Approximate the
-workflow with `gh pr view`, local git, focused verification, explicit approval
-evidence, and conservative routing. Record skipped CLI steps as
-`CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for merge selection, claim locks, state changes, and
+merge evidence. Run it from the 3D-RAMS repo root, never from the
+`shea-symphony` engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot loop .shea/workflows/shea-symphony.md --once --write
+```
+
+For readiness without writes, use `autopilot plan` with the same workflow file.
+Use `gh pr view`, local git, focused verification, and conservative routing
+only for focused inspection or when the CLI command fails. Record the exact CLI
+blocker before falling back.
 
 ## Preflight
 

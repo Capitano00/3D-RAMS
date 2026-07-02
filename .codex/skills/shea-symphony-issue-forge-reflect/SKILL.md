@@ -17,15 +17,22 @@ Default repository: `Capitano00/3D-RAMS`
 
 Default local checkout: the current 3D-RAMS repo root.
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for backlog creation, promotion, and Project state
-when one exists. In 3D-RAMS it temporarily cannot be used: there is no Shea
-Symphony `forge reflect` or Project workflow CLI. Do not run legacy
-`forge create`, `forge promote`, or raw Project mutation commands. Approximate
-the workflow with local scans, `gh` issue/PR reads, draft issues, and explicit
-confirmation before any GitHub write. Record skipped CLI steps as
-`CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for Project readiness before reflection or promotion.
+Run it from the 3D-RAMS repo root, never from the `shea-symphony` engine
+checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot plan .shea/workflows/shea-symphony.md
+```
+
+Reflection is still a skill behavior, not a dedicated CLI subcommand. Use local
+scans, `gh` issue/PR reads, draft issues, and explicit confirmation before any
+GitHub write. Record the exact CLI blocker before falling back from supported
+CLI reads.
 
 ## Backlog Semantics
 

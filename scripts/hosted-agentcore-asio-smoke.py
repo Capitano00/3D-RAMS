@@ -43,9 +43,19 @@ def run_smoke(
     )
     entry_agent = _entry_agent(clarification)
     pending_status = entry_agent.get("status")
-    _assert(pending_status in {"clarification_required", "confirmation_required"}, "entry did not clarify or confirm")
+    _assert(
+        pending_status in {"clarification_required", "confirmation_required", "conversation_routed"},
+        "entry did not clarify, confirm, or route help",
+    )
     _assert(_output(clarification).get("run") is None, "clarification turn unexpectedly launched supervisor")
-    checks.append({"name": "entry_clarification_or_confirmation", "status": "ok", "entryStatus": pending_status})
+    checks.append(
+        {
+            "name": "entry_clarification_confirmation_or_help",
+            "status": "ok",
+            "entryStatus": pending_status,
+            "route": entry_agent.get("route"),
+        }
+    )
 
     launch = invoke_entry(_confirmed_launch_payload(case_id, conversation_id))
     output = _output(launch)
@@ -83,6 +93,17 @@ def run_smoke(
     _assert(int(material.get("accepted") or 0) >= 1, "authorized material reference was not accepted")
     _assert(int(material.get("skippedCount") or 0) >= 1, "denied material reference was not skipped")
     _assert("denied" in skipped_reasons, "denied material reference did not produce a skip reason")
+    _assert(
+        any(item.get("id") == "ev-material-asio-material-site-access-plan" for item in _list(run.get("evidence"))),
+        "material-derived evidence did not reach supervisor evidence",
+    )
+    _assert(
+        any(
+            item.get("id") == "ev-material-asio-material-site-access-plan"
+            for item in _list(_dict(report.get("evidenceRegister")).get("evidence"))
+        ),
+        "material-derived evidence did not reach structured report evidence register",
+    )
     checks.append(
         {
             "name": "authorized_and_denied_material_references",
@@ -132,6 +153,9 @@ def run_smoke(
     _assert(authorized_output.get("caseId") == case_id, "authorized lookup returned the wrong caseId")
     _assert(_dict(authorized_output.get("structuredReport")).get("caseId") == case_id, "authorized lookup returned no structuredReport")
     _assert(_dict(authorized_output.get("run")).get("caseId") == case_id, "authorized lookup returned no run")
+    material_summary = _dict(authorized_output.get("materialEvidenceSummary"))
+    _assert(int(material_summary.get("accepted") or 0) >= 1, "authorized lookup returned no material evidence summary")
+    _assert(int(material_summary.get("skippedCount") or 0) >= 1, "authorized lookup returned no skipped material summary")
     checks.append(
         {
             "name": "identity_bound_lookup_authorized",
