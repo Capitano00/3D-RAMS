@@ -3,6 +3,17 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+DEFAULT_PLANNING_DATA_ENDPOINT = "https://www.planning.data.gov.uk/entity.json"
+DEFAULT_PLANNING_DATA_DATASETS = (
+    "conservation-area",
+    "listed-building",
+    "scheduled-monument",
+    "flood-risk-zone",
+    "green-belt",
+    "article-4-direction-area",
+    "tree-preservation-zone",
+)
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -39,6 +50,11 @@ class RuntimeConfig:
     bedrock_simulate_failure: bool
     material_extraction_model_id: str
     material_extraction_max_tokens: int
+    live_planning_data_enabled: bool = False
+    planning_data_endpoint: str = DEFAULT_PLANNING_DATA_ENDPOINT
+    planning_data_timeout_seconds: float = 2.0
+    planning_data_result_limit: int = 25
+    planning_data_datasets: tuple[str, ...] = DEFAULT_PLANNING_DATA_DATASETS
 
     @classmethod
     def from_env(cls, *, request_bedrock: bool = True) -> "RuntimeConfig":
@@ -63,6 +79,21 @@ class RuntimeConfig:
                 or "amazon.nova-lite-v1:0"
             ),
             material_extraction_max_tokens=_env_int("MATERIAL_EXTRACTION_MAX_TOKENS", 900),
+            live_planning_data_enabled=_env_bool("ENABLE_LIVE_PLANNING_DATA", False),
+            planning_data_endpoint=os.getenv(
+                "PLANNING_DATA_ENDPOINT",
+                DEFAULT_PLANNING_DATA_ENDPOINT,
+            ),
+            planning_data_timeout_seconds=_env_float("PLANNING_DATA_TIMEOUT_SECONDS", 2.0),
+            planning_data_result_limit=max(1, min(_env_int("PLANNING_DATA_RESULT_LIMIT", 25), 100)),
+            planning_data_datasets=tuple(
+                item.strip()
+                for item in os.getenv(
+                    "PLANNING_DATA_DATASETS",
+                    ",".join(DEFAULT_PLANNING_DATA_DATASETS),
+                ).split(",")
+                if item.strip()
+            ),
         )
 
     def public_runtime(self, *, status: str, fallback_reason: str | None = None) -> dict[str, object]:
@@ -78,5 +109,6 @@ class RuntimeConfig:
             "temperature": self.bedrock_temperature if self.bedrock_enabled else None,
             "materialExtractionModelId": self.material_extraction_model_id,
             "materialExtractionMaxTokens": self.material_extraction_max_tokens if self.bedrock_enabled else None,
+            "livePlanningDataEnabled": self.live_planning_data_enabled,
             "fallbackReason": fallback_reason,
         }

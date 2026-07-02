@@ -90,6 +90,20 @@ class EnvPatch:
                 os.environ[key] = value
 
 
+class FakeHttpResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
 class SiteBriefingAgentTests(unittest.TestCase):
     def test_happy_path_returns_scene_annotations_evidence_and_trace(self):
         result = run_site_briefing({})
@@ -192,6 +206,93 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["subagentOutputs"]), 7)
         self.assertTrue(any(step["name"] == "resolve_location" for step in result["trace"]))
         self.assertEqual(result["location"]["sourceIds"], ["user-supplied-coordinate"])
+
+    def test_live_planning_data_is_default_off_for_confirmed_locations(self):
+        with patch("rams_agent_tools.tools.geospatial.urlopen", side_effect=AssertionError("network disabled")):
+            result = run_site_briefing(
+                {
+                    "siteName": "Confirmed coordinate test",
+                    "latitude": 51.5,
+                    "longitude": -0.12,
+                    "locationConfirmation": {"status": "confirmed"},
+                    "useBedrock": False,
+                }
+            )
+
+        planning_data = result["runtime"]["planningData"]
+        self.assertEqual(planning_data["status"], "disabled")
+        self.assertFalse(planning_data["liveCallAttempted"])
+        self.assertFalse(result["runtime"]["liveApiCalls"])
+        self.assertEqual(result["scene"]["provider"], "cesium-local-fixture")
+
+    def test_unconfirmed_location_never_attempts_live_planning_lookup(self):
+        with EnvPatch(ENABLE_LIVE_PLANNING_DATA="true"):
+            with patch("rams_agent_tools.tools.geospatial.urlopen", side_effect=AssertionError("network disabled")):
+                result = run_site_briefing({"siteName": "Needs confirmation"})
+
+        self.assertEqual(result["finalReportStatus"], "location_confirmation_required")
+        self.assertEqual([step["name"] for step in result["trace"]], ["location_confirmation_gate"])
+        self.assertFalse(result["runtime"]["liveApiCalls"])
+
+    def test_confirmed_location_can_load_mocked_live_planning_data(self):
+        payload = {
+            "count": 1,
+            "entities": [
+                {
+                    "entity": 123,
+                    "dataset": "conservation-area",
+                    "name": "Test Conservation Area",
+                    "reference": "CA-1",
+                    "point": "POINT(-0.1200 51.5000)",
+                    "entry-date": "2026-07-01",
+                }
+            ],
+        }
+        with EnvPatch(ENABLE_LIVE_PLANNING_DATA="true", PLANNING_DATA_RESULT_LIMIT="5"):
+            with patch("rams_agent_tools.tools.geospatial.urlopen", return_value=FakeHttpResponse(payload)) as request:
+                result = run_site_briefing(
+                    {
+                        "siteName": "Confirmed coordinate test",
+                        "latitude": 51.5,
+                        "longitude": -0.12,
+                        "locationConfirmation": {"status": "confirmed"},
+                        "useBedrock": False,
+                    }
+                )
+
+        planning_data = result["runtime"]["planningData"]
+        self.assertEqual(planning_data["status"], "live")
+        self.assertEqual(planning_data["featureCount"], 1)
+        self.assertTrue(planning_data["liveCallAttempted"])
+        self.assertTrue(result["runtime"]["liveApiCalls"])
+        self.assertEqual(request.call_count, 1)
+        live_features = [feature for feature in result["subagentOutputs"][0]["data"]["features"] if feature["id"] == "planning-data-123"]
+        self.assertEqual(live_features[0]["dataMode"], "live-planning-data")
+        self.assertEqual(live_features[0]["sourceIds"], ["planning-data-api"])
+        self.assertEqual(live_features[0]["centroid"], {"latitude": 51.5, "longitude": -0.12})
+        self.assertTrue(any(source["id"] == "planning-data-api" and source["status"] == "live" for source in result["sources"]))
+
+    def test_live_planning_failure_falls_back_to_mock_features(self):
+        with EnvPatch(ENABLE_LIVE_PLANNING_DATA="true"):
+            with patch("rams_agent_tools.tools.geospatial.urlopen", side_effect=TimeoutError("timed out")):
+                result = run_site_briefing(
+                    {
+                        "siteName": "Confirmed coordinate test",
+                        "latitude": 51.5,
+                        "longitude": -0.12,
+                        "locationConfirmation": {"status": "confirmed"},
+                        "useBedrock": False,
+                    }
+                )
+
+        planning_data = result["runtime"]["planningData"]
+        self.assertEqual(planning_data["status"], "failed")
+        self.assertEqual(planning_data["featureCount"], 0)
+        self.assertIn("TimeoutError", planning_data["fallbackReason"])
+        self.assertTrue(result["runtime"]["liveApiCalls"])
+        geo_step = next(step for step in result["trace"] if step["name"] == "load_geospatial_features")
+        self.assertEqual(geo_step["status"], "fallback")
+        self.assertGreaterEqual(result["scene"]["featureCount"], 1)
 
     def test_location_gate_stays_offline_when_map_fallback_requested(self):
         result = run_site_briefing({"siteName": "Offline location test", "simulateMapFailure": True})
