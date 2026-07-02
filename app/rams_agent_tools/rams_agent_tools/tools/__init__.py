@@ -9,7 +9,7 @@ from .materials import ingest_material_references, sanitize_material_references
 from .open_web import search_open_web_signals
 from .planning import load_planning_context
 from .registry import SUPERVISOR_HARNESS_SUBAGENTS, SUPERVISOR_TOOL_GROUPS, harness_for_group, tools_for_group
-from .request import normalize_request, source_register
+from .request import location_confirmation_gate, normalize_request, source_register
 from .safety import safety_gate
 from .telemetry import AWS_TRACE_MAPPING, trace_step
 
@@ -28,6 +28,7 @@ __all__ = [
     "load_geospatial_features",
     "load_planning_context",
     "normalize_request",
+    "location_confirmation_gate",
     "resolve_location",
     "safety_gate",
     "sanitize_material_references",
