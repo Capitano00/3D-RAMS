@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
+from ..config import RuntimeConfig
 from ..fixtures import load_json
 from .telemetry import trace_step
 
@@ -60,6 +65,8 @@ def load_geospatial_features(
     location: dict[str, Any],
     simulate_failure: bool = False,
     fixture_pack: dict[str, Any] | None = None,
+    config: RuntimeConfig | None = None,
+    location_confirmation: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if simulate_failure:
         features = load_json("geospatial_features.json")["fallback_features"]
@@ -93,13 +100,30 @@ def load_geospatial_features(
         )
 
     features = load_json("geospatial_features.json")["features"]
-    return features, trace_step(
+    planning_data = _load_live_planning_data(location, config, location_confirmation)
+    live_features = planning_data.pop("features", [])
+    if planning_data["status"] == "failed":
+        status = "fallback"
+        summary = "Live Planning Data lookup failed; loaded mock geospatial features around the coordinate."
+    elif planning_data["status"] in {"live", "partial"}:
+        status = "ok"
+        summary = "Loaded mock geospatial features and optional live Planning Data features around the coordinate."
+    else:
+        status = "ok"
+        summary = "Loaded mock geospatial features around the coordinate."
+    all_features = [*features, *live_features]
+    return all_features, trace_step(
         "load_geospatial_features",
-        "ok",
-        "Loaded mock geospatial features around the coordinate.",
-        {"feature_count": len(features), "source": "fixtures/geospatial_features.json"},
-        source_ids=["geo-fixture"],
+        status,
+        summary,
+        {
+            "feature_count": len(all_features),
+            "source": "fixtures/geospatial_features.json",
+            "planningData": planning_data,
+        },
+        source_ids=["geo-fixture", *planning_data.get("sourceIds", [])],
         evidence_ids=["geo-fixture"],
+        fallback_reason=planning_data.get("fallbackReason"),
     )
 
 
@@ -143,3 +167,117 @@ def build_scene_config(
         {"scene": scene},
         source_ids=[*location.get("sourceIds", ["location-fixture"]), *geo_source_ids],
     )
+
+
+def _load_live_planning_data(
+    location: dict[str, Any],
+    config: RuntimeConfig | None,
+    location_confirmation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metadata = _planning_data_metadata(config)
+    if not config or not config.live_planning_data_enabled:
+        return {**metadata, "status": "disabled", "fallbackReason": "ENABLE_LIVE_PLANNING_DATA is not true."}
+    if str((location_confirmation or {}).get("status") or "").strip().lower() != "confirmed":
+        return {**metadata, "status": "skipped", "fallbackReason": "Location is not confirmed."}
+
+    params: list[tuple[str, Any]] = [
+        ("latitude", location["latitude"]),
+        ("longitude", location["longitude"]),
+        ("limit", config.planning_data_result_limit),
+    ]
+    params.extend(("dataset", dataset) for dataset in config.planning_data_datasets)
+    url = f"{config.planning_data_endpoint}?{urlencode(params)}"
+    try:
+        with urlopen(url, timeout=config.planning_data_timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        return {
+            **metadata,
+            "status": "failed",
+            "dataMode": "live-planning-data-failed",
+            "liveCallAttempted": True,
+            "fallbackReason": f"{type(exc).__name__}: {exc}",
+        }
+
+    entities = payload.get("entities") if isinstance(payload, dict) else []
+    entities = entities if isinstance(entities, list) else []
+    live_features = [
+        _planning_entity_feature(entity, location)
+        for entity in entities[: config.planning_data_result_limit]
+        if isinstance(entity, dict)
+    ]
+    live_features = [feature for feature in live_features if feature]
+    total = _int_or(payload.get("count"), len(live_features)) if isinstance(payload, dict) else len(live_features)
+    status = "partial" if total > len(live_features) else "live"
+    return {
+        **metadata,
+        "status": status,
+        "dataMode": "live-planning-data",
+        "liveCallAttempted": True,
+        "featureCount": len(live_features),
+        "sourceIds": ["planning-data-api"],
+        "freshness": datetime.now(timezone.utc).date().isoformat(),
+        "fallbackReason": None,
+        "features": live_features,
+    }
+
+
+def _planning_data_metadata(config: RuntimeConfig | None) -> dict[str, Any]:
+    return {
+        "provider": "planning.data.gov.uk",
+        "status": "disabled",
+        "dataMode": "disabled",
+        "liveCallAttempted": False,
+        "featureCount": 0,
+        "sourceIds": [],
+        "datasets": list(config.planning_data_datasets) if config else [],
+        "endpoint": config.planning_data_endpoint if config else None,
+        "limit": config.planning_data_result_limit if config else None,
+        "timeoutSeconds": config.planning_data_timeout_seconds if config else None,
+        "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Crown copyright and database right 2026. Source: Planning Data.",
+        "freshness": None,
+        "fallbackReason": None,
+    }
+
+
+def _planning_entity_feature(entity: dict[str, Any], location: dict[str, Any]) -> dict[str, Any]:
+    entity_id = entity.get("entity") or entity.get("reference") or "unknown"
+    dataset = str(entity.get("dataset") or "planning-data")
+    point = _wkt_point(entity.get("point")) or {"latitude": location["latitude"], "longitude": location["longitude"]}
+    return {
+        "id": f"planning-data-{entity_id}",
+        "label": entity.get("name") or entity.get("reference") or dataset.replace("-", " ").title(),
+        "type": f"planning_data:{dataset}",
+        "dataset": dataset,
+        "reference": entity.get("reference"),
+        "entity": entity.get("entity"),
+        "geometry": entity.get("geometry"),
+        "centroid": point,
+        "confidence": "medium",
+        "risk_note": "Live Planning Data context for human review; absence or presence is not a work approval.",
+        "dataMode": "live-planning-data",
+        "sourceIds": ["planning-data-api"],
+        "attribution": "Contains public sector information licensed under the Open Government Licence v3.0. Crown copyright and database right 2026. Source: Planning Data.",
+        "freshness": entity.get("entry-date") or entity.get("start-date"),
+    }
+
+
+def _wkt_point(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text.upper().startswith("POINT") or "(" not in text or ")" not in text:
+        return None
+    inside = text[text.find("(") + 1 : text.rfind(")")]
+    try:
+        longitude, latitude = inside.split()
+        return {"latitude": float(latitude), "longitude": float(longitude)}
+    except ValueError:
+        return None
+
+
+def _int_or(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
