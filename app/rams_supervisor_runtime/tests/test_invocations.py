@@ -181,6 +181,85 @@ class AgentCoreInvocationTests(unittest.TestCase):
             any("Material access-plan review" in item for item in report["executiveSummary"]["priorityChecks"])
         )
 
+    def test_forbidden_entry_context_stays_out_of_report_trace_and_store(self):
+        access = report_access("case_redaction_boundary_001", session_id="secret-report-session")
+        response = invoke_local(
+            {
+                "input": {
+                    "caseId": "case_redaction_boundary_001",
+                    "fixturePack": "public-lambeth-thames",
+                    "useBedrock": False,
+                    "rawTurnText": "RAW TURN TEXT SHOULD NOT PERSIST",
+                    "rawConversationHistory": ["PRIVATE CHAT HISTORY SHOULD NOT PERSIST"],
+                    "accessContext": {"token": "private-access-token", "sessionId": "private-access-session"},
+                    "materials": [
+                        {
+                            "materialId": "asio_material_site_access_plan",
+                            "sourceSystem": "asio",
+                            "type": "application/pdf",
+                            "label": "Site access plan",
+                            "summary": "Uploaded by the ASI user for this case.",
+                            "caseId": "case_redaction_boundary_001",
+                            "access": {
+                                "mode": "asio_authorized_reference",
+                                "expiresAt": "2099-01-01T00:00:00Z",
+                                "sessionId": "private-material-session",
+                                "retrievalUrl": "https://materials.example.invalid/private.pdf?token=secret-token",
+                            },
+                            "rawContent": "RAW PRIVATE MATERIAL SHOULD NOT PERSIST",
+                            "signedUrl": "https://example.invalid/private-download",
+                        }
+                    ],
+                    "upstream": {
+                        "source": "AGENTVERSE",
+                        "caseId": "case_redaction_boundary_001",
+                        "conversationId": "secret-conversation-id",
+                        "sessionId": "secret-session-id",
+                        "entryAgentId": "@3d-rams",
+                        "confirmedByUser": True,
+                        "materialCount": 1,
+                        "privateNotes": "PRIVATE NOTES SHOULD NOT PERSIST",
+                        "reportAccess": access,
+                    },
+                }
+            }
+        )
+
+        output = response["output"]
+        store_item = build_report_store_item(output)
+        serialized_report = json.dumps(output["structuredReport"], sort_keys=True)
+        serialized_trace = json.dumps(output["run"]["trace"], sort_keys=True)
+        serialized_store = json.dumps(store_item, sort_keys=True, default=str)
+
+        self.assertEqual(output["structuredReport"]["intake"]["upstream"]["reportAccess"]["status"], "redacted")
+        self.assertEqual(store_item["entryIntakeSummary"]["upstream"]["reportAccess"]["status"], "redacted")
+        self.assertIn("sessionIdHash", store_item["reportAccessBinding"])
+        for forbidden in (
+            "RAW TURN TEXT SHOULD NOT PERSIST",
+            "PRIVATE CHAT HISTORY SHOULD NOT PERSIST",
+            "private-access-token",
+            "private-access-session",
+            "private-material-session",
+            "secret-token",
+            "RAW PRIVATE MATERIAL SHOULD NOT PERSIST",
+            "private-download",
+            "secret-conversation-id",
+            "secret-session-id",
+            "PRIVATE NOTES SHOULD NOT PERSIST",
+            "secret-report-session",
+            "retrievalUrl",
+            "signedUrl",
+        ):
+            self.assertNotIn(forbidden, serialized_report)
+            self.assertNotIn(forbidden, serialized_trace)
+            self.assertNotIn(forbidden, serialized_store)
+        self.assertNotIn('"sessionId":', serialized_report)
+        self.assertNotIn('"conversationId":', serialized_report)
+        self.assertNotIn('"sessionId":', serialized_trace)
+        self.assertNotIn('"conversationId":', serialized_trace)
+        self.assertNotIn('"sessionId":', serialized_store)
+        self.assertNotIn('"conversationId":', serialized_store)
+
     def test_report_store_persists_material_status_summary_without_sensitive_fields(self):
         response = invoke_local(
             {
@@ -846,7 +925,8 @@ class AgentCoreInvocationTests(unittest.TestCase):
 
         self.assertEqual(item["authorizationBinding"]["mode"], "asi_identity_bound")
         self.assertTrue(item["authorizationBinding"]["requiredForLookup"])
-        self.assertEqual(item["authorizationBinding"]["conversationId"], "agentverse-session-id")
+        self.assertIn("conversationIdHash", item["authorizationBinding"])
+        self.assertNotIn("conversationId", item["authorizationBinding"])
         self.assertEqual(item["reportAccessBinding"]["mode"], "asi_session")
         self.assertIn("sessionIdHash", item["reportAccessBinding"])
         self.assertEqual(item["materialEvidenceSummary"]["status"], "references_recorded")

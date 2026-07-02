@@ -133,6 +133,88 @@ class OpenAIGatewayTests(unittest.TestCase):
         self.assertEqual(metadata["phase"], "planner-plan")
         self.assertNotIn("tokenUsage", metadata)
 
+    def test_planner_prompt_uses_bounded_entry_context_only(self):
+        seen: dict[str, object] = {}
+        plan = {
+            "rationale": "Use bounded Harness subagents.",
+            "initial_parallel_groups": ["geospatial_subagent", "planning_subagent", "material_subagent"],
+            "sequential_groups": ["hazard_subagent", "open_web_subagent", "review_guardrail"],
+            "report_parallel_groups": ["annotation_subagent", "briefing_subagent"],
+            "required_evidence": ["resolved location"],
+            "missing_inputs": [],
+        }
+
+        def fake_urlopen(request, timeout):
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return fake_chat_response(plan)
+
+        request_summary = {
+            "caseId": "case_prompt_bound_001",
+            "siteName": "Public fixture site",
+            "goal": "pre-visit site risk and planning context",
+            "areaScope": {"type": "radius", "meters": 800},
+            "fixturePack": "public-lambeth-thames",
+            "additionalRequest": "RAW TURN TEXT SHOULD NOT REACH PLANNER",
+            "conversationId": "secret-conversation-id",
+            "sessionId": "secret-session-id",
+            "rawConversationHistory": ["private chat"],
+            "privateNotes": "private operator note",
+            "locationCandidate": {
+                "label": "Public fixture site",
+                "source": "Postcodes.io postcode lookup",
+                "dataMode": "live-postcodes-io-postcode",
+                "confidence": 0.82,
+            },
+            "materials": [
+                {
+                    "materialId": "mat-1",
+                    "sourceSystem": "asio",
+                    "type": "application/pdf",
+                    "label": "Site access plan",
+                    "summary": "PRIVATE MATERIAL SUMMARY SHOULD NOT REACH PLANNER",
+                    "access": {
+                        "status": "not_retrieved",
+                        "sessionId": "material-session-id",
+                        "retrievalUrl": "https://materials.example.invalid/private.pdf?token=secret-token",
+                    },
+                    "rawContent": "RAW PRIVATE MATERIAL SHOULD NOT REACH PLANNER",
+                    "signedUrl": "https://example.invalid/signed",
+                }
+            ],
+        }
+        with mock.patch("rams_agent_tools.bedrock_adapter.urllib.request.urlopen", side_effect=fake_urlopen):
+            generate_bedrock_subagent_plan(
+                config=openai_config(),
+                request_summary=request_summary,
+                subagent_schemas=[{"name": name} for name in SUPERVISOR_HARNESS_SUBAGENTS],
+            )
+
+        body = seen["body"]
+        prompt = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])
+        planner_context = prompt["request"]
+        serialized_prompt = json.dumps(prompt)
+
+        self.assertEqual(planner_context["schemaVersion"], "3d-rams.hosted-planner-context.v1")
+        self.assertEqual(planner_context["caseId"], "case_prompt_bound_001")
+        self.assertEqual(planner_context["location"]["label"], "Public fixture site")
+        self.assertEqual(planner_context["areaScope"], {"type": "radius", "meters": 800})
+        self.assertEqual(planner_context["userGoal"], "pre-visit site risk and planning context")
+        self.assertEqual(planner_context["materialSummary"]["count"], 1)
+        for forbidden in (
+            "RAW TURN TEXT SHOULD NOT REACH PLANNER",
+            "secret-conversation-id",
+            "secret-session-id",
+            "private chat",
+            "private operator note",
+            "PRIVATE MATERIAL SUMMARY SHOULD NOT REACH PLANNER",
+            "RAW PRIVATE MATERIAL SHOULD NOT REACH PLANNER",
+            "secret-token",
+            "signed",
+            "retrievalUrl",
+            "sessionId",
+        ):
+            self.assertNotIn(forbidden, serialized_prompt)
+
     def test_planner_observability_passes_safe_openai_usage(self):
         plan = {
             "rationale": "Use bounded Harness subagents.",

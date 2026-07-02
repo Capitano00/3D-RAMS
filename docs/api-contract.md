@@ -74,6 +74,22 @@ Known `input` fields:
 
 Material retrieval is bounded to 10 MiB and supported content types are PDF, JPEG, PNG, Markdown, and plain text. A short-lived `access.retrievalUrl` may be used directly. For `access.apiHandle`, configure `RAMS_ASI_MATERIAL_API_BASE_URL` and `RAMS_ASI_MATERIAL_API_BEARER_TOKEN`; the supervisor performs `GET {baseUrl}/{urlencoded apiHandle}` with `Authorization: Bearer ...` plus case/session headers. If those settings are absent, the material is skipped as `retrieval_not_configured`.
 
+## Hosted Planner Context Boundary
+
+The optional live planner path is hosted OpenAI-compatible. It receives only `3d-rams.hosted-planner-context.v1`, not the raw AgentCore request, raw entry turn, raw conversation state, or report-access context.
+
+Allowed planner context fields are:
+
+- `caseId`;
+- confirmed public location label or source-labelled candidate summary;
+- `areaScope`;
+- `userGoal`;
+- source-labelled `fixturePack` or data mode;
+- material metadata counts, statuses, source systems, and content types;
+- public-safe runtime/dogfood summary fields when already present.
+
+Forbidden in planner prompts, trace summaries, structured reports, and report-store summaries: raw turn text, raw conversation history, raw session ids, access codes, tokens, signed URLs, retrieval URLs, API handles, raw material content, private notes, private material bodies, and hidden reasoning.
+
 ## Report Lookup Request
 
 Stored reports can be loaded through the same AgentCore invocation path:

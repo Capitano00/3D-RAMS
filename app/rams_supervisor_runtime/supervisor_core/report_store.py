@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Protocol
 
+from rams_agent_tools.planner_context import public_upstream_context, redact_for_public_output
+
 from .report_access import (
     authorize_report_lookup,
     build_report_access_binding,
@@ -182,7 +184,11 @@ def build_report_store_item(output: dict[str, Any]) -> dict[str, Any]:
     safety = run.get("safety") if isinstance(run.get("safety"), dict) else {}
     location = run.get("location") if isinstance(run.get("location"), dict) else {}
     briefing = run.get("briefing") if isinstance(run.get("briefing"), dict) else {}
-    material_ingestion = run.get("materialIngestion") if isinstance(run.get("materialIngestion"), dict) else {}
+    material_ingestion = (
+        redact_for_public_output(run.get("materialIngestion"))
+        if isinstance(run.get("materialIngestion"), dict)
+        else {}
+    )
     observability = _runtime_observability(run, report)
 
     item = {
@@ -315,7 +321,7 @@ def build_authorization_binding(output: dict[str, Any]) -> dict[str, Any]:
         "mode": "asi_identity_bound" if identity_bound else "local_dev_unbound",
         "requiredForLookup": identity_bound,
         "source": source,
-        "conversationId": conversation_id,
+        "conversationIdHash": _hash_binding_value("conversation", conversation_id),
         "entryAgentId": entry_agent_id,
         "subjectRef": subject_ref,
         "organizationRef": organization_ref,
@@ -334,6 +340,13 @@ def _progress_status(value: str | None, run: dict[str, Any], report: dict[str, A
     if normalized in {"lookup_error", "error", "blocked"}:
         return "failed"
     return "running"
+
+
+def _hash_binding_value(kind: str, value: Any) -> str | None:
+    text = _text(value)
+    if not text:
+        return None
+    return hashlib.sha256(f"3d-rams-report-access:{kind}:{text}".encode("utf-8")).hexdigest()
 
 
 def _progress_current_step(explicit: dict[str, Any], status: str, trace_summary: list[dict[str, Any]]) -> str:
@@ -451,7 +464,7 @@ def _entry_intake_summary(run: dict[str, Any], report: dict[str, Any]) -> dict[s
         "goal": _text(request.get("goal")) or _text(intake.get("goal")),
         "fixturePack": _text(request.get("fixturePack")) or _text(intake.get("fixturePack")),
         "materialCount": len(request.get("materials") or intake.get("materials") or []),
-        "upstream": _first_mapping(run.get("upstream"), intake.get("upstream")),
+        "upstream": public_upstream_context(_first_mapping(run.get("upstream"), intake.get("upstream"))),
     }
 
 
@@ -697,7 +710,9 @@ def _storage_safe_payload(value: Any) -> Any:
                     "reason": "stored_as_hashed_report_access_binding",
                 }
             else:
-                cleaned[key] = _storage_safe_payload(item)
+                redacted = redact_for_public_output({key: item})
+                if key in redacted:
+                    cleaned[key] = _storage_safe_payload(redacted[key])
         return cleaned
     if isinstance(value, list):
         return [_storage_safe_payload(item) for item in value]
