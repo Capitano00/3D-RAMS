@@ -28,6 +28,20 @@ from supervisor_adapter import (  # noqa: E402
 )
 
 
+class FakeHttpResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
 def confirmed_entry_payload() -> dict:
     return {
         "caseId": "case_test_agentverse_001",
@@ -135,6 +149,33 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(agent_input["materials"][0]["caseId"], "case_test_agentverse_001")
         self.assertNotIn("signedUrl", agent_input["materials"][0])
         self.assertNotIn("early feasibility walkover", agent_input["additionalRequest"])
+
+    def test_confirmed_postcode_candidate_metadata_reaches_agentcore_invocation(self):
+        payload = confirmed_entry_payload()
+        payload["runtimeOptions"].pop("fixturePack", None)
+        payload["intake"]["locationText"] = "SW1A 1AA"
+        payload["intake"]["locationCandidate"] = {
+            "label": "SW1A 1AA",
+            "lat": 51.501009,
+            "lng": -0.141588,
+            "confidence": 0.82,
+            "source": "Postcodes.io postcode lookup",
+            "dataMode": "live-postcodes-io-postcode",
+            "postcodeKind": "postcode",
+            "postcode": "SW1A 1AA",
+            "outcode": "SW1A",
+            "adminDistrict": "Westminster",
+            "region": "London",
+            "country": "England",
+        }
+
+        invocation = build_agentcore_invocation(payload)
+        candidate = invocation["input"]["locationCandidate"]
+
+        self.assertEqual(candidate["source"], "Postcodes.io postcode lookup")
+        self.assertEqual(candidate["dataMode"], "live-postcodes-io-postcode")
+        self.assertEqual(candidate["postcode"], "SW1A 1AA")
+        self.assertEqual(candidate["adminDistrict"], "Westminster")
 
     def test_material_access_retrieval_artifacts_forward_only_to_supervisor_input(self):
         payload = confirmed_entry_payload()
@@ -504,6 +545,41 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(progress["currentStep"], "confirm_location_before_launch")
         self.assertTrue(progress["runId"].startswith("run_"))
         self.assertIn("Model Parsed Site", self.assert_user_readable_response(response))
+
+    def test_postcode_candidate_does_not_invoke_supervisor_before_confirmation(self):
+        postcode_payload = {
+            "status": 200,
+            "result": {
+                "postcode": "SW1A 1AA",
+                "outcode": "SW1A",
+                "latitude": 51.501009,
+                "longitude": -0.141588,
+                "admin_district": "Westminster",
+                "region": "London",
+                "country": "England",
+            },
+        }
+
+        with self.patch_env(ENABLE_POSTCODES_IO_RESOLVER="true"):
+            with mock.patch("intake_coordinator.urllib.request.urlopen", return_value=FakeHttpResponse(postcode_payload)):
+                response = handle_invocation(
+                    {
+                        "entryTurn": True,
+                        "caller": "frontend",
+                        "message": "Survey SW1A 1AA within 500m",
+                        "conversationId": "postcode-confirm-first",
+                        "runtimeOptions": {"useBedrock": False},
+                    },
+                    supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                    invoke_runtime=lambda **_: self.fail("supervisor should not be invoked before confirmation"),
+                )
+
+        entry = response["output"]["entryAgent"]
+        candidate = entry["intake"]["locationCandidate"]
+        self.assertEqual(entry["status"], "confirmation_required")
+        self.assertEqual(response["output"]["progress"]["status"], "waiting_for_location_confirmation")
+        self.assertEqual(candidate["source"], "Postcodes.io postcode lookup")
+        self.assertEqual(candidate["dataMode"], "live-postcodes-io-postcode")
 
     def test_entry_selects_openai_compatible_intake_from_env(self):
         with self.patch_env(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import os
 from pathlib import Path
 from unittest import mock
 
@@ -17,6 +18,22 @@ from intake_coordinator import (  # noqa: E402
     coordinate_intake,
 )
 from llm_intake import openai_intake_model_json, select_model_json  # noqa: E402
+
+
+class FakeHttpResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        import json
+
+        return json.dumps(self.payload).encode("utf-8")
 
 
 class IntakeCoordinatorTests(unittest.TestCase):
@@ -227,6 +244,84 @@ class IntakeCoordinatorTests(unittest.TestCase):
         self.assertEqual(result["status"], "confirmation_required")
         self.assertEqual(result["intakeMode"], "fallback")
         self.assertEqual(result["fallbackReason"], "invalid_model_json")
+
+    def test_postcodes_io_resolver_is_default_off(self):
+        with mock.patch.dict(os.environ, {"ENABLE_POSTCODES_IO_RESOLVER": ""}, clear=False):
+            with mock.patch("intake_coordinator.urllib.request.urlopen", side_effect=AssertionError("network disabled")) as urlopen:
+                result = coordinate_intake({"message": "Survey SW1A 1AA within 500m", "conversationId": "postcode-off"})
+
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertNotIn("lat", result["intake"]["locationCandidate"])
+        urlopen.assert_not_called()
+
+    def test_enabled_full_postcode_lookup_adds_source_labelled_candidate(self):
+        response = {
+            "status": 200,
+            "result": {
+                "postcode": "SW1A 1AA",
+                "outcode": "SW1A",
+                "latitude": 51.501009,
+                "longitude": -0.141588,
+                "admin_district": "Westminster",
+                "region": "London",
+                "country": "England",
+            },
+        }
+
+        def fake_urlopen(req, timeout):
+            self.assertIn("/postcodes/SW1A1AA", req.full_url)
+            self.assertEqual(timeout, 2.0)
+            return FakeHttpResponse(response)
+
+        with mock.patch.dict(os.environ, {"ENABLE_POSTCODES_IO_RESOLVER": "true", "POSTCODES_IO_TIMEOUT_SECONDS": ""}, clear=False):
+            with mock.patch("intake_coordinator.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = coordinate_intake({"message": "Survey SW1A 1AA within 500m", "conversationId": "postcode-on"})
+
+        candidate = result["intake"]["locationCandidate"]
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertIsNone(result["caseId"])
+        self.assertEqual(candidate["label"], "SW1A 1AA")
+        self.assertEqual(candidate["lat"], 51.501009)
+        self.assertEqual(candidate["lng"], -0.141588)
+        self.assertEqual(candidate["source"], "Postcodes.io postcode lookup")
+        self.assertEqual(candidate["dataMode"], "live-postcodes-io-postcode")
+        self.assertEqual(candidate["postcodeKind"], "postcode")
+        self.assertEqual(candidate["adminDistrict"], "Westminster")
+
+    def test_enabled_outcode_lookup_adds_lower_confidence_candidate(self):
+        response = {
+            "status": 200,
+            "result": {
+                "outcode": "SW1A",
+                "latitude": 51.501,
+                "longitude": -0.141,
+                "admin_district": ["Westminster"],
+                "region": "London",
+                "country": "England",
+            },
+        }
+
+        with mock.patch.dict(os.environ, {"ENABLE_POSTCODES_IO_RESOLVER": "true"}, clear=False):
+            with mock.patch("intake_coordinator.urllib.request.urlopen", return_value=FakeHttpResponse(response)) as urlopen:
+                result = coordinate_intake({"message": "Survey outcode SW1A within 500m", "conversationId": "outcode-on"})
+
+        candidate = result["intake"]["locationCandidate"]
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertIn("/outcodes/SW1A", urlopen.call_args.args[0].full_url)
+        self.assertEqual(candidate["source"], "Postcodes.io outcode lookup")
+        self.assertEqual(candidate["dataMode"], "live-postcodes-io-outcode")
+        self.assertEqual(candidate["postcodeKind"], "outcode")
+        self.assertEqual(candidate["confidence"], 0.66)
+
+    def test_postcodes_io_failure_falls_back_to_text_candidate(self):
+        with mock.patch.dict(os.environ, {"ENABLE_POSTCODES_IO_RESOLVER": "true"}, clear=False):
+            with mock.patch("intake_coordinator.urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+                result = coordinate_intake({"message": "Survey SW1A 1AA within 500m", "conversationId": "postcode-fail"})
+
+        candidate = result["intake"]["locationCandidate"]
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertEqual(candidate["label"], "SW1A 1AA")
+        self.assertNotIn("lat", candidate)
 
 
 if __name__ == "__main__":
