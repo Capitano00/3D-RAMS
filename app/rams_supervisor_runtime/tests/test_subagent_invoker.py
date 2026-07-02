@@ -168,8 +168,11 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         self.assertEqual(result["schemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
         self.assertEqual(result["subagent"]["name"], "material_subagent")
         self.assertEqual(result["subagent"]["harness"], "rams_material_harness")
-        self.assertEqual(result["data"]["accepted"], 1)
-        self.assertEqual(result["acceptedReferences"][0]["sourceId"], "material-asio-material-site-access-plan")
+        self.assertEqual(result["data"]["materialIngestion"]["accepted"], 1)
+        self.assertEqual(
+            result["materialIngestion"]["acceptedReferences"][0]["sourceId"],
+            "material-asio-material-site-access-plan",
+        )
         self.assertTrue(result["evidence"])
         self.assertTrue(result["findings"])
         self.assertTrue(any(step["name"] == "ingest_material_references" for step in result["trace"]))
@@ -317,6 +320,37 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         fallback_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_failure_fallback")
         self.assertEqual(fallback_step["status"], "fallback")
         self.assertEqual(fallback_step["fallbackReason"], "bedrock_timeout")
+
+    def test_invoke_material_harness_returns_safe_ingestion_payload(self):
+        config = RuntimeConfig.from_env(request_bedrock=False)
+        payload = harness_output(
+            "material_subagent",
+            "rams_material_harness",
+            {
+                "materialIngestion": {
+                    "schemaVersion": "3d-rams.material-ingestion.v1",
+                    "status": "ok",
+                    "accepted": 1,
+                    "skippedCount": 0,
+                    "sourceIds": ["material-asio-material-site-access-plan"],
+                    "evidenceIds": ["ev-material-asio-material-site-access-plan"],
+                }
+            },
+            evidence=[{"id": "ev-material-asio-material-site-access-plan", "summary": "Safe bounded summary."}],
+        )
+        client = OneShotHarnessClient(payload)
+        with EnvPatch(RAMS_MATERIAL_HARNESS_ARN="arn:aws:bedrock-agentcore:eu-west-2:123456789012:harness/rams_material_harness-ABCDEFGHIJ"):
+            invoker = AgentCoreHarnessInvoker(config=config, client=client)
+            result = invoker.invoke_material(
+                {"materials": [{"materialId": "asio_material_site_access_plan"}]},
+                case_id="case_test",
+                upstream_context={"source": "asi_one"},
+            )
+
+        self.assertEqual(result["schemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
+        self.assertEqual(result["data"]["materialIngestion"]["accepted"], 1)
+        self.assertEqual(result["materialIngestion"]["sourceIds"], ["material-asio-material-site-access-plan"])
+        self.assertEqual(result["evidence"][0]["id"], "ev-material-asio-material-site-access-plan")
 
 
 if __name__ == "__main__":
