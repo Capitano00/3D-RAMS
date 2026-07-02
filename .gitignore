@@ -27,6 +27,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Shea local runtime
+.shea/runtime/
+
 # Generated demo output
 exports/
 screenshots/
