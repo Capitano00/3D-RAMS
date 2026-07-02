@@ -249,6 +249,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "ok")
         self.assertEqual(trace_step["output"]["accepted"], 1)
+        self.assertEqual(trace_step["output"]["acceptedReferences"][0]["status"], "authorized-material-fixture")
         self.assertIn("ev-material-asio-material-site-access-plan", trace_step["evidenceIds"])
         material_output = next(output for output in result["subagentOutputs"] if output["subagent"]["name"] == "material_subagent")
         self.assertEqual(material_output["subagent"]["harness"], "rams_material_harness")
@@ -403,6 +404,33 @@ class SiteBriefingAgentTests(unittest.TestCase):
                         "sizeBytes": 10 * 1024 * 1024 + 1,
                         "access": {"mode": "asio_authorized_reference"},
                     },
+                    {
+                        "materialId": "asio_material_unsupported",
+                        "sourceSystem": "asio",
+                        "type": "application/msword",
+                        "label": "Unsupported material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
+                    {
+                        "materialId": "asio_material_skipped",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Skipped material",
+                        "caseId": "case_material_test_002",
+                        "access": {
+                            "mode": "asio_authorized_reference",
+                            "status": "skipped",
+                        },
+                    },
+                    {
+                        "materialId": "asio_material_extraction_failed",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Extraction failed material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
                 ],
             }
         )
@@ -411,14 +439,20 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(ingestion["status"], "warning")
         self.assertEqual(ingestion["accepted"], 0)
         reasons = {item["reason"] for item in ingestion["skipped"]}
-        self.assertEqual(reasons, {"denied", "expired", "oversized"})
+        self.assertEqual(
+            reasons,
+            {"denied", "expired", "oversized", "unsupported_type", "skipped", "extraction_failed"},
+        )
+        statuses = {item["status"] for item in ingestion["skipped"]}
+        self.assertEqual(statuses, {"denied", "expired", "skipped", "unsupported", "extraction_failed"})
 
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "warning")
         self.assertEqual({item["reason"] for item in trace_step["output"]["skipped"]}, reasons)
         material_output = next(output for output in result["subagentOutputs"] if output["subagent"]["name"] == "material_subagent")
         self.assertEqual(material_output["status"], "warning")
-        self.assertEqual(material_output["data"]["materialIngestion"]["skippedCount"], 3)
+        self.assertEqual(material_output["data"]["materialIngestion"]["skippedCount"], len(reasons))
+        self.assertEqual({item["status"] for item in trace_step["output"]["skipped"]}, statuses)
 
         serialized = json.dumps(result)
         self.assertNotIn("DENIED_DUMMY_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
