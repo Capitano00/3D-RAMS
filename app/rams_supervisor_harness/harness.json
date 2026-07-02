@@ -12,6 +12,7 @@
     "resolve_location",
     "load_geospatial_features",
     "load_planning_context",
+    "ingest_material_references",
     "extract_hazard_notes",
     "create_annotations",
     "generate_site_brief",

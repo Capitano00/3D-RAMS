@@ -704,7 +704,7 @@ def _ensure_required_subagents(plan: dict[str, Any]) -> dict[str, Any]:
     if "hazard_subagent" not in sequential:
         sequential.insert(0, "hazard_subagent")
     if "open_web_subagent" not in sequential:
-        insert_at = 1 if "hazard_subagent" in sequential else 0
+        insert_at = sequential.index("hazard_subagent") + 1 if "hazard_subagent" in sequential else 0
         sequential.insert(insert_at, "open_web_subagent")
     if "review_guardrail" not in sequential:
         sequential.append("review_guardrail")
