@@ -71,6 +71,14 @@ Required launch fields:
 | `intake.areaScope` | Required so the supervisor can plan the review area. |
 | `intake.userGoal` | Required so the supervisor can align evidence to the report purpose. |
 
+## Optional Postcodes.io Candidate Resolver
+
+The ASI:ONE entry agent can resolve direct UK full postcode or outcode prompts before supervisor launch when `ENABLE_POSTCODES_IO_RESOLVER=true` is set on the server. It is default-off; local Demo1 and tests must remain no-network unless this flag is enabled or a test fake is injected.
+
+Successful lookups populate the existing `intake.locationCandidate` shape with `label`, `lat`, `lng`, `source` (`Postcodes.io postcode lookup` or `Postcodes.io outcode lookup`), `confidence`, `dataMode`, `postcodeKind`, postcode/outcode labels, and bounded public administrative context such as district, region, and country when Postcodes.io returns it. Full postcodes use higher candidate confidence than outcodes because outcodes are broader centroids.
+
+Provider errors, rate limits, malformed responses, or no matches fail soft back to the deterministic text candidate/clarification behavior. The resolver is not authoritative site evidence, does not verify the actual worksite, does not run in the browser, and does not trigger supervisor tools until the user confirms the candidate.
+
 ## Adapter To AgentCore
 
 The adapter maps the confirmed intake into the AgentCore invocation envelope.
