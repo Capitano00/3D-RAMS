@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -70,22 +71,40 @@ class HostedAgentCoreAsioSmokeTests(unittest.TestCase):
                 invoke_runtime=fake_supervisor_runtime,
             )
 
-        result = hosted_smoke.run_smoke(
-            fake_entry,
-            case_id="case_hosted_smoke_unit_001",
-            bedrock_fallback=True,
-        )
+        previous_env = {
+            name: os.environ.get(name)
+            for name in ("ENTRY_AGENT_PROVIDER", "ENTRY_INTAKE_PROVIDER", "OPENAI_MODEL")
+        }
+        os.environ["ENTRY_AGENT_PROVIDER"] = "openai"
+        os.environ["ENTRY_INTAKE_PROVIDER"] = "openai"
+        os.environ["OPENAI_MODEL"] = "gpt-5.4-mini"
+        try:
+            result = hosted_smoke.run_smoke(
+                fake_entry,
+                case_id="case_hosted_smoke_unit_001",
+                bedrock_fallback=True,
+            )
+        finally:
+            for name, value in previous_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["caseId"], "case_hosted_smoke_unit_001")
         self.assertEqual(
             [check["status"] for check in result["checks"]],
-            ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"],
+            ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"],
         )
-        self.assertEqual(result["checks"][2]["name"], "guarded_follow_up_no_supervisor")
-        self.assertEqual(result["checks"][2]["route"], "follow_up")
-        self.assertEqual(result["checks"][2]["mode"], "guarded-conversation-router")
-        self.assertEqual(result["checks"][2]["modelCallCount"], 0)
+        self.assertEqual(result["checks"][1]["name"], "product_metadata_route_no_supervisor")
+        self.assertEqual(result["checks"][1]["route"], "product_meta")
+        self.assertEqual(result["checks"][1]["workflowMode"], "entry_conversation")
+        self.assertEqual(result["checks"][1]["modelProvider"], "openai-compatible")
+        self.assertEqual(result["checks"][3]["name"], "guarded_follow_up_no_supervisor")
+        self.assertEqual(result["checks"][3]["route"], "follow_up")
+        self.assertEqual(result["checks"][3]["mode"], "guarded-conversation-router")
+        self.assertEqual(result["checks"][3]["modelCallCount"], 0)
         self.assertEqual(result["checks"][-1]["name"], "bedrock_requested_fallback")
         self.assertTrue(result["supervisor"]["structuredReport"])
 

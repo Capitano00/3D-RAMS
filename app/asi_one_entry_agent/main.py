@@ -780,11 +780,11 @@ def _product_metadata_output() -> dict[str, Any]:
     model_line = (
         f"Configured public model id: {model_id}."
         if model_id
-        else "Configured public model id: not disclosed; ENTRY_AGENT_MODEL_ID is not set to a generic public model id."
+        else "Configured public model id: not disclosed."
     )
     assistant_message = (
         "This turn was routed as product/runtime metadata. "
-        f"Model path: {observability['modelPath']}. Provider: {observability['provider']}. "
+        f"Model path: {observability['modelPath']}. Provider: {observability['modelProvider']}. "
         f"{model_line} Model calls this turn: 0. "
         "Map, evidence, risk, and briefing tools did not start for this turn; the supervisor runtime was not invoked."
     )
@@ -810,12 +810,13 @@ def _product_metadata_output() -> dict[str, Any]:
 
 
 def _product_metadata_observability() -> dict[str, Any]:
-    model_id = _safe_public_entry_agent_model_id()
+    provider, model_id = _product_metadata_model_info()
     observability = {
         "schemaVersion": "3d-rams.runtime-observability.v1",
         "modelPath": "entry-product-meta",
         "modelId": model_id,
-        "provider": "amazon-bedrock" if model_id else "not_disclosed",
+        "modelProvider": provider,
+        "provider": provider,
         "mode": "deterministic",
         "modelCallCount": 0,
         "bedrockRequested": False,
@@ -829,9 +830,24 @@ def _product_metadata_observability() -> dict[str, Any]:
     return {key: value for key, value in observability.items() if value is not None}
 
 
-def _safe_public_entry_agent_model_id() -> str | None:
-    model_id = os.getenv("ENTRY_AGENT_MODEL_ID", "").strip()
-    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,160}", model_id) and not re.search(r"\barn:|/|\d{12}", model_id, re.I):
+def _product_metadata_model_info() -> tuple[str, str | None]:
+    configured_provider = (
+        os.getenv("ENTRY_AGENT_PROVIDER") or os.getenv("ENTRY_INTAKE_PROVIDER") or ""
+    ).strip().lower()
+    if configured_provider == "openai" or (not configured_provider and os.getenv("OPENAI_BASE_URL", "").strip()):
+        return "openai-compatible", _safe_public_model_id(
+            os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or ""
+        )
+    if configured_provider == "bedrock" or os.getenv("ENTRY_AGENT_MODEL_ID", "").strip():
+        return "bedrock", _safe_public_model_id(os.getenv("ENTRY_AGENT_MODEL_ID", ""))
+    return "not_disclosed", None
+
+
+def _safe_public_model_id(model_id: str) -> str | None:
+    model_id = model_id.strip()
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,160}", model_id) and not re.search(
+        r"\barn:|/|\d{12}", model_id, re.I
+    ):
         return model_id
     return None
 
