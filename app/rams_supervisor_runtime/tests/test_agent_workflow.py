@@ -106,7 +106,10 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["plannerMode"], "deterministic")
         self.assertEqual(result["runtime"]["activeAgentMode"], "deterministic-planner")
         self.assertEqual(result["runtime"]["modelCallCount"], 0)
-        self.assertEqual(result["llmPlan"]["initialParallelGroups"], ["geospatial_subagent", "planning_subagent"])
+        self.assertEqual(
+            result["llmPlan"]["initialParallelGroups"],
+            ["geospatial_subagent", "planning_subagent", "material_subagent"],
+        )
         self.assertEqual(result["llmPlan"]["reportParallelGroups"], ["annotation_subagent", "briefing_subagent"])
         self.assertEqual(result["reasoning"]["mode"], "deterministic")
         self.assertIn("reportFit", result["reasoning"])
@@ -245,6 +248,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "ok")
         self.assertEqual(trace_step["output"]["accepted"], 1)
+        self.assertEqual(trace_step["output"]["acceptedReferences"][0]["status"], "authorized-material-fixture")
         self.assertIn("ev-material-asio-material-site-access-plan", trace_step["evidenceIds"])
 
         serialized = json.dumps(result)
@@ -281,7 +285,10 @@ class SiteBriefingAgentTests(unittest.TestCase):
         evidence_by_id = {item["id"]: item for item in result["evidence"]}
         material_evidence = evidence_by_id["ev-material-retrieved-pdf-access-plan"]
         self.assertEqual(material_evidence["status"], "extracted")
-        self.assertEqual(material_evidence["extraction"]["limitations"][0], "Mock extraction for local verification; use live Bedrock only with authorized public-safe material.")
+        self.assertEqual(
+            material_evidence["extraction"]["limitations"][0],
+            "Mock extraction for local verification; use live Bedrock only with authorized public-safe material.",
+        )
 
         serialized = json.dumps(result)
         self.assertNotIn(material["contentBytesBase64"], serialized)
@@ -330,7 +337,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
             case_id="case_material_extraction_001",
             config=RuntimeConfig.from_env(request_bedrock=False),
         )
-        self.assertEqual(skipped["skipped"][0]["reason"], "extraction_skipped")
+        self.assertEqual(skipped["skipped"][0]["reason"], "retrieval_not_configured")
 
         unsupported = ingest_material_references(
             [
@@ -403,6 +410,33 @@ class SiteBriefingAgentTests(unittest.TestCase):
                         "sizeBytes": 10 * 1024 * 1024 + 1,
                         "access": {"mode": "asio_authorized_reference"},
                     },
+                    {
+                        "materialId": "asio_material_unsupported",
+                        "sourceSystem": "asio",
+                        "type": "application/msword",
+                        "label": "Unsupported material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
+                    {
+                        "materialId": "asio_material_skipped",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Skipped material",
+                        "caseId": "case_material_test_002",
+                        "access": {
+                            "mode": "asio_authorized_reference",
+                            "status": "skipped",
+                        },
+                    },
+                    {
+                        "materialId": "asio_material_extraction_failed",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Extraction failed material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
                 ],
             }
         )
@@ -411,11 +445,17 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(ingestion["status"], "warning")
         self.assertEqual(ingestion["accepted"], 0)
         reasons = {item["reason"] for item in ingestion["skipped"]}
-        self.assertEqual(reasons, {"denied", "expired", "oversized"})
+        self.assertEqual(
+            reasons,
+            {"denied", "expired", "oversized", "unsupported_type", "skipped", "extraction_failed"},
+        )
+        statuses = {item["status"] for item in ingestion["skipped"]}
+        self.assertEqual(statuses, {"denied", "expired", "skipped", "unsupported", "extraction_failed"})
 
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "warning")
         self.assertEqual({item["reason"] for item in trace_step["output"]["skipped"]}, reasons)
+        self.assertEqual({item["status"] for item in trace_step["output"]["skipped"]}, statuses)
 
         serialized = json.dumps(result)
         self.assertNotIn("DENIED_DUMMY_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
@@ -500,11 +540,15 @@ class SiteBriefingAgentTests(unittest.TestCase):
 
         self.assertEqual(
             dispatch_steps["dispatch_parallel_tool_groups"]["output"]["groups"],
-            ["geospatial_subagent", "planning_subagent"],
+            ["geospatial_subagent", "planning_subagent", "material_subagent"],
         )
         self.assertEqual(
             dispatch_steps["dispatch_parallel_tool_groups"]["output"]["harnesses"]["geospatial_subagent"],
             "rams_geospatial_harness",
+        )
+        self.assertEqual(
+            dispatch_steps["dispatch_parallel_tool_groups"]["output"]["harnesses"]["material_subagent"],
+            "rams_material_harness",
         )
         self.assertEqual(
             dispatch_steps["dispatch_parallel_report_groups"]["output"]["groups"],
@@ -526,12 +570,13 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["harnessOutputSchemaVersion"], HARNESS_OUTPUT_SCHEMA_VERSION)
         self.assertTrue(result["runtime"]["harnessContract"]["contractCompliant"])
         self.assertEqual(result["runtime"]["harnessContract"]["fallbackCount"], 0)
-        self.assertEqual(len(result["subagentOutputs"]), 6)
+        self.assertEqual(len(result["subagentOutputs"]), 7)
         self.assertEqual(
             result["runtime"]["harnessContract"]["observedSubagents"],
             [
                 "geospatial_subagent",
                 "planning_subagent",
+                "material_subagent",
                 "hazard_subagent",
                 "open_web_subagent",
                 "annotation_subagent",

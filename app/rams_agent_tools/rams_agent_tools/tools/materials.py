@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +19,9 @@ MATERIAL_REFERENCE_SCHEMA_VERSION = "3d-rams.material-reference.v1"
 MATERIAL_INGESTION_SCHEMA_VERSION = "3d-rams.material-ingestion.v1"
 MAX_MATERIAL_BYTES = 10 * 1024 * 1024
 MAX_TEXT_MATERIAL_CHARS = 24000
+MATERIAL_FETCH_TIMEOUT_SECONDS = 5
+ASI_MATERIAL_API_BASE_URL_ENV = "RAMS_ASI_MATERIAL_API_BASE_URL"
+ASI_MATERIAL_API_BEARER_TOKEN_ENV = "RAMS_ASI_MATERIAL_API_BEARER_TOKEN"
 ALLOWED_MATERIAL_TYPES = {
     "application/pdf",
     "image/jpeg",
@@ -91,11 +98,14 @@ def ingest_material_references(
 ) -> dict[str, Any]:
     """Validate ASIO-owned material references and return safe evidence summaries.
 
-    This local adapter deliberately does not fetch raw private files. It proves the
-    contract with deterministic fixture extracts and safe pre-extracted summaries.
+    This adapter keeps raw retrieved content out of public outputs and only emits
+    bounded summaries, citations, and safe skipped reasons.
     """
     reference_items = [item for item in materials if isinstance(item, dict)] if isinstance(materials, list) else []
     safe_references = [_sanitize_reference(item, index) for index, item in enumerate(reference_items)]
+    if case_id:
+        for reference in safe_references:
+            reference.setdefault("caseId", case_id)
     current_time = now or datetime.now(timezone.utc)
     accepted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -222,6 +232,7 @@ def ingest_material_references(
                 "mode": output["mode"],
                 "received": output["received"],
                 "accepted": output["accepted"],
+                "acceptedReferences": accepted,
                 "skippedCount": output["skippedCount"],
                 "skipped": skipped,
                 "extractionStatuses": [item["status"] for item in extractions],
@@ -276,7 +287,7 @@ def _safe_retrieval_descriptor(access: dict[str, Any]) -> dict[str, Any]:
 def _skip_reason(reference: dict[str, Any], *, case_id: str | None, now: datetime) -> str | None:
     material_type = str(reference.get("type") or "").lower()
     if material_type not in ALLOWED_MATERIAL_TYPES:
-        return "unsupported_format"
+        return "unsupported_type"
 
     size_bytes = reference.get("sizeBytes")
     if isinstance(size_bytes, int) and size_bytes > MAX_MATERIAL_BYTES:
@@ -285,12 +296,14 @@ def _skip_reason(reference: dict[str, Any], *, case_id: str | None, now: datetim
     access = reference.get("access") if isinstance(reference.get("access"), dict) else {}
     access_status = str(access.get("status") or "").strip().lower()
     access_mode = str(access.get("mode") or "").strip().lower()
-    if access_status in {"denied", "expired", "revoked", "unauthorized"}:
-        return access_status
+    status_reason = _explicit_status_reason(access_status)
+    if status_reason:
+        return status_reason
     if access.get("authorized") is False:
         return "denied"
-    if access_mode in {"denied", "expired", "revoked", "unauthorized"}:
-        return access_mode
+    mode_reason = _explicit_status_reason(access_mode)
+    if mode_reason:
+        return mode_reason
     if access_mode not in AUTHORIZED_ACCESS_MODES:
         return "unsupported_access_mode"
 
@@ -355,14 +368,18 @@ def _extract_retrieved_material(
     material_type = str(reference.get("type") or "").lower()
     if material_type not in {"application/pdf", "text/plain", "text/markdown"}:
         return None, "unsupported_format"
-
-    payload, payload_error = _retrieved_payload(raw_reference, material_type)
-    if payload_error:
-        return None, payload_error
-    if payload is None:
-        return None, "extraction_skipped"
     if config is None or not config.bedrock_enabled:
-        return None, "model_not_configured"
+        if _has_retrieval_hint(raw_reference, material_type):
+            return None, "model_not_configured"
+        if material_type == "application/pdf":
+            return None, "extraction_failed"
+        return None, "retrieval_not_configured"
+
+    payload, skip_reason = _retrieved_payload(raw_reference, material_type)
+    if payload is None and skip_reason is None:
+        payload, skip_reason = _retrieve_material(reference, raw_reference)
+    if payload is None:
+        return None, skip_reason or "retrieval_not_configured"
 
     try:
         extraction, metadata = generate_bedrock_material_extraction(
@@ -373,7 +390,7 @@ def _extract_retrieved_material(
             text=payload.get("text"),
             document_bytes=payload.get("bytes"),
         )
-    except (BedrockAdapterError, Exception):
+    except BedrockAdapterError:
         return None, "extraction_failed"
 
     observations = extraction.get("observations") if isinstance(extraction.get("observations"), list) else []
@@ -392,7 +409,75 @@ def _extract_retrieved_material(
             "mode": metadata.get("mode"),
             "maxTokens": metadata.get("maxTokens"),
         },
+        "retrieval": {
+            "mode": payload["mode"],
+            "contentType": payload["contentType"],
+            "sizeBytes": payload["sizeBytes"],
+        },
     }, None
+
+
+def _retrieve_material(reference: dict[str, Any], raw_reference: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    raw_access = raw_reference.get("access") if isinstance(raw_reference.get("access"), dict) else {}
+    retrieval_url = _text(raw_access.get("retrievalUrl") or raw_access.get("retrieval_url"))
+    api_handle = _text(raw_access.get("apiHandle") or raw_access.get("api_handle"))
+    if retrieval_url:
+        return _fetch_material_url(retrieval_url, reference, mode="retrieval_url")
+    if api_handle:
+        base_url = _text(os.getenv(ASI_MATERIAL_API_BASE_URL_ENV))
+        bearer_token = _text(os.getenv(ASI_MATERIAL_API_BEARER_TOKEN_ENV))
+        if not base_url or not bearer_token:
+            return None, "retrieval_not_configured"
+        url = f"{base_url.rstrip('/')}/{urllib.parse.quote(api_handle, safe='')}"
+        headers = {"Authorization": f"Bearer {bearer_token}"}
+        case_id = _text(reference.get("caseId"))
+        access = reference.get("access") if isinstance(reference.get("access"), dict) else {}
+        session_id = _text(access.get("sessionId"))
+        if case_id:
+            headers["X-3D-RAMS-Case-Id"] = case_id
+        if session_id:
+            headers["X-3D-RAMS-Session-Id"] = session_id
+        return _fetch_material_url(url, reference, mode="api_handle", headers=headers)
+    return None, None
+
+
+def _has_retrieval_hint(raw_reference: dict[str, Any], material_type: str) -> bool:
+    access = raw_reference.get("access") if isinstance(raw_reference.get("access"), dict) else {}
+    if access.get("retrievalUrl") or access.get("retrieval_url") or access.get("apiHandle") or access.get("api_handle"):
+        return True
+    if isinstance(raw_reference.get("retrieved"), dict) or isinstance(raw_reference.get("retrievedMaterial"), dict) or isinstance(raw_reference.get("retrieved_material"), dict):
+        return True
+    text_keys = ("text", "markdown", "contentText", "rawContent")
+    byte_keys = ("bytes", "contentBytes", "bytesBase64", "contentBase64", "contentBytesBase64")
+    keys = text_keys if material_type in {"text/plain", "text/markdown"} else byte_keys
+    return any(raw_reference.get(key) for key in keys)
+
+
+def _fetch_material_url(
+    url: str,
+    reference: dict[str, Any],
+    *,
+    mode: str,
+    headers: dict[str, str] | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        request = urllib.request.Request(url, headers=headers or {}, method="GET")
+        with urllib.request.urlopen(request, timeout=MATERIAL_FETCH_TIMEOUT_SECONDS) as response:
+            declared_length = _non_negative_int(response.headers.get("Content-Length"))
+            if isinstance(declared_length, int) and declared_length > MAX_MATERIAL_BYTES:
+                return None, "oversized"
+            content_type = _content_type(response.headers.get("Content-Type"), fallback=str(reference.get("type") or ""))
+            if content_type not in ALLOWED_MATERIAL_TYPES:
+                return None, "unsupported_type"
+            data = response.read(MAX_MATERIAL_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        return None, _http_retrieval_status(exc.code)
+    except (OSError, ValueError, urllib.error.URLError):
+        return None, "retrieval_failed"
+
+    if len(data) > MAX_MATERIAL_BYTES:
+        return None, "oversized"
+    return _payload_from_bytes(data, content_type=content_type, mode=mode)
 
 
 def _retrieved_payload(raw_reference: dict[str, Any], material_type: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -413,7 +498,12 @@ def _retrieved_payload(raw_reference: dict[str, Any], material_type: str) -> tup
             raw_reference.get("rawContent"),
         )
         if text:
-            return {"text": text[:MAX_TEXT_MATERIAL_CHARS]}, None
+            return {
+                "mode": "provided_retrieved_material",
+                "contentType": material_type,
+                "sizeBytes": len(text.encode("utf-8")),
+                "text": text[:MAX_TEXT_MATERIAL_CHARS],
+            }, None
 
     data = _first_bytes(
         retrieved.get("bytes"),
@@ -438,43 +528,41 @@ def _retrieved_payload(raw_reference: dict[str, Any], material_type: str) -> tup
     if data is not None:
         if len(data) > MAX_MATERIAL_BYTES:
             return None, "oversized"
-        return {"bytes": data}, None
+        return _payload_from_bytes(data, content_type=material_type, mode="provided_retrieved_material")
     return None, None
 
 
-def _material_observation(item: dict[str, Any], index: int) -> dict[str, Any]:
-    return {
-        "id": _text(item.get("id")) or f"observation-{index + 1}",
-        "title": (_text(item.get("title")) or f"Material observation {index + 1}")[:120],
-        "category": _category(item.get("category")),
-        "description": (_text(item.get("description")) or "Material observation extracted for human review.")[:240],
-        "confidence": _confidence(item.get("confidence")),
-        "citationAnchor": (_text(item.get("citationAnchor") or item.get("citation_anchor")) or "material evidence")[:120],
-    }
+def _payload_from_bytes(data: bytes, *, content_type: str, mode: str) -> tuple[dict[str, Any] | None, str | None]:
+    payload: dict[str, Any] = {"mode": mode, "contentType": content_type, "sizeBytes": len(data)}
+    if content_type in {"text/plain", "text/markdown"}:
+        try:
+            payload["text"] = data.decode("utf-8")[:MAX_TEXT_MATERIAL_CHARS]
+        except UnicodeDecodeError:
+            return None, "extraction_failed"
+    elif content_type == "application/pdf":
+        payload["bytes"] = data
+    else:
+        return None, "unsupported_format"
+    return payload, None
 
 
-def _public_extraction(
-    reference: dict[str, Any],
-    source_id: str,
-    evidence_id: str,
-    extracted: dict[str, Any],
-    citations: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "materialId": reference["materialId"],
-        "label": reference["label"],
-        "sourceId": source_id,
-        "evidenceId": evidence_id,
-        "status": extracted["status"],
-        "retrievalMode": extracted["retrievalMode"],
-        "summary": extracted["summary"],
-        "confidence": extracted["confidence"],
-        "observations": extracted.get("observations", []),
-        "citations": citations,
-        "limitations": extracted.get("limitations", []),
-        "model": extracted.get("model"),
-        "rawContentStored": False,
-    }
+def _content_type(value: str | None, *, fallback: str) -> str:
+    content_type = _text(value)
+    if not content_type:
+        return fallback.lower()
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _http_retrieval_status(status_code: int) -> str:
+    if status_code in {401, 403}:
+        return "denied"
+    if status_code == 410:
+        return "expired"
+    if status_code == 413:
+        return "oversized"
+    if status_code == 415:
+        return "unsupported_type"
+    return "retrieval_failed"
 
 
 def _citations(reference: dict[str, Any], source_id: str, extracted: dict[str, Any]) -> list[dict[str, Any]]:
@@ -511,7 +599,64 @@ def _skipped_material(reference: dict[str, Any], reason: str) -> dict[str, Any]:
         "sourceSystem": reference.get("sourceSystem"),
         "type": reference.get("type"),
         "caseId": reference.get("caseId"),
+        "status": _status_for_reason(reason),
         "reason": reason,
+    }
+
+
+def _explicit_status_reason(value: str) -> str | None:
+    normalized = value.replace("-", "_")
+    if normalized in {"denied", "expired", "revoked", "unauthorized", "skipped", "extraction_failed"}:
+        return normalized
+    if normalized == "unsupported":
+        return "unsupported"
+    return None
+
+
+def _status_for_reason(reason: str) -> str:
+    if reason in {"denied", "revoked", "unauthorized"}:
+        return "denied"
+    if reason in {"expired", "skipped", "extraction_failed", "unsupported"}:
+        return reason
+    if reason.startswith("unsupported"):
+        return "unsupported"
+    return "skipped"
+
+
+def _material_observation(item: dict[str, Any], index: int) -> dict[str, Any]:
+    return {
+        "id": _text(item.get("id")) or f"observation-{index + 1}",
+        "title": (_text(item.get("title")) or f"Material observation {index + 1}")[:120],
+        "category": _category(item.get("category")),
+        "description": (_text(item.get("description")) or "Material observation extracted for human review.")[:240],
+        "confidence": _confidence(item.get("confidence")),
+        "citationAnchor": (_text(item.get("citationAnchor") or item.get("citation_anchor")) or "material evidence")[:120],
+    }
+
+
+def _public_extraction(
+    reference: dict[str, Any],
+    source_id: str,
+    evidence_id: str,
+    extracted: dict[str, Any],
+    citations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    retrieval = extracted.get("retrieval") if isinstance(extracted.get("retrieval"), dict) else {}
+    return {
+        "materialId": reference["materialId"],
+        "label": reference["label"],
+        "sourceId": source_id,
+        "evidenceId": evidence_id,
+        "status": extracted["status"],
+        "retrievalMode": extracted["retrievalMode"],
+        "summary": extracted["summary"],
+        "confidence": extracted["confidence"],
+        "observations": extracted.get("observations", []),
+        "citations": citations,
+        "limitations": extracted.get("limitations", []),
+        "model": extracted.get("model"),
+        "retrieval": retrieval,
+        "rawContentStored": False,
     }
 
 
