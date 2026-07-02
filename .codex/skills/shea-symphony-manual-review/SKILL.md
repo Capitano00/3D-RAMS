@@ -14,14 +14,22 @@ Default repository: `Capitano00/3D-RAMS`
 
 Default local checkout: the current 3D-RAMS repo root.
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for review claims, checklist updates, and state routing
-when one exists. In 3D-RAMS it temporarily cannot be used: there is no Shea
-Symphony Cargo CLI or Project workflow file. Do not run legacy `review claim`,
-`review pass`, or `review reject` commands. Approximate the workflow with `gh`
-readbacks, local diff inspection, focused checks, and a written review outcome.
-Record skipped CLI steps as `CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for review claims, checklist updates, and state
+routing. Run it from the 3D-RAMS repo root, never from the `shea-symphony`
+engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot loop .shea/workflows/shea-symphony.md --once --write
+```
+
+For readiness without writes, use `autopilot plan` with the same workflow file.
+Use `gh` readbacks, local diff inspection, focused checks, and written review
+outcomes only for focused inspection or when the CLI command fails. Record the
+exact CLI blocker before falling back.
 
 ## Required Reads
 
@@ -67,7 +75,7 @@ bash scripts/check-demo.sh
 - PR: #<pr or none>
 - Repository: Capitano00/3D-RAMS
 - Result: ManualPass / ManualRework / ManualInconclusive / ManualInfrastructureBlocked
-- CLI status: CLI unavailable in 3D-RAMS; workflow approximated with gh/local checks.
+- CLI status: Shea CLI used from 3D-RAMS root / fallback used because `<blocker>`.
 - Review workspace: <path or current checkout>
 
 ### Findings

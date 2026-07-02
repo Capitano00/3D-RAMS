@@ -17,15 +17,28 @@ Default repository: `Capitano00/3D-RAMS`
 
 Default local checkout: the current 3D-RAMS repo root.
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for Project reads, timeline notes, and state routing
-when one exists. In 3D-RAMS it temporarily cannot be used: there is no Shea
-Symphony Cargo CLI, `project timeline-comment`, or `project set-state`
-workflow. Do not run legacy workflow commands. Approximate the workflow with
-`gh` issue/PR reads, local verification, a decision note in the conversation or
-PR/issue comment after confirmation, and conservative routing. Record skipped
-CLI steps as `CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for Project reads, readiness, and lane routing. Run it
+from the 3D-RAMS repo root, never from the `shea-symphony` engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot plan .shea/workflows/shea-symphony.md
+```
+
+Use one automated lane tick only after the operator confirms a write:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot loop .shea/workflows/shea-symphony.md --once --write
+```
+
+Use `gh` issue/PR reads, local verification, and manual comments only for
+focused inspection or when the CLI command fails. Record the exact CLI blocker
+before falling back.
 
 ## Conversation Language
 
@@ -129,7 +142,7 @@ After UAT, prepare:
 - PR: #<pr>
 - Repository: Capitano00/3D-RAMS
 - Decision: Approve for Merging / Request Rework / Need Human Input / Defer
-- CLI status: CLI unavailable in 3D-RAMS; workflow approximated with gh/local checks.
+- CLI status: Shea CLI used from 3D-RAMS root / fallback used because `<blocker>`.
 - Operator confirmation phrase: `<exact phrase>`
 
 ### Evidence Reviewed

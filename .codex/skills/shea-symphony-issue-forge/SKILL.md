@@ -17,15 +17,22 @@ Default local checkout: the current 3D-RAMS repo root.
 
 Default assignee: ask the operator, or leave unassigned if unclear.
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for issue validation and creation when one exists. In
-3D-RAMS it temporarily cannot be used: there is no Shea Symphony `forge`
-command or canonical workflow file. Do not run legacy `forge validate`,
-`forge create`, `forge promote`, or `forge rework` commands. Approximate the
-workflow with discussion, local repo checks, a complete issue body, explicit
-confirmation, and `gh issue create` only after confirmation. Record skipped CLI
-steps as `CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for workflow readiness before issue creation or rework
+routing. Run it from the 3D-RAMS repo root, never from the `shea-symphony`
+engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot plan .shea/workflows/shea-symphony.md
+```
+
+Use discussion, local repo checks, a complete issue body, explicit
+confirmation, and `gh issue create` only after confirmation. Do not invent
+unsupported Forge subcommands; record the exact CLI blocker before falling back
+from supported CLI reads.
 
 ## Discuss Flow
 

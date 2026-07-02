@@ -22,14 +22,27 @@ Project anchors:
 - `docs/`
 - `scripts/check-demo.sh`
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI when one exists. In 3D-RAMS it temporarily cannot be
-used: there is no Shea Symphony Cargo CLI or source-project workflow file in
-this repo. Do not run legacy project/doctor/debug/installer commands here.
-Satisfy the workflow as closely as possible with local repo inspection, `gh`
-reads, Git state, and the standard verification stack. Record skipped CLI steps
-as `CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for workflow readiness and lane state. Run it from the
+3D-RAMS repo root, never from the `shea-symphony` engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot plan .shea/workflows/shea-symphony.md
+```
+
+For one automated lane tick, use:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot loop .shea/workflows/shea-symphony.md --once --write
+```
+
+Use `gh` reads, Git state, and local verification only for focused diagnosis or
+when the CLI command fails. Record the exact CLI blocker before falling back.
 
 ## Operating Rule
 
@@ -67,7 +80,8 @@ End with one concrete next action:
 ## Boundaries
 
 - Do not start implementation, review, or merge work from this skill.
-- Do not mutate GitHub Project state directly to simulate the missing CLI.
+- Do not mutate GitHub Project state directly when the CLI can perform the
+  workflow action.
 - Do not add secrets, client data, private planning notes, or live access codes.
 - Preserve 3D-RAMS safety language: no certified RAMS, emergency guidance,
   legal/financial/medical advice, or approval-to-work claims.

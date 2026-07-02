@@ -25,15 +25,29 @@ Project anchors:
 - `fixtures/`
 - `scripts/check-demo.sh`
 
-## CLI Constraint
+## CLI Defaults
 
-Prefer a suite-owned CLI for issue claims, state transitions, worktree
-selection, and handoff when one exists. In 3D-RAMS it temporarily cannot be
-used: there is no Shea Symphony Cargo CLI or canonical workflow file. Do not
-run legacy `cargo run -- project ...`, `forge validate`, or `main loop`
-commands. Approximate the workflow with GitHub issue/PR reads, local git
-branches/worktrees, explicit user confirmation for writes, and clear handoff
-notes. Record skipped CLI steps as `CLI unavailable in 3D-RAMS`.
+Default to the Shea CLI for issue claims, state transitions, worktree
+selection, and handoff. Run it from the 3D-RAMS repo root, never from the
+`shea-symphony` engine checkout:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+main loop .shea/workflows/shea-symphony.md --max-iterations 1 --write
+```
+
+For readiness without writes, use:
+
+```bash
+GH_TOKEN="$(gh auth token --user Alive24)" \
+cargo run --manifest-path ../shea-symphony/Cargo.toml -- \
+autopilot plan .shea/workflows/shea-symphony.md
+```
+
+Use GitHub issue/PR reads, local git branches/worktrees, and manual handoff
+notes only for focused inspection or when the CLI command fails. Record the
+exact CLI blocker before falling back.
 
 ## Preflight
 
