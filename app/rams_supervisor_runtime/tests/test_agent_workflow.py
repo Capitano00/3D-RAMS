@@ -248,6 +248,7 @@ class SiteBriefingAgentTests(unittest.TestCase):
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "ok")
         self.assertEqual(trace_step["output"]["accepted"], 1)
+        self.assertEqual(trace_step["output"]["acceptedReferences"][0]["status"], "authorized-material-fixture")
         self.assertIn("ev-material-asio-material-site-access-plan", trace_step["evidenceIds"])
 
         serialized = json.dumps(result)
@@ -281,7 +282,8 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertTrue(extraction["observations"])
         self.assertFalse(extraction["rawContentStored"])
 
-        material_evidence = {item["id"]: item for item in result["evidence"]}["ev-material-retrieved-pdf-access-plan"]
+        evidence_by_id = {item["id"]: item for item in result["evidence"]}
+        material_evidence = evidence_by_id["ev-material-retrieved-pdf-access-plan"]
         self.assertEqual(material_evidence["status"], "extracted")
         self.assertEqual(
             material_evidence["extraction"]["limitations"][0],
@@ -360,6 +362,15 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(failed["accepted"], 0)
         self.assertEqual(failed["skipped"][0]["reason"], "extraction_failed")
 
+        quiet_material = {**retrieved_text_material(), "materialId": "retrieved_text_quiet", "rawContent": "Meeting agenda only."}
+        with EnvPatch(ENABLE_BEDROCK="true", BEDROCK_MOCK_RESPONSE="true", BEDROCK_SIMULATE_FAILURE=None):
+            no_relevant = ingest_material_references(
+                [quiet_material],
+                case_id="case_material_extraction_001",
+                config=RuntimeConfig.from_env(request_bedrock=True),
+            )
+        self.assertEqual(no_relevant["acceptedReferences"][0]["status"], "no_relevant_content")
+
     def test_denied_expired_and_oversized_materials_are_skipped_without_secret_leakage(self):
         result = run_site_briefing(
             {
@@ -399,6 +410,33 @@ class SiteBriefingAgentTests(unittest.TestCase):
                         "sizeBytes": 10 * 1024 * 1024 + 1,
                         "access": {"mode": "asio_authorized_reference"},
                     },
+                    {
+                        "materialId": "asio_material_unsupported",
+                        "sourceSystem": "asio",
+                        "type": "application/msword",
+                        "label": "Unsupported material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
+                    {
+                        "materialId": "asio_material_skipped",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Skipped material",
+                        "caseId": "case_material_test_002",
+                        "access": {
+                            "mode": "asio_authorized_reference",
+                            "status": "skipped",
+                        },
+                    },
+                    {
+                        "materialId": "asio_material_extraction_failed",
+                        "sourceSystem": "asio",
+                        "type": "application/pdf",
+                        "label": "Extraction failed material",
+                        "caseId": "case_material_test_002",
+                        "access": {"mode": "asio_authorized_reference"},
+                    },
                 ],
             }
         )
@@ -407,11 +445,17 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(ingestion["status"], "warning")
         self.assertEqual(ingestion["accepted"], 0)
         reasons = {item["reason"] for item in ingestion["skipped"]}
-        self.assertEqual(reasons, {"denied", "expired", "oversized"})
+        self.assertEqual(
+            reasons,
+            {"denied", "expired", "oversized", "unsupported_type", "skipped", "extraction_failed"},
+        )
+        statuses = {item["status"] for item in ingestion["skipped"]}
+        self.assertEqual(statuses, {"denied", "expired", "skipped", "unsupported", "extraction_failed"})
 
         trace_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
         self.assertEqual(trace_step["status"], "warning")
         self.assertEqual({item["reason"] for item in trace_step["output"]["skipped"]}, reasons)
+        self.assertEqual({item["status"] for item in trace_step["output"]["skipped"]}, statuses)
 
         serialized = json.dumps(result)
         self.assertNotIn("DENIED_DUMMY_ACCESS_MARKER_SHOULD_NOT_LEAK", serialized)
