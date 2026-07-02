@@ -160,7 +160,15 @@ class MaterialRetrievalTests(unittest.TestCase):
 
 
 def mock_bedrock_env():
-    return patch.dict(os.environ, {"ENABLE_BEDROCK": "true", "BEDROCK_MOCK_RESPONSE": "true", "MATERIAL_EXTRACTION_MODEL_ID": "amazon.nova-lite-v1:0"})
+    return patch.dict(
+        os.environ,
+        {
+            "ENABLE_BEDROCK": "true",
+            "RAMS_LLM_PROVIDER": "bedrock",
+            "BEDROCK_MOCK_RESPONSE": "true",
+            "MATERIAL_EXTRACTION_MODEL_ID": "amazon.nova-lite-v1:0",
+        },
+    )
 
 
 def material(material_id: str, material_type: str, *, access: dict[str, str]) -> dict:

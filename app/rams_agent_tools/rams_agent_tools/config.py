@@ -50,7 +50,7 @@ class RuntimeConfig:
     bedrock_simulate_failure: bool
     material_extraction_model_id: str
     material_extraction_max_tokens: int
-    llm_provider: str = "bedrock"
+    llm_provider: str = "openai"
     openai_base_url: str | None = None
     openai_api_key: str | None = None
     openai_model_id: str = "gpt-5.4-mini"
@@ -62,8 +62,8 @@ class RuntimeConfig:
 
     @classmethod
     def from_env(cls, *, request_bedrock: bool = True) -> "RuntimeConfig":
-        enabled = _env_bool("ENABLE_BEDROCK", False) and request_bedrock
-        provider = os.getenv("RAMS_LLM_PROVIDER", "bedrock").strip().lower()
+        enabled = _env_bool("ENABLE_LIVE_MODEL", _env_bool("ENABLE_BEDROCK", False)) and request_bedrock
+        provider = os.getenv("RAMS_LLM_PROVIDER", "openai").strip().lower() or "openai"
         openai_model_id = os.getenv("OPENAI_MODEL") or os.getenv("RAMS_OPENAI_MODEL") or "gpt-5.4-mini"
         return cls(
             bedrock_requested=request_bedrock,
@@ -107,12 +107,13 @@ class RuntimeConfig:
         )
 
     def public_runtime(self, *, status: str, fallback_reason: str | None = None) -> dict[str, object]:
+        provider_label = "openai-compatible" if self.llm_provider == "openai" else "bedrock"
         return {
             "briefingMode": status,
             "bedrockRequested": self.bedrock_requested,
             "bedrockEnabled": self.bedrock_enabled,
             "bedrockUsed": status in {"real", "mocked"} and self.llm_provider != "openai",
-            "modelProvider": "openai-compatible" if self.llm_provider == "openai" and self.bedrock_enabled else "bedrock",
+            "modelProvider": provider_label,
             "awsRegion": self.aws_region,
             "modelId": (self.openai_model_id if self.llm_provider == "openai" else self.bedrock_model_id) if self.bedrock_enabled else None,
             "maxTokens": self.bedrock_max_tokens if self.bedrock_enabled else None,

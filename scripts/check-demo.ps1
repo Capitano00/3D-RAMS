@@ -54,12 +54,15 @@ Write-Host "Running AgentVerse proxy boundary tests"
 
 Write-Host "Running deterministic no-AWS demo evaluation"
 $previousEnableBedrock = [Environment]::GetEnvironmentVariable("ENABLE_BEDROCK", "Process")
+$previousEnableLiveModel = [Environment]::GetEnvironmentVariable("ENABLE_LIVE_MODEL", "Process")
 [Environment]::SetEnvironmentVariable("ENABLE_BEDROCK", "false", "Process")
+[Environment]::SetEnvironmentVariable("ENABLE_LIVE_MODEL", "false", "Process")
 try {
     & $PythonBin scripts/evaluate-demo.py
 }
 finally {
     [Environment]::SetEnvironmentVariable("ENABLE_BEDROCK", $previousEnableBedrock, "Process")
+    [Environment]::SetEnvironmentVariable("ENABLE_LIVE_MODEL", $previousEnableLiveModel, "Process")
 }
 
 Write-Host "Building frontend"

@@ -350,8 +350,11 @@ textarea {
   position: absolute;
   left: 14px;
   bottom: 14px;
+  width: min(420px, calc(100% - 28px));
+  max-height: calc(100% - 28px);
+  overflow: auto;
   display: grid;
-  gap: 2px;
+  gap: 6px;
   border: 1px solid #d7e1dc;
   border-radius: 8px;
   padding: 8px 10px;
@@ -365,6 +368,40 @@ textarea {
 
 .map-caption .status {
   margin-top: 4px;
+}
+
+.marker-key {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marker-key li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) max-content;
+  gap: 6px;
+  align-items: center;
+}
+
+.marker-key li > span {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #17201c;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.marker-key strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  line-height: 1.25;
 }
 
 .empty-map {
@@ -665,5 +702,22 @@ textarea {
   .empty-map {
     min-height: 440px;
     height: 440px;
+  }
+
+  .map-caption {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    width: auto;
+    max-height: 55%;
+  }
+
+  .marker-key li {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .marker-key .status {
+    grid-column: 2;
+    margin-top: 0;
   }
 }

@@ -839,7 +839,7 @@ def _product_metadata_model_info() -> tuple[str, str | None]:
             os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or ""
         )
     if configured_provider == "bedrock" or os.getenv("ENTRY_AGENT_MODEL_ID", "").strip():
-        return "bedrock", _safe_public_model_id(os.getenv("ENTRY_AGENT_MODEL_ID", ""))
+        return "amazon-bedrock", _safe_public_model_id(os.getenv("ENTRY_AGENT_MODEL_ID", ""))
     return "not_disclosed", None
 
 
@@ -853,7 +853,7 @@ def _safe_public_model_id(model_id: str) -> str | None:
 
 
 def _entry_model_id() -> str:
-    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
+    return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "gpt-5.4-mini"
 
 
 def _entry_waiting_progress(intake_result: dict[str, Any], conversation_id: str) -> dict[str, Any]:

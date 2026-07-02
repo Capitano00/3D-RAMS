@@ -82,7 +82,6 @@ class HostedAgentCoreAsioSmokeTests(unittest.TestCase):
             result = hosted_smoke.run_smoke(
                 fake_entry,
                 case_id="case_hosted_smoke_unit_001",
-                bedrock_fallback=True,
             )
         finally:
             for name, value in previous_env.items():
@@ -95,7 +94,7 @@ class HostedAgentCoreAsioSmokeTests(unittest.TestCase):
         self.assertEqual(result["caseId"], "case_hosted_smoke_unit_001")
         self.assertEqual(
             [check["status"] for check in result["checks"]],
-            ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"],
+            ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"],
         )
         self.assertEqual(result["checks"][1]["name"], "product_metadata_route_no_supervisor")
         self.assertEqual(result["checks"][1]["route"], "product_meta")
@@ -105,7 +104,6 @@ class HostedAgentCoreAsioSmokeTests(unittest.TestCase):
         self.assertEqual(result["checks"][3]["route"], "follow_up")
         self.assertEqual(result["checks"][3]["mode"], "guarded-conversation-router")
         self.assertEqual(result["checks"][3]["modelCallCount"], 0)
-        self.assertEqual(result["checks"][-1]["name"], "bedrock_requested_fallback")
         self.assertTrue(result["supervisor"]["structuredReport"])
 
     def test_frontend_html_validation_is_public_safe(self):

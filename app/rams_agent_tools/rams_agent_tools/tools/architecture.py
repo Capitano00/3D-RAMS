@@ -72,8 +72,8 @@ def architecture_snapshot(
             "awsMapping": "Future Bedrock Guardrails plus human approval queue",
         },
         "awsPath": [
-            {"local": "Deterministic Python agent loop", "future": "Bedrock model/tool planning"},
-            {"local": "One Bedrock briefing step", "future": "Evaluated model-assisted extraction and generation"},
+            {"local": "Deterministic Python agent loop", "future": "OpenAI-compatible hosted model/tool planning"},
+            {"local": "Optional live model briefing step", "future": "Evaluated model-assisted extraction and generation"},
             {"local": "JSON trace in API response", "future": "CloudWatch logs, metrics, traces"},
             {"local": "Evidence list in response", "future": "S3 evidence pack"},
             {"local": "Per-request in-memory run", "future": "DynamoDB run/session record"},
@@ -89,7 +89,7 @@ def architecture_snapshot(
                     else "synthetic default fixtures"
                 ),
             },
-            {"component": "Bedrock briefing", "status": str(runtime["briefingMode"])},
+            {"component": "Live model briefing", "status": str(runtime["briefingMode"])},
             {
                 "component": "Material ingestion",
                 "status": (
