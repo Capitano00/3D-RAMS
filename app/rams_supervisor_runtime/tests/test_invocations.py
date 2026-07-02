@@ -19,6 +19,7 @@ from main import invoke_local, ping_local  # noqa: E402
 from supervisor_core.agent import run_site_briefing  # noqa: E402
 from supervisor_core.harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION  # noqa: E402
 from supervisor_core.report_store import build_report_store_item, load_report, persist_report  # noqa: E402
+from supervisor_core.structured_report import build_structured_report  # noqa: E402
 
 
 def report_access(
@@ -82,10 +83,18 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(report["intake"]["caseId"], "case_supervisor_test_001")
         self.assertTrue(all(step["caseId"] == "case_supervisor_test_001" for step in run["trace"]))
         self.assertTrue(all(step["output"]["caseId"] == "case_supervisor_test_001" for step in run["trace"] if isinstance(step.get("output"), dict)))
+        policy_decisions = [step["policyDecision"] for step in run["trace"] if isinstance(step.get("policyDecision"), dict)]
+        self.assertTrue(policy_decisions)
+        self.assertTrue(all(set(decision) == {"tool_name", "decision", "reason_code", "source"} for decision in policy_decisions))
+        self.assertTrue(any(decision["tool_name"] == "resolve_location" and decision["decision"] == "allow" for decision in policy_decisions))
+        self.assertTrue(any(decision["decision"] in {"skip", "downgrade"} for decision in policy_decisions))
         self.assertEqual(output["persistence"]["mode"], "disabled")
         self.assertEqual(output["persistence"]["status"], "skipped")
         self.assertEqual(output["reportStatus"], "review_passed")
         self.assertEqual(output["workflowMode"], "cached_public_fixture")
+        self.assertEqual(output["dogfoodSummary"], report["dogfoodSummary"])
+        self.assertEqual(output["dogfoodSummary"]["schemaVersion"], "3d-rams.dogfood-summary.v1")
+        self.assertIn("output_quality_gap", output["dogfoodSummary"]["tags"])
         self.assertEqual(output["progress"]["schemaVersion"], "3d-rams.run-progress.v1")
         self.assertEqual(output["progress"]["caseId"], "case_supervisor_test_001")
         self.assertTrue(output["progress"]["runId"].startswith("run_"))
@@ -180,6 +189,50 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertTrue(
             any("Material access-plan review" in item for item in report["executiveSummary"]["priorityChecks"])
         )
+
+    def test_structured_report_runtime_includes_execution_failure_summaries(self):
+        failure_summary = {
+            "schemaVersion": "3d-rams.execution-bound-failure.v1",
+            "category": "harness_invocation_failure",
+            "subagentGroup": "planning_subagent",
+            "harness": "rams_planning_harness",
+            "fallbackReason": "bedrock_timeout",
+            "deterministicFallbackUsed": True,
+            "errorSummary": "AgentCore Harness invocation failed or timed out; deterministic fallback output was used.",
+        }
+        report = build_structured_report(
+            {
+                "runId": "run_execution_failure_test",
+                "caseId": "case_execution_failure_test",
+                "request": {"caseId": "case_execution_failure_test", "includePlanningFixture": True},
+                "location": {"label": "Test site", "latitude": 51.49, "longitude": -0.12},
+                "runtime": {
+                    "briefingMode": "fallback",
+                    "fixturePackMode": "cached-public-fixture",
+                    "liveApiCalls": False,
+                    "executionFailureSummaries": [failure_summary],
+                },
+                "briefing": {
+                    "headline": "Fallback briefing.",
+                    "summary": ["Deterministic fallback output was used."],
+                    "limitations": ["Human review is required."],
+                },
+                "safety": {"allowed": True, "message": "Human review is required.", "level": "bounded"},
+                "trace": [],
+                "reasoning": {},
+                "scene": {},
+                "annotations": [],
+                "sources": [],
+                "evidence": [],
+                "hazards": [],
+                "externalSignals": {},
+                "materialIngestion": {},
+            },
+            "review_passed",
+            "cached_public_fixture",
+        )
+
+        self.assertEqual(report["runtime"]["executionFailureSummaries"], [failure_summary])
 
     def test_report_store_persists_material_status_summary_without_sensitive_fields(self):
         response = invoke_local(
@@ -454,6 +507,10 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(item["progress"]["status"], "completed")
         self.assertTrue(item["progress"]["runId"].startswith("run_"))
         self.assertEqual(item["runSummary"]["runtime"]["fixturePack"], "public-lambeth-thames")
+        self.assertEqual(item["dogfoodSummary"], output["dogfoodSummary"])
+        self.assertEqual(item["runSummary"]["dogfoodSummary"], output["dogfoodSummary"])
+        self.assertEqual(item["run"]["dogfoodSummary"], output["dogfoodSummary"])
+        self.assertEqual(item["structuredReport"]["dogfoodSummary"], output["dogfoodSummary"])
         self.assertEqual(item["runtimeObservability"]["modelPath"], "deterministic-planner")
         self.assertEqual(item["runSummary"]["runtimeObservability"]["modelCallCount"], 0)
         self.assertNotIn("tokenUsage", item["runtimeObservability"])
@@ -551,6 +608,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(lookup_output["progress"]["runId"], output["run"]["runId"])
         self.assertTrue(lookup_output["evidenceSummary"])
         self.assertTrue(lookup_output["citationMetadata"]["sources"])
+        self.assertEqual(lookup_output["dogfoodSummary"], output["dogfoodSummary"])
 
     def test_report_lookup_returns_safe_progress_records(self):
         for status in ("queued", "running", "waiting_for_location_confirmation", "failed"):

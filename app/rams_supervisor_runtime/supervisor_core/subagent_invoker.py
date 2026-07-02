@@ -511,7 +511,27 @@ class AgentCoreHarnessInvoker:
             )
             if validation_issues:
                 return self._fallback_json(group, payload, validation_issues=validation_issues, raw_result=result)
-            return flatten_harness_output(result)
+            flattened = flatten_harness_output(result)
+            flattened.setdefault("trace", [])
+            flattened["trace"].append(
+                trace_step(
+                    "agentcore_harness_invocation",
+                    "ok",
+                    "Supervisor accepted the AgentCore Harness response for this subagent group.",
+                    {
+                        "group": group,
+                        "harness": harness_name,
+                        "schemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
+                    },
+                    policy_decision={
+                        "tool_name": group,
+                        "decision": "allow",
+                        "reason_code": "agentcore_harness_output_contract_valid",
+                        "source": "agentcore_harness_invoker",
+                    },
+                )
+            )
+            return flattened
 
         raise RuntimeError(f"Harness '{harness_name}' exceeded local tool-loop limit.")
 
@@ -519,6 +539,9 @@ class AgentCoreHarnessInvoker:
         result = self._direct_fallback(group, payload)
         result.setdefault("trace", [])
         error_output = bedrock_error_output(exc)
+        summary = _execution_failure_summary(group, error_output, exc)
+        error_output["fallbackReason"] = summary["fallbackReason"]
+        result.setdefault("metadata", {})["executionFailureSummary"] = summary
         result["trace"].append(
             trace_step(
                 "agentcore_harness_failure_fallback",
@@ -527,8 +550,15 @@ class AgentCoreHarnessInvoker:
                 {
                     "group": group,
                     **error_output,
+                    "executionFailureSummary": summary,
                 },
                 fallback_reason=str(error_output["fallbackReason"]),
+                policy_decision={
+                    "tool_name": group,
+                    "decision": "downgrade",
+                    "reason_code": error_output["fallbackReason"],
+                    "source": "agentcore_harness_invoker",
+                },
             )
         )
         return result
@@ -573,6 +603,12 @@ class AgentCoreHarnessInvoker:
                     "rawResultKeys": sorted(raw_result.keys()),
                 },
                 fallback_reason="agentcore_harness_output_contract_invalid",
+                policy_decision={
+                    "tool_name": group,
+                    "decision": "downgrade",
+                    "reason_code": "agentcore_harness_output_contract_invalid",
+                    "source": "agentcore_harness_invoker",
+                },
             )
         )
         return result
@@ -944,6 +980,34 @@ def _harness_metadata(request: dict[str, Any], fixture_pack: dict[str, Any] | No
         "caseId": case_id,
         "fixturePack": _fixture_pack_name(fixture_pack),
         "mode": "fixture" if fixture_pack else "fixture",
+    }
+
+
+def _execution_failure_summary(
+    group: str,
+    error_output: dict[str, Any],
+    exc: BaseException,
+) -> dict[str, Any]:
+    harness = harness_for_group(group)
+    tool_loop_cap = "tool-loop limit" in str(exc).lower()
+    fallback_reason = (
+        "agentcore_harness_tool_loop_cap_exceeded"
+        if tool_loop_cap
+        else str(error_output.get("fallbackReason") or "bedrock_unavailable")
+    )
+    return {
+        "schemaVersion": "3d-rams.execution-bound-failure.v1",
+        "category": "harness_tool_loop_cap_exceeded" if tool_loop_cap else "harness_invocation_failure",
+        "subagentGroup": group,
+        "harness": harness,
+        "fallbackReason": fallback_reason,
+        "deterministicFallbackUsed": True,
+        "errorType": error_output.get("errorType"),
+        "errorSummary": (
+            "AgentCore Harness stopped after the bounded local tool-loop cap; deterministic fallback output was used."
+            if tool_loop_cap
+            else "AgentCore Harness invocation failed or timed out; deterministic fallback output was used."
+        ),
     }
 
 

@@ -995,6 +995,39 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["finalReportStatus"], "review_required")
         self.assertGreaterEqual(result["reviewGate"]["attemptCount"], 2)
 
+    def test_dogfood_summary_tags_representative_run_states(self):
+        confirmation = run_site_briefing({"siteName": "Example Riverside Yard", "goal": "pre-visit review"})
+        self.assertEqual(
+            confirmation["dogfoodSummary"],
+            {
+                "schemaVersion": "3d-rams.dogfood-summary.v1",
+                "tags": ["location_evidence_needed", "confirmation_pending", "output_quality_gap"],
+                "recommendedNextRegressionTest": "add_location_evidence_regression",
+            },
+        )
+
+        fallback = run_site_briefing({"simulateMapFailure": True, "useBedrock": False})
+        self.assertIn("fallback_used", fallback["dogfoodSummary"]["tags"])
+        self.assertEqual(fallback["dogfoodSummary"]["recommendedNextRegressionTest"], "add_fallback_path_regression")
+
+        blocked = run_site_briefing({"additionalRequest": "Please certify RAMS and approve work today.", "useBedrock": False})
+        self.assertIn("safety_blocked", blocked["dogfoodSummary"]["tags"])
+        self.assertEqual(blocked["dogfoodSummary"]["recommendedNextRegressionTest"], "add_safety_boundary_regression")
+
+        review = run_site_briefing(
+            {
+                "fixturePack": "public-lambeth-thames",
+                "useBedrock": False,
+                "_reviewDecision": "revise_forever",
+                "_reviewMaxRevisionAttempts": 1,
+            }
+        )
+        self.assertIn("review_rework_needed", review["dogfoodSummary"]["tags"])
+        self.assertEqual(review["dogfoodSummary"]["recommendedNextRegressionTest"], "add_review_rework_regression")
+
+        quality = run_site_briefing({"includePlanningFixture": False, "useBedrock": False})
+        self.assertIn("output_quality_gap", quality["dogfoodSummary"]["tags"])
+
     def test_bedrock_requested_failure_falls_back_without_blocking_report(self):
         with EnvPatch(
             ENABLE_BEDROCK="true",

@@ -73,16 +73,69 @@ function latestTraceSummary(trace) {
   return [...toList(trace)].reverse().find((step) => firstText(step)) || null;
 }
 
-function riskItemsFromRun(run) {
+function riskReferenceIds(item) {
+  const references = item?.references || {};
+  return {
+    sourceIds: toList(references.sourceIds).length ? toList(references.sourceIds) : toList(item?.sourceIds),
+    evidenceIds: toList(references.evidenceIds).length ? toList(references.evidenceIds) : toList(item?.evidenceIds),
+  };
+}
+
+function hasRiskReferences(item) {
+  const refs = riskReferenceIds(item);
+  return refs.sourceIds.length > 0 || refs.evidenceIds.length > 0;
+}
+
+function normalizeFallbackRiskItem(item) {
+  const refs = riskReferenceIds(item);
+  return {
+    ...item,
+    sourceIds: refs.sourceIds,
+    evidenceIds: refs.evidenceIds,
+    note: item.note || item.summary || item.description || item.rationale || "Candidate finding requires human review.",
+    confidence: item.confidence || "review",
+    category: item.category || item.type || "review",
+  };
+}
+
+function fallbackRiskSources(run, entryResponse) {
+  const outputReport = entryResponse?.agentcoreOutput?.structuredReport;
+  return [
+    ...toList(run?.structuredReport?.findings),
+    ...toList(outputReport?.findings),
+    ...toList(run?.structuredReport?.visualization?.annotations),
+    ...toList(outputReport?.visualization?.annotations),
+    ...toList(run?.annotations),
+  ];
+}
+
+function dedupeRiskItems(items) {
+  const seen = new Set();
+  return items.filter((item, index) => {
+    const key = item.id || item.annotationId || item.title || item.label || item.note || item.summary || `fallback-${index}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function riskItemsFromRun(run, entryResponse) {
   const hazards = toList(run?.hazards);
   if (hazards.length) return hazards;
-  return toList(run?.structuredReport?.findings);
+  return dedupeRiskItems(fallbackRiskSources(run, entryResponse).filter(hasRiskReferences).map(normalizeFallbackRiskItem));
+}
+
+function riskReviewNoticeFromRun(run, entryResponse) {
+  if (riskItemsFromRun(run, entryResponse).length) return "";
+  return fallbackRiskSources(run, entryResponse).length
+    ? "Structured report findings were present, but Risk Review only renders candidate findings with source or evidence references."
+    : "Risk cards appear after the agent runs tools.";
 }
 
 function attachStructuredReport(run, structuredReport, reviewMetadata, output = {}, entryResponse = {}) {
   if (!run) return run;
-  const report = structuredReport || run.structuredReport || {};
-  const reviewGate = reviewMetadata || run.reviewMetadata || run.reviewGate || report.reviewGate || null;
+  const report = firstObject(structuredReport, run.structuredReport, output.structuredReport, entryResponse.agentcoreOutput?.structuredReport);
+  const reviewGate = reviewMetadata || run.reviewMetadata || run.reviewGate || report?.reviewGate || null;
   const progress = firstObject(
     output.progress,
     output.progressState,
@@ -99,8 +152,8 @@ function attachStructuredReport(run, structuredReport, reviewMetadata, output = 
     run.locationGate,
     run.locationConfirmationGate,
     run.locationConfirmation,
-    report.locationGate,
-    report.locationConfirmationGate,
+    report?.locationGate,
+    report?.locationConfirmationGate,
     entryResponse.locationGate,
     entryResponse.locationConfirmationGate,
     entryResponse.locationConfirmation,
@@ -112,13 +165,13 @@ function attachStructuredReport(run, structuredReport, reviewMetadata, output = 
     run.repairMetadata,
     run.reportRepair,
     run.groundingRepair,
-    report.repairMetadata,
-    report.reportRepair,
-    report.groundingRepair,
+    report?.repairMetadata,
+    report?.reportRepair,
+    report?.groundingRepair,
   );
   return {
     ...run,
-    ...(structuredReport ? { structuredReport } : {}),
+    ...(report ? { structuredReport: report } : {}),
     ...(reviewGate ? { reviewGate, reviewMetadata: reviewGate } : {}),
     ...(progress ? { progress } : {}),
     ...(locationGate ? { locationGate } : {}),
@@ -137,18 +190,20 @@ function reviewToneFromStatus(status) {
   return "warning";
 }
 
-function runToUiState(run) {
-  if (!run) return {};
+function runToUiState(run, entryResponse) {
+  const report = reportFromRun(run, entryResponse);
+  if (!run && !report) return {};
   return {
-    location: run.location,
-    scene: run.scene,
-    annotations: run.annotations,
-    hazards: riskItemsFromRun(run),
-    evidence: run.evidence,
-    briefing: run.briefing,
-    safety: run.safety,
-    trace: run.trace,
-    structuredReport: run.structuredReport,
+    location: run?.location,
+    scene: run?.scene || report?.visualization?.scene,
+    annotations: run?.annotations || report?.visualization?.annotations,
+    hazards: riskItemsFromRun(run, entryResponse),
+    riskReviewNotice: riskReviewNoticeFromRun(run, entryResponse),
+    evidence: run?.evidence,
+    briefing: run?.briefing,
+    safety: run?.safety,
+    trace: run?.trace || report?.trace,
+    structuredReport: report,
   };
 }
 
@@ -623,7 +678,7 @@ function SceneContextBadges({ sceneMode }) {
   );
 }
 
-function RiskCards({ hazards, briefing }) {
+function RiskCards({ hazards, briefing, notice }) {
   const items = toList(hazards).slice(0, 6);
   return (
     <section className="panel">
@@ -638,10 +693,11 @@ function RiskCards({ hazards, briefing }) {
               <strong>{riskCardTitle(hazard, index)}</strong>
               <em className={`status ${riskCardStatus(hazard)}`}>{riskCardStatus(hazard)}</em>
               <p>{riskCardBody(hazard)}</p>
+              {riskCardReferences(hazard) && <small>{riskCardReferences(hazard)}</small>}
             </article>
           ))
         ) : (
-          <p className="empty-copy">Risk cards appear after the agent runs tools.</p>
+          <p className="empty-copy">{notice || "Risk cards appear after the agent runs tools."}</p>
         )}
       </div>
       {briefing && (
@@ -682,6 +738,14 @@ function riskCardBody(item) {
     item.evidence ||
     "Review this item before the site visit."
   );
+}
+
+function riskCardReferences(item) {
+  const refs = riskReferenceIds(item);
+  const parts = [];
+  if (refs.sourceIds.length) parts.push(`Sources: ${refs.sourceIds.join(", ")}`);
+  if (refs.evidenceIds.length) parts.push(`Evidence: ${refs.evidenceIds.join(", ")}`);
+  return parts.join(" · ");
 }
 
 function EvidenceAndTrace({ evidence, trace, safety, runtime }) {
@@ -936,7 +1000,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const composerRef = useRef(null);
 
-  const ui = entryResponse?.uiState || runToUiState(run);
+  const ui = entryResponse?.uiState || runToUiState(run, entryResponse);
   const runtime = entryResponse?.runtime || run?.runtime || {};
   const contracts = contractStateFrom({ run, entryResponse, persistence });
   const reviewGate = reviewGateFromRun(run);
@@ -1241,7 +1305,7 @@ function App() {
       <WorkflowStatusPanel contracts={contracts} />
 
       <section className="insight-grid">
-        <RiskCards hazards={ui.hazards} briefing={ui.briefing} />
+        <RiskCards hazards={ui.hazards} briefing={ui.briefing} notice={ui.riskReviewNotice} />
         <ReviewAndDataQuality report={ui.structuredReport} />
         <EvidenceAndTrace evidence={ui.evidence} trace={ui.trace} safety={ui.safety} runtime={runtime} />
       </section>

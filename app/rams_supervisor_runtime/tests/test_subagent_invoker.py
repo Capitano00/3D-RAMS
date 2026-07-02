@@ -126,6 +126,39 @@ class FailingHarnessClient:
         raise TimeoutError("bedrock-agentcore invoke_harness timeout")
 
 
+class RepeatingToolUseHarnessClient:
+    def __init__(self):
+        self.calls: list[dict[str, Any]] = []
+
+    def invoke_harness(self, **kwargs):
+        self.calls.append(kwargs)
+        return {
+            "stream": iter(
+                [
+                    {
+                        "contentBlockStart": {
+                            "contentBlockIndex": 0,
+                            "start": {
+                                "toolUse": {
+                                    "name": "load_planning_context",
+                                    "toolUseId": f"tool-{len(self.calls)}",
+                                }
+                            },
+                        }
+                    },
+                    {
+                        "contentBlockDelta": {
+                            "contentBlockIndex": 0,
+                            "delta": {"toolUse": {"input": '{"includePlanningFixture":false}'}},
+                        }
+                    },
+                    {"contentBlockStop": {"contentBlockIndex": 0}},
+                    {"messageStop": {"stopReason": "tool_use"}},
+                ]
+            )
+        }
+
+
 def harness_output(group: str, harness: str, data: dict[str, Any], **updates: Any) -> dict[str, Any]:
     payload = {
         "schemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
@@ -176,6 +209,16 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         self.assertTrue(result["evidence"])
         self.assertTrue(result["findings"])
         self.assertTrue(any(step["name"] == "ingest_material_references" for step in result["trace"]))
+        material_step = next(step for step in result["trace"] if step["name"] == "ingest_material_references")
+        self.assertEqual(
+            material_step["policyDecision"],
+            {
+                "tool_name": "ingest_material_references",
+                "decision": "allow",
+                "reason_code": "runtime_path_allowed",
+                "source": "supervisor_runtime",
+            },
+        )
 
     def test_agentcore_material_invoker_uses_material_harness_arn(self):
         config = RuntimeConfig.from_env(request_bedrock=False)
@@ -242,6 +285,16 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         self.assertFalse(
             any(step.get("name") == "agentcore_harness_schema_fallback" for step in result.get("trace", []))
         )
+        policy_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_invocation")
+        self.assertEqual(
+            policy_step["policyDecision"],
+            {
+                "tool_name": "planning_subagent",
+                "decision": "allow",
+                "reason_code": "agentcore_harness_output_contract_valid",
+                "source": "agentcore_harness_invoker",
+            },
+        )
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(
             client.calls[0]["harnessArn"],
@@ -262,6 +315,15 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         fallback_step = result["trace"][-1]
         self.assertEqual(fallback_step["name"], "agentcore_harness_schema_fallback")
         self.assertEqual(fallback_step["fallbackReason"], "agentcore_harness_output_contract_invalid")
+        self.assertEqual(
+            fallback_step["policyDecision"],
+            {
+                "tool_name": "planning_subagent",
+                "decision": "downgrade",
+                "reason_code": "agentcore_harness_output_contract_invalid",
+                "source": "agentcore_harness_invoker",
+            },
+        )
         self.assertTrue(any("schemaVersion" in item for item in result["metadata"]["contractValidationIssues"]))
 
     def test_malformed_trace_uses_fallback_trace(self):
@@ -320,6 +382,32 @@ class AgentCoreHarnessInvokerTests(unittest.TestCase):
         fallback_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_failure_fallback")
         self.assertEqual(fallback_step["status"], "fallback")
         self.assertEqual(fallback_step["fallbackReason"], "bedrock_timeout")
+        self.assertEqual(fallback_step["policyDecision"]["decision"], "downgrade")
+        self.assertEqual(fallback_step["policyDecision"]["reason_code"], "bedrock_timeout")
+        summary = result["metadata"]["executionFailureSummary"]
+        self.assertEqual(summary["schemaVersion"], "3d-rams.execution-bound-failure.v1")
+        self.assertEqual(summary["category"], "harness_invocation_failure")
+        self.assertEqual(summary["subagentGroup"], "planning_subagent")
+        self.assertEqual(summary["harness"], "rams_planning_harness")
+        self.assertEqual(summary["fallbackReason"], "bedrock_timeout")
+        self.assertTrue(summary["deterministicFallbackUsed"])
+
+    def test_tool_loop_cap_uses_bounded_failure_summary(self):
+        config = RuntimeConfig.from_env(request_bedrock=False)
+        client = RepeatingToolUseHarnessClient()
+        with EnvPatch(RAMS_PLANNING_HARNESS_ARN="arn:aws:bedrock-agentcore:eu-west-2:123456789012:harness/rams_planning_harness-ABCDEFGHIJ"):
+            invoker = AgentCoreHarnessInvoker(config=config, client=client)
+            result = invoker.invoke_planning({}, fixture_pack={"name": "public-lambeth-thames"})
+
+        self.assertEqual(len(client.calls), 8)
+        fallback_step = next(step for step in result["trace"] if step["name"] == "agentcore_harness_failure_fallback")
+        self.assertEqual(fallback_step["fallbackReason"], "agentcore_harness_tool_loop_cap_exceeded")
+        summary = result["metadata"]["executionFailureSummary"]
+        self.assertEqual(summary["category"], "harness_tool_loop_cap_exceeded")
+        self.assertEqual(summary["subagentGroup"], "planning_subagent")
+        self.assertEqual(summary["harness"], "rams_planning_harness")
+        self.assertEqual(summary["fallbackReason"], "agentcore_harness_tool_loop_cap_exceeded")
+        self.assertTrue(summary["deterministicFallbackUsed"])
 
     def test_invoke_material_harness_returns_safe_ingestion_payload(self):
         config = RuntimeConfig.from_env(request_bedrock=False)
