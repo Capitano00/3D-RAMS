@@ -136,6 +136,24 @@ Material references are forwarded as structured `materials`. They are not flatte
 
 The local AgentCore runtime currently preserves this metadata as request context and returns the existing visualization run under `output.run`.
 
+## Pending Intake Recovery Boundary
+
+Current pending intake is process-local by design. `asi_one_entry_agent` keeps `_PENDING_INTAKES` and bounded conversation state only long enough to bridge a clarification/confirmation chat turn to the next turn in the same runtime process. `agentverse/hosted_adapter.py` keeps a matching process-local hint so a hosted confirmation message can include the pending intake. This is Demo1 behavior, not durable session ownership.
+
+The hosted failure mode is limited to this pre-launch gap: a runtime restart or cold start can lose a confirmation-ready draft before the user confirms and before the supervisor creates report/evidence output. After supervisor launch, recovery belongs to the case-correlated report/progress lookup contract, not pending-intake state.
+
+Future recovery should live first in ASI/ASI:ONE session continuity. If hosted dogfood shows repeated user-facing loss that ASI/ASI:ONE cannot cover, 3D-RAMS may add only a short-lived pending-intake summary bound to ASI/ASI:ONE report-access metadata or a future case-correlated record. Do not use AgentCore Memory, `DYNAMODB_SESSION_TABLE`, `/api/session/start`, or a standalone 3D-RAMS web-session model for this boundary.
+
+The maximum future summary shape is:
+
+- `schemaVersion`, `pendingIntakeId`, `conversationRef` or ASI session reference, and optional future `caseId`;
+- `entryAgentId`, `status: "awaiting_confirmation"`, timestamps, and short `expiresAt`;
+- redacted or normalized location summary, area scope, and bounded user-goal summary;
+- safe material ids/source ids and counts only;
+- non-secret report-access binding reference for same-requester verification.
+
+Never persist or echo raw user messages, raw site/client details beyond the safe summary, private material contents, retrieval URLs, API handles, signed URLs, access codes, raw ASI identity tokens, credentials, private planning notes, or certified RAMS/emergency/legal/work-approval claims. Expire pending summaries in minutes to hours and remove them on rejection, start-over, confirmation launch, or expiry.
+
 ## Report Lookup
 
 Detailed report lookup is not authorized by `caseId` alone. The entry agent or frontend proxy must include `reportAccess` when requesting a stored report:
