@@ -15,6 +15,7 @@ def runtime_observability(runtime: dict[str, Any], run: dict[str, Any] | None = 
     summary = {
         "schemaVersion": RUNTIME_OBSERVABILITY_SCHEMA_VERSION,
         "modelPath": _model_path(runtime),
+        "modelProvider": runtime.get("modelProvider"),
         "modelId": runtime.get("modelId"),
         "awsRegion": runtime.get("awsRegion"),
         "modelCallCount": int(runtime.get("modelCallCount") or 0),
@@ -33,6 +34,8 @@ def runtime_observability(runtime: dict[str, Any], run: dict[str, Any] | None = 
 
 
 def _model_path(runtime: dict[str, Any]) -> str:
+    if runtime.get("modelProvider") == "openai-compatible":
+        return "openai-compatible"
     if runtime.get("bedrockUsed"):
         return "bedrock"
     if runtime.get("plannerMode") == "fallback" or runtime.get("briefingMode") == "fallback":
