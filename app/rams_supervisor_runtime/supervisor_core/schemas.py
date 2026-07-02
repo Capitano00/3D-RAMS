@@ -233,6 +233,7 @@ class StructuredReport(BaseModel):
     evidenceRegister: EvidenceRegister
     reviewGate: ReviewGate
     dataQuality: DataQuality
+    dogfoodSummary: dict[str, Any] = Field(default_factory=dict)
     externalSignals: ExternalSignals = Field(default_factory=ExternalSignals)
     materialIngestion: dict[str, Any] = Field(default_factory=dict)
     reasoning: dict[str, Any] = Field(default_factory=dict)

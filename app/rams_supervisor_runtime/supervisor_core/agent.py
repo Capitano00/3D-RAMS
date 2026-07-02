@@ -18,7 +18,7 @@ from rams_agent_tools.tools import (
     trace_step,
 )
 
-from .subagent_invoker import build_subagent_invoker
+from .dogfood_summary import build_dogfood_summary
 from .harness_contract import HARNESS_OUTPUT_SCHEMA_VERSION, harness_contract_summary, harness_data
 from .planner import plan_subagent_workflow
 from .reasoning import reason_over_evidence
@@ -31,6 +31,7 @@ from .report_grounding_repair import (
 )
 from .review_loop import run_independent_review_loop
 from .runtime_observability import runtime_observability
+from .subagent_invoker import build_subagent_invoker
 
 
 def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -352,6 +353,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     run_independent_review_loop(run, reviewer_mode=_reviewer_mode(subagents.execution_mode))
     run["trace"] = _correlate_trace(run["trace"], case_id)
     run["architecture"] = architecture_snapshot(run["trace"], request_summary, sources, evidence, safety, runtime)
+    run["dogfoodSummary"] = build_dogfood_summary(run)
     return run
 
 
@@ -408,7 +410,7 @@ def _location_confirmation_run(
         "harnessOutputSchemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
         "harnessContract": {"contractCompliant": True, "observedSubagents": [], "fallbackCount": 0},
     }
-    return {
+    run = {
         "runId": "demo1-local-run",
         "caseId": case_id,
         "upstream": upstream_context,
@@ -460,6 +462,8 @@ def _location_confirmation_run(
         "finalReportStatus": "location_confirmation_required",
         "reviewGate": {"status": "location_confirmation_required", "message": confirmation["message"]},
     }
+    run["dogfoodSummary"] = build_dogfood_summary(run)
+    return run
 
 
 def _correlate_trace(trace: list[dict[str, Any]], case_id: str) -> list[dict[str, Any]]:
