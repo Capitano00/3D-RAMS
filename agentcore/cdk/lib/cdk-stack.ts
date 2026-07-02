@@ -85,6 +85,15 @@ function isPaymentEligibleAgent(agent: { entrypoint?: string; protocol?: string 
   return entrypointFile.endsWith('.py');
 }
 
+function passEnv(runtime: { addEnvironmentVariable(name: string, value: string): void }, names: string[]): void {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) {
+      runtime.addEnvironmentVariable(name, value);
+    }
+  }
+}
+
 /**
  * CDK Stack that deploys AgentCore infrastructure.
  *
@@ -281,6 +290,18 @@ export class AgentCoreStack extends Stack {
     }
 
     entry.runtime.addEnvironmentVariable('RAMS_SUPERVISOR_RUNTIME_ARN', supervisor.runtime.runtimeArn);
+    passEnv(entry.runtime, [
+      'ENTRY_INTAKE_PROVIDER',
+      'ENTRY_INTAKE_MODE',
+      'ENTRY_INTAKE_MODEL_ID',
+      'ENTRY_INTAKE_FALLBACK',
+      'ENTRY_INTAKE_MAX_TOKENS',
+      'ENTRY_INTAKE_TIMEOUT_SECONDS',
+      'ENTRY_AGENT_PROVIDER',
+      'OPENAI_BASE_URL',
+      'OPENAI_API_KEY',
+      'OPENAI_MODEL',
+    ]);
     supervisor.runtime.grantInvoke(entry.runtime.role);
 
     const harnessNames = [

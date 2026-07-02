@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -84,6 +86,9 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertFalse(text.lstrip().startswith("{"))
         self.assertNotIn('"entryAgent"', text)
         return text
+
+    def patch_env(self, **updates: str):
+        return mock.patch.dict(os.environ, updates, clear=False)
 
     def test_rejects_unconfirmed_entry_payload(self):
         payload = confirmed_entry_payload()
@@ -327,6 +332,55 @@ class AgentVerseAdapterTests(unittest.TestCase):
                 self.assertEqual(entry["route"], route)
                 self.assertEqual(entry["runtimeObservability"]["modelCallCount"], 0)
 
+    def test_product_metadata_route_does_not_invoke_supervisor_or_leak_sensitive_fields(self):
+        previous_model_id = os.environ.get("ENTRY_AGENT_MODEL_ID")
+        os.environ["ENTRY_AGENT_MODEL_ID"] = "amazon.nova-micro-v1:0"
+        try:
+            response = handle_invocation(
+                {
+                    "entryTurn": True,
+                    "message": "What LLM model are you? token secret-token https://example.invalid/private?sig=abc",
+                    "conversationId": "private-session-id-42",
+                    "runtimeOptions": {"useBedrock": True},
+                },
+                supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                invoke_runtime=lambda **_: self.fail("supervisor should not be invoked"),
+                model_json=lambda _: self.fail("entry model should not be called"),
+            )
+        finally:
+            if previous_model_id is None:
+                os.environ.pop("ENTRY_AGENT_MODEL_ID", None)
+            else:
+                os.environ["ENTRY_AGENT_MODEL_ID"] = previous_model_id
+
+        output = response["output"]
+        entry = output["entryAgent"]
+        observability = entry["runtimeObservability"]
+        serialized = json.dumps(response)
+
+        self.assertEqual(entry["route"], "product_meta")
+        self.assertEqual(output["workflowMode"], "entry_conversation")
+        self.assertIsNone(output["run"])
+        self.assertIsNone(output["structuredReport"])
+        self.assertEqual(observability["modelPath"], "entry-product-meta")
+        self.assertEqual(observability["modelId"], "amazon.nova-micro-v1:0")
+        self.assertEqual(observability["modelCallCount"], 0)
+        self.assertEqual(observability["noToolReason"], "product_runtime_metadata_answer")
+        self.assertFalse(any(observability["toolsStarted"].values()))
+        self.assertIn("Map, evidence, risk, and briefing tools did not start", self.assert_user_readable_response(response))
+        for sensitive in (
+            "secret-token",
+            "sig=abc",
+            "https://example.invalid",
+            "private-session-id-42",
+            "123456789012",
+            "runtime/supervisor-test",
+            "tokenUsage",
+            "chain-of-thought",
+            "scratchpad",
+        ):
+            self.assertNotIn(sensitive, serialized)
+
     def test_location_rejection_blocks_stale_confirmation_until_correction_resumes_intake(self):
         calls: list[dict] = []
 
@@ -445,6 +499,44 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(entry["intakeMode"], "llm")
         self.assertEqual(entry["intake"]["locationText"], "Model Parsed Site")
         self.assertIn("Model Parsed Site", self.assert_user_readable_response(response))
+
+    def test_entry_selects_openai_compatible_intake_from_env(self):
+        with self.patch_env(
+            ENTRY_INTAKE_PROVIDER="openai",
+            OPENAI_BASE_URL="https://example.invalid/v1",
+            OPENAI_API_KEY="test-key",
+            OPENAI_MODEL="gpt-5.4-mini",
+            ENTRY_INTAKE_MOCK_RESPONSE=json.dumps(
+                {
+                    "status": "confirmation_required",
+                    "assistantMessage": "Please confirm launch.",
+                    "confirmation": {"summary": "Confirm Model Parsed Site."},
+                    "intake": {
+                        "locationText": "Model Parsed Site",
+                        "locationCandidate": {"label": "Model Parsed Site", "lat": 51.5, "lng": -0.12, "confidence": 0.91},
+                        "areaScope": {"type": "radius", "meters": 1200},
+                        "userGoal": "inspection pre-review",
+                        "userNotes": "Parsed by mock OpenAI-compatible model.",
+                        "materials": [],
+                    },
+                }
+            ),
+        ):
+            response = handle_invocation(
+                {
+                    "entryTurn": True,
+                    "caller": "agentverse",
+                    "message": "Please inspect the site by the river.",
+                    "conversationId": "openai-model-case-test",
+                    "runtimeOptions": {"fixturePack": "public-lambeth-thames", "useBedrock": True},
+                },
+                supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+                invoke_runtime=lambda **_: self.fail("supervisor should not be invoked before confirmation"),
+            )
+
+        observability = response["output"]["entryAgent"]["runtimeObservability"]
+        self.assertEqual(observability["modelProvider"], "openai-compatible")
+        self.assertEqual(observability["modelId"], "gpt-5.4-mini")
 
     def test_entry_raw_message_confirmation_then_launch(self):
         calls: list[dict] = []
