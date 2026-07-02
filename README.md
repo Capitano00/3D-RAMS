@@ -217,7 +217,7 @@ Demo1 trace and response objects are shaped to map naturally to an AWS implement
 - AgentCore `asi_one_entry_agent` for intake, clarification, confirmation, and delivery summary.
 - AgentCore `rams_supervisor_runtime` for orchestration, evidence, trace, report assembly, and report lookup.
 - OpenAI-compatible hosted gateway for the live model-assisted briefing step.
-- DynamoDB for versioned project state, approvals, and rollback records.
+- DynamoDB for versioned project state and rollback records.
 - S3 for evidence packs, exported briefings, screenshots, and source documents.
 - CloudWatch for trace, latency, cost, and failure visibility.
 - Guardrails for unsafe claim and policy filtering.
