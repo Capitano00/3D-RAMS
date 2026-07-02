@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,11 +19,40 @@ from rams_agent_tools.config import RuntimeConfig  # noqa: E402
 from rams_agent_tools.tools.materials import (  # noqa: E402
     ASI_MATERIAL_API_BASE_URL_ENV,
     ASI_MATERIAL_API_BEARER_TOKEN_ENV,
+    MAX_MATERIAL_BYTES,
     ingest_material_references,
 )
 
 
 class MaterialRetrievalTests(unittest.TestCase):
+    def test_retrieval_url_falls_back_to_sanitized_metadata_without_bedrock(self):
+        secret_url_token = "URL_SECRET_SHOULD_NOT_LEAK"
+        secret_body = "RAW MATERIAL BODY SHOULD NOT LEAK"
+        with patch("rams_agent_tools.tools.materials.urllib.request.urlopen") as urlopen:
+            urlopen.return_value = FakeResponse({"Content-Type": "text/plain"}, secret_body.encode())
+            result = ingest_material_references(
+                [
+                    material(
+                        "url-material",
+                        "text/plain",
+                        access={"retrievalUrl": f"https://materials.example.invalid/material.txt?token={secret_url_token}"},
+                    )
+                ],
+                case_id="case_material_retrieval_001",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["accepted"], 1)
+        self.assertEqual(result["acceptedReferences"][0]["status"], "retrieved")
+        self.assertEqual(result["acceptedReferences"][0]["retrievalMode"], "retrieval_url")
+        self.assertEqual(result["extractions"][0]["retrieval"]["mode"], "retrieval_url")
+        self.assertEqual(result["references"][0]["access"]["retrieval"], {"method": "retrieval_url", "provided": True})
+
+        serialized = json.dumps(result)
+        self.assertNotIn(secret_url_token, serialized)
+        self.assertNotIn("retrievalUrl", serialized)
+        self.assertNotIn(secret_body, serialized)
+
     def test_retrieval_url_extracts_without_secret_leakage(self):
         secret_url_token = "URL_SECRET_SHOULD_NOT_LEAK"
         secret_body = "Access route uses public realm. RAW MATERIAL BODY SHOULD NOT LEAK"
@@ -48,6 +78,50 @@ class MaterialRetrievalTests(unittest.TestCase):
         self.assertNotIn(secret_url_token, serialized)
         self.assertNotIn("retrievalUrl", serialized)
         self.assertNotIn(secret_body, serialized)
+
+    def test_retrieval_url_failure_statuses_are_structured(self):
+        def fake_urlopen(request, timeout):
+            url = request.full_url
+            if url.endswith("/denied.txt"):
+                raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+            if url.endswith("/oversize.txt"):
+                return FakeResponse({"Content-Type": "text/plain", "Content-Length": str(MAX_MATERIAL_BYTES + 1)}, b"")
+            if url.endswith("/unsupported.html"):
+                return FakeResponse({"Content-Type": "text/html"}, b"<p>not supported</p>")
+            return FakeResponse({"Content-Type": "text/plain"}, b"ok")
+
+        with patch("rams_agent_tools.tools.materials.urllib.request.urlopen", side_effect=fake_urlopen):
+            result = ingest_material_references(
+                [
+                    material("denied-material", "text/plain", access={"retrievalUrl": "https://materials.example.invalid/denied.txt"}),
+                    material("large-material", "text/plain", access={"retrievalUrl": "https://materials.example.invalid/oversize.txt"}),
+                    material("html-material", "text/plain", access={"retrievalUrl": "https://materials.example.invalid/unsupported.html"}),
+                    material(
+                        "expired-material",
+                        "text/plain",
+                        access={
+                            "retrievalUrl": "https://materials.example.invalid/material.txt",
+                            "expiresAt": "2000-01-01T00:00:00Z",
+                        },
+                    ),
+                ],
+                case_id="case_material_retrieval_001",
+            )
+
+        self.assertEqual(result["accepted"], 0)
+        self.assertEqual({item["reason"] for item in result["skipped"]}, {"denied", "oversized", "unsupported_type", "expired"})
+
+    def test_api_handle_not_configured_is_sanitized(self):
+        handle = "ASI_HANDLE_SECRET_SHOULD_NOT_LEAK"
+        with patch.dict(os.environ, {ASI_MATERIAL_API_BASE_URL_ENV: "", ASI_MATERIAL_API_BEARER_TOKEN_ENV: ""}):
+            result = ingest_material_references(
+                [material("api-material", "text/plain", access={"apiHandle": handle})],
+                case_id="case_material_retrieval_001",
+            )
+
+        self.assertEqual(result["accepted"], 0)
+        self.assertEqual(result["skipped"][0]["reason"], "retrieval_not_configured")
+        self.assertNotIn(handle, json.dumps(result))
 
     def test_api_handle_uses_configured_adapter_without_secret_leakage(self):
         handle = "api-handle-secret"

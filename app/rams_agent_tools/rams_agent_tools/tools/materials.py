@@ -369,6 +369,12 @@ def _extract_retrieved_material(
     if material_type not in {"application/pdf", "text/plain", "text/markdown"}:
         return None, "unsupported_format"
     if config is None or not config.bedrock_enabled:
+        raw_access = raw_reference.get("access") if isinstance(raw_reference.get("access"), dict) else {}
+        if raw_access.get("retrievalUrl") or raw_access.get("retrieval_url") or raw_access.get("apiHandle") or raw_access.get("api_handle"):
+            payload, skip_reason = _retrieve_material(reference, raw_reference)
+            if payload is not None:
+                return _retrieved_material_summary(reference, payload), None
+            return None, skip_reason or "retrieval_not_configured"
         if _has_retrieval_hint(raw_reference, material_type):
             return None, "model_not_configured"
         if material_type == "application/pdf":
@@ -415,6 +421,26 @@ def _extract_retrieved_material(
             "sizeBytes": payload["sizeBytes"],
         },
     }, None
+
+
+def _retrieved_material_summary(reference: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "retrieved",
+        "retrievalMode": payload["mode"],
+        "summary": (
+            f"Retrieved authorized {payload['contentType']} material "
+            f"({payload['sizeBytes']} byte(s)) for bounded material extraction; raw content is not stored."
+        ),
+        "confidence": "low",
+        "observations": [],
+        "citations": [{"label": reference["label"], "locator": "retrieved bounded material; raw content not stored"}],
+        "limitations": ["Model extraction was not configured; only sanitized retrieval metadata was recorded."],
+        "retrieval": {
+            "mode": payload["mode"],
+            "contentType": payload["contentType"],
+            "sizeBytes": payload["sizeBytes"],
+        },
+    }
 
 
 def _retrieve_material(reference: dict[str, Any], raw_reference: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
