@@ -86,6 +86,11 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(output["persistence"]["status"], "skipped")
         self.assertEqual(output["reportStatus"], "review_passed")
         self.assertEqual(output["workflowMode"], "cached_public_fixture")
+        self.assertEqual(output["progress"]["schemaVersion"], "3d-rams.run-progress.v1")
+        self.assertEqual(output["progress"]["caseId"], "case_supervisor_test_001")
+        self.assertTrue(output["progress"]["runId"].startswith("run_"))
+        self.assertEqual(output["progress"]["status"], "completed")
+        self.assertIn("updatedAt", output["progress"])
         self.assertEqual(report["schemaVersion"], "0.1.0")
         self.assertEqual(report["reportType"], "3d-rams-site-review")
         self.assertEqual(report["status"], "review_passed")
@@ -331,6 +336,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         output = response["output"]
         report = output["structuredReport"]
         self.assertEqual(output["reportStatus"], "blocked")
+        self.assertEqual(output["progress"]["status"], "completed")
         self.assertEqual(report["status"], "blocked")
         self.assertEqual(report["reviewGate"]["status"], "blocked")
         self.assertFalse(report["reviewGate"]["safetyAllowed"])
@@ -443,6 +449,9 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(item["structuredReport"]["caseId"], "case_store_test_001")
         self.assertEqual(item["run"]["caseId"], "case_store_test_001")
         self.assertEqual(item["run"]["upstream"]["reportAccess"]["status"], "redacted")
+        self.assertEqual(item["progress"]["caseId"], "case_store_test_001")
+        self.assertEqual(item["progress"]["status"], "completed")
+        self.assertTrue(item["progress"]["runId"].startswith("run_"))
         self.assertEqual(item["runSummary"]["runtime"]["fixturePack"], "public-lambeth-thames")
         self.assertEqual(item["runtimeObservability"]["modelPath"], "deterministic-planner")
         self.assertEqual(item["runSummary"]["runtimeObservability"]["modelCallCount"], 0)
@@ -536,8 +545,78 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(lookup_output["structuredReport"]["caseId"], "case_lookup_test_001")
         self.assertEqual(lookup_output["run"]["caseId"], "case_lookup_test_001")
         self.assertEqual(lookup_output["run"]["upstream"]["reportAccess"]["status"], "redacted")
+        self.assertEqual(lookup_output["progress"]["caseId"], "case_lookup_test_001")
+        self.assertEqual(lookup_output["progress"]["status"], "completed")
+        self.assertEqual(lookup_output["progress"]["runId"], output["run"]["runId"])
         self.assertTrue(lookup_output["evidenceSummary"])
         self.assertTrue(lookup_output["citationMetadata"]["sources"])
+
+    def test_report_lookup_returns_safe_progress_records(self):
+        for status in ("queued", "running", "waiting_for_location_confirmation", "failed"):
+            with self.subTest(status=status):
+                case_id = f"case_progress_{status}"
+                access = report_access(case_id)
+                base_item = build_report_store_item(
+                    {
+                        "caseId": case_id,
+                        "structuredReport": {"caseId": case_id},
+                        "run": {"caseId": case_id, "upstream": {"reportAccess": access}},
+                    }
+                )
+                item = {
+                    "schemaVersion": "3d-rams.report-store.v1",
+                    "recordType": "case-run-progress",
+                    "caseId": case_id,
+                    "updatedAt": "2026-07-01T19:17:00+00:00",
+                    "reportStatus": status,
+                    "workflowMode": "agentcore_run_progress",
+                    "reportAccessBinding": base_item["reportAccessBinding"],
+                    "progress": {
+                        "caseId": case_id,
+                        "runId": f"run_{status}",
+                        "status": status,
+                        "currentStep": f"{status}_step",
+                        "updatedAt": "2026-07-01T19:17:00+00:00",
+                        "modelCallCount": 2,
+                        "fallbackReason": "safe fixture fallback",
+                        "errorSummary": "safe failure summary" if status == "failed" else None,
+                        "rawPrompt": "PRIVATE PROMPT SHOULD NOT LEAK",
+                        "identityToken": "PRIVATE TOKEN SHOULD NOT LEAK",
+                        "signedUrl": "https://example.invalid/private-download",
+                        "traceSummary": [
+                            {
+                                "id": "step_private",
+                                "name": "Safe step",
+                                "status": "ok",
+                                "caseId": case_id,
+                                "rawPrompt": "PRIVATE TRACE PROMPT SHOULD NOT LEAK",
+                                "accessContext": {"subjectId": "PRIVATE SUBJECT SHOULD NOT LEAK"},
+                            }
+                        ],
+                    },
+                }
+
+                class FakeTable:
+                    def get_item(self, *, Key):
+                        assert Key == {"caseId": case_id}
+                        return {"Item": item}
+
+                lookup = load_report(case_id, access_context=access, table=FakeTable())
+                progress = lookup["output"]["progress"]
+                serialized = json.dumps(lookup)
+
+                self.assertEqual(progress["caseId"], case_id)
+                self.assertEqual(progress["runId"], f"run_{status}")
+                self.assertEqual(progress["status"], status)
+                self.assertEqual(progress["currentStep"], f"{status}_step")
+                self.assertEqual(progress["modelCallCount"], 2)
+                self.assertNotIn("rawPrompt", progress)
+                self.assertNotIn("identityToken", progress)
+                self.assertNotIn("signedUrl", progress)
+                self.assertNotIn("PRIVATE PROMPT", serialized)
+                self.assertNotIn("PRIVATE TOKEN", serialized)
+                self.assertNotIn("private-download", serialized)
+                self.assertNotIn("PRIVATE SUBJECT", serialized)
 
     def test_report_store_persists_review_metadata_variants(self):
         variants = [
