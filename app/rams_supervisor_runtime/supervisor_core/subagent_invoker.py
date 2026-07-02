@@ -22,6 +22,7 @@ from rams_agent_tools.tools import (
     load_planning_context,
     resolve_location,
     safety_gate,
+    sanitize_material_references,
     search_open_web_signals,
     trace_step,
 )
@@ -55,21 +56,21 @@ class SubagentInvoker(Protocol):
     ) -> dict[str, Any]:
         ...
 
-    def invoke_material(
-        self,
-        request: dict[str, Any],
-        *,
-        case_id: str | None,
-        upstream_context: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        ...
-
     def invoke_hazard(
         self,
         planning_text: str | None,
         features: list[dict[str, Any]],
         *,
         fixture_pack: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        ...
+
+    def invoke_material(
+        self,
+        request: Any,
+        *,
+        case_id: str | None,
+        upstream_context: dict[str, Any] | None,
     ) -> dict[str, Any]:
         ...
 
@@ -167,13 +168,14 @@ class DirectSubagentInvoker:
 
     def invoke_material(
         self,
-        request: dict[str, Any],
+        request: Any,
         *,
         case_id: str | None,
         upstream_context: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        materials = request.get("materials") if isinstance(request, dict) else request
         material_ingestion = ingest_material_references(
-            request.get("materials"),
+            materials,
             case_id=case_id,
             upstream_context=upstream_context,
             config=self.config,
@@ -352,11 +354,13 @@ class AgentCoreHarnessInvoker:
 
     def invoke_material(
         self,
-        request: dict[str, Any],
+        request: Any,
         *,
         case_id: str | None,
         upstream_context: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        materials = request.get("materials") if isinstance(request, dict) else request
+        use_bedrock = bool(request.get("useBedrock")) if isinstance(request, dict) else False
         return self._invoke_json(
             "material_subagent",
             {
@@ -364,10 +368,10 @@ class AgentCoreHarnessInvoker:
                     "Validate authorized ASI/ASI:ONE material references and extract bounded evidence summaries. "
                     "Return JSON only and never include raw material content, tokens, or signed URLs."
                 ),
-                "materials": request.get("materials"),
+                "materials": sanitize_material_references(materials),
                 "caseId": case_id,
                 "upstream": upstream_context or {},
-                "useBedrock": bool(request.get("useBedrock")),
+                "useBedrock": use_bedrock,
                 "requiredDataKeys": DOMAIN_DATA_KEYS["material_subagent"],
             },
         )
