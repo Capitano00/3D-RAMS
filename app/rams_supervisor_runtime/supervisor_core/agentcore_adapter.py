@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent import run_site_briefing
+from .dogfood_summary import build_dogfood_summary
 from .report_store import build_run_progress, load_report, persist_report
 from .structured_report import build_structured_report
 
@@ -28,6 +29,7 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
         structured_report = agentcore_output.get("structuredReport") if isinstance(agentcore_output, dict) else None
         review_metadata = _review_metadata(agentcore_output) if isinstance(agentcore_output, dict) else None
         progress = agentcore_output.get("progress") if isinstance(agentcore_output, dict) else None
+        dogfood_summary = agentcore_output.get("dogfoodSummary") if isinstance(agentcore_output, dict) else None
         return {
             "output": {
                 "caseId": local_response.get("caseId") if isinstance(local_response, dict) else None,
@@ -38,6 +40,7 @@ def handle_invocation(payload: dict[str, Any] | None) -> dict[str, Any]:
                 "reviewMetadata": review_metadata,
                 "run": run,
                 "progress": progress,
+                "dogfoodSummary": dogfood_summary,
                 "persistence": persistence,
                 "reportStatus": delivery.get("status") if isinstance(delivery, dict) else "entry_pending",
                 "workflowMode": delivery.get("workflowMode") if isinstance(delivery, dict) else "entry_intake",
@@ -64,6 +67,7 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
             "reviewMetadata": run.get("reviewGate"),
             "run": run,
             "locationConfirmation": run.get("locationConfirmation"),
+            "dogfoodSummary": run.get("dogfoodSummary") or build_dogfood_summary(run),
         }
         return {"output": output}
 
@@ -79,6 +83,7 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
         "reviewGate": review_metadata,
         "reviewMetadata": review_metadata,
         "run": run,
+        "dogfoodSummary": structured_report.get("dogfoodSummary"),
     }
     output["progress"] = build_run_progress(output)
     output["persistence"] = persist_report(output)
