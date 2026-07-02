@@ -188,6 +188,25 @@ Known `output.progress` fields:
 
 When a confirmed supervisor run completes, `output.progress.status` is `completed` and lookup still returns the existing `output.run` and `output.structuredReport` payloads. While the entry agent is waiting for location/user confirmation before launch, `output.progress.status` is `waiting_for_location_confirmation` and `output.run` remains `null`. Failed or partial progress records must return only safe bounded summaries, not raw prompts or private identity/access context.
 
+Pre-launch entry responses may include `output.entryAgent.activityPrompts`:
+
+```json
+{
+  "schemaVersion": "3d-rams.entry-activity-prompts.v1",
+  "notice": "Generic considerations from your wording, not site evidence.",
+  "source": "deterministic wording match before confirmed launch",
+  "items": [
+    {
+      "family": "survey_walkover",
+      "label": "Survey or walkover",
+      "considerations": ["Confirm the expected route, access limits, and any areas excluded from the walkover."]
+    }
+  ]
+}
+```
+
+These prompts come only from a fixed deterministic activity taxonomy in the entry agent. They are not site findings, hazards, risk scores, evidence, annotations, certified RAMS, emergency guidance, or approval to work, and they are not forwarded in the confirmed supervisor launch payload.
+
 ## Invocation Response
 
 The response keeps the AgentCore output envelope:

@@ -581,6 +581,32 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(candidate["source"], "Postcodes.io postcode lookup")
         self.assertEqual(candidate["dataMode"], "live-postcodes-io-postcode")
 
+    def test_activity_prompts_stay_entry_only_before_confirmation(self):
+        response = handle_invocation(
+            {
+                "entryTurn": True,
+                "caller": "frontend",
+                "message": "Roof access at 8 Albert Embankment within 500m",
+                "conversationId": "activity-entry-only",
+                "runtimeOptions": {"useBedrock": False},
+            },
+            supervisor_runtime_arn="arn:aws:bedrock-agentcore:eu-west-2:123456789012:runtime/supervisor-test",
+            invoke_runtime=lambda **_: self.fail("supervisor should not be invoked before confirmation"),
+        )
+
+        output = response["output"]
+        entry = output["entryAgent"]
+        serialized = json.dumps(response)
+
+        self.assertEqual(entry["status"], "confirmation_required")
+        self.assertEqual(entry["activityPrompts"]["notice"], "Generic considerations from your wording, not site evidence.")
+        self.assertEqual(entry["activityPrompts"]["items"][0]["family"], "roof_access")
+        self.assertIsNone(output["run"])
+        self.assertIsNone(output["structuredReport"])
+        self.assertNotIn('"hazards"', serialized)
+        self.assertNotIn('"findings"', serialized)
+        self.assertIn("Generic considerations from your wording", self.assert_user_readable_response(response))
+
     def test_entry_selects_openai_compatible_intake_from_env(self):
         with self.patch_env(
             ENTRY_INTAKE_PROVIDER="openai",
