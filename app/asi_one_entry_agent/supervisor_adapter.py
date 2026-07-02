@@ -77,6 +77,13 @@ def build_agentcore_invocation(entry_payload: dict[str, Any]) -> dict[str, Any]:
     if has_coordinate:
         input_payload["latitude"] = float(location_candidate["lat"])
         input_payload["longitude"] = float(location_candidate["lng"])
+        input_payload["locationCandidate"] = _location_candidate_payload(location_text, location_candidate)
+        input_payload["locationConfirmation"] = {
+            "status": "confirmed",
+            "required": False,
+            "candidate": input_payload["locationCandidate"],
+            "candidates": [input_payload["locationCandidate"]],
+        }
     if location_text:
         input_payload["locationText"] = location_text
 
@@ -132,6 +139,13 @@ def build_delivery_payload(
     briefing = run.get("briefing") if isinstance(run.get("briefing"), dict) else {}
     safety = run.get("safety") if isinstance(run.get("safety"), dict) else {}
     location = run.get("location") if isinstance(run.get("location"), dict) else {}
+    location_confirmation = (
+        output.get("locationConfirmation")
+        if isinstance(output.get("locationConfirmation"), dict)
+        else run.get("locationConfirmation")
+        if isinstance(run.get("locationConfirmation"), dict)
+        else None
+    )
     source_entry = entry_payload or {}
     conversation_id = source_entry.get("conversationId") if isinstance(source_entry, dict) else None
     case_id = _optional_text(output.get("caseId") or run.get("caseId") or source_entry.get("caseId"))
@@ -157,7 +171,9 @@ def build_delivery_payload(
             "evidenceCount": len(run.get("evidence") or []),
             "traceCount": len(run.get("trace") or []),
             "visualizationReady": bool(run.get("scene") and run.get("architecture")),
+            "locationConfirmation": location_confirmation,
         },
+        "locationConfirmation": location_confirmation,
         "safetyReminder": safety.get("message") or "Human review is required before use.",
         "agentcoreOutput": output,
     }
@@ -183,6 +199,21 @@ def _site_name(location_text: str | None, location_candidate: dict[str, Any]) ->
     if location_text:
         return location_text
     return "Confirmed AgentVerse intake location"
+
+
+def _location_candidate_payload(location_text: str | None, location_candidate: dict[str, Any]) -> dict[str, Any]:
+    label = _site_name(location_text, location_candidate)
+    return {
+        "label": label,
+        "lat": float(location_candidate["lat"]),
+        "lng": float(location_candidate["lng"]),
+        "latitude": float(location_candidate["lat"]),
+        "longitude": float(location_candidate["lng"]),
+        "confidence": location_candidate.get("confidence"),
+        "source": location_candidate.get("source") or "ASI/entry-agent confirmed intake",
+        "dataMode": location_candidate.get("dataMode") or "entry-agent-confirmed",
+        "reason": location_candidate.get("reason") or "The user confirmed this structured intake before supervisor launch.",
+    }
 
 
 def _additional_request(intake: dict[str, Any]) -> str:

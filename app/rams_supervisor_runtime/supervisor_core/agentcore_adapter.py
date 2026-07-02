@@ -52,6 +52,19 @@ def _handle_supervisor_invocation(payload: dict[str, Any] | None) -> dict[str, A
 
     run = run_site_briefing(request)
     case_id = run.get("caseId") or request.get("caseId")
+    if _location_confirmation_required(run):
+        output = {
+            "caseId": case_id,
+            "reportStatus": "location_confirmation_required",
+            "workflowMode": "location_confirmation",
+            "structuredReport": None,
+            "reviewGate": run.get("reviewGate"),
+            "reviewMetadata": run.get("reviewGate"),
+            "run": run,
+            "locationConfirmation": run.get("locationConfirmation"),
+        }
+        return {"output": output}
+
     report_status = _report_status(run)
     workflow_mode = _workflow_mode(run)
     structured_report = build_structured_report(run, report_status, workflow_mode)
@@ -131,6 +144,8 @@ def _report_access_context(request: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _workflow_mode(run: dict[str, Any]) -> str:
+    if _location_confirmation_required(run):
+        return "location_confirmation"
     fixture_mode = run.get("runtime", {}).get("fixturePackMode")
     if fixture_mode == "cached-public-fixture":
         return "cached_public_fixture"
@@ -140,6 +155,8 @@ def _workflow_mode(run: dict[str, Any]) -> str:
 
 
 def _report_status(run: dict[str, Any]) -> str:
+    if _location_confirmation_required(run):
+        return "location_confirmation_required"
     status = str(run.get("finalReportStatus") or "")
     if status in {"blocked", "review_required", "review_passed"}:
         return status
@@ -150,3 +167,8 @@ def _report_status(run: dict[str, Any]) -> str:
     if gate_status in {"passed", "passed_with_caveats"}:
         return "review_passed"
     return "review_required" if run["safety"]["allowed"] else "blocked"
+
+
+def _location_confirmation_required(run: dict[str, Any]) -> bool:
+    confirmation = run.get("locationConfirmation") if isinstance(run.get("locationConfirmation"), dict) else {}
+    return str(confirmation.get("status") or "") in {"confirmation_required", "evidence_required"}

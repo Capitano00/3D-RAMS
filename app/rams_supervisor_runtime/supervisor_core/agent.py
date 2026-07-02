@@ -10,6 +10,7 @@ from rams_agent_tools.fixtures import load_fixture_pack
 from rams_agent_tools.tools import (
     architecture_snapshot,
     harness_for_group,
+    location_confirmation_gate,
     normalize_request,
     safety_gate,
     source_register,
@@ -40,6 +41,11 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         request_summary["siteName"] = pack_location["label"]
         request_summary["latitude"] = float(pack_location["latitude"])
         request_summary["longitude"] = float(pack_location["longitude"])
+
+    location_gate = location_confirmation_gate(request, request_summary, fixture_pack)
+    if location_gate:
+        return _location_confirmation_run(request_summary, upstream_context, case_id, location_gate)
+    tool_request = {**request, **request_summary}
 
     config = RuntimeConfig.from_env(request_bedrock=request_summary["useBedrock"])
     subagents = build_subagent_invoker(config)
@@ -81,8 +87,8 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         )
     )
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="rams-initial-tools") as executor:
-        geospatial_future = executor.submit(subagents.invoke_geospatial, request, fixture_pack=fixture_pack)
-        planning_future = executor.submit(subagents.invoke_planning, request, fixture_pack=fixture_pack)
+        geospatial_future = executor.submit(subagents.invoke_geospatial, tool_request, fixture_pack=fixture_pack)
+        planning_future = executor.submit(subagents.invoke_planning, tool_request, fixture_pack=fixture_pack)
         material_future = executor.submit(
             subagents.invoke_material,
             request,
@@ -196,7 +202,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     trace.extend(_trace_steps(annotation_result.get("trace"), "annotation_subagent"))
     trace.extend(_trace_steps(briefing_result.get("trace"), "briefing_subagent"))
 
-    safety, safety_step = safety_gate(request, briefing)
+    safety, safety_step = safety_gate(tool_request, briefing)
     trace.append(safety_step)
 
     sources = source_register(
@@ -206,6 +212,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         config=config,
         fixture_pack=fixture_pack,
         planner_status=planner_result["plannerStatus"],
+        location_confirmation=request_summary.get("locationConfirmation"),
     )
     sources.extend(material_sources)
     external_signals = {"openWeb": _open_web_payload(open_web_data.get("openWeb"))}
@@ -227,7 +234,15 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime_fallback_reason = _runtime_fallback_reason(planner_result, bedrock_fallback_reason)
     runtime = config.public_runtime(status=bedrock_status, fallback_reason=runtime_fallback_reason)
     runtime["fixturePack"] = fixture_pack["name"] if fixture_pack else None
-    runtime["fixturePackMode"] = "cached-public-fixture" if fixture_pack else "synthetic-default"
+    runtime["fixturePackMode"] = (
+        "cached-public-fixture"
+        if fixture_pack
+        else (
+            "confirmed-location-synthetic-features"
+            if request_summary.get("locationConfirmation", {}).get("status") == "confirmed"
+            else "synthetic-default"
+        )
+    )
     runtime["liveApiCalls"] = bool(external_signals["openWeb"].get("liveCallAttempted"))
     runtime["subagentExecutionMode"] = subagents.execution_mode
     runtime["plannerMode"] = planner_result["plannerStatus"]
@@ -254,6 +269,7 @@ def run_site_briefing(request: dict[str, Any] | None = None) -> dict[str, Any]:
         "modelCalls": planner_result["modelCalls"],
         "tokenUsage": planner_result["tokenUsage"],
         "fallback": planner_result["fallback"],
+        "locationConfirmation": request_summary.get("locationConfirmation"),
         "location": location,
         "scene": scene,
         "hazards": hazards if safety["allowed"] else [],
@@ -291,6 +307,94 @@ def _case_id_for_request(request_summary: dict[str, Any], upstream_context: Any)
     }
     digest = hashlib.sha256(json.dumps(seed, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     return f"case_{digest[:12]}"
+
+
+def _location_confirmation_run(
+    request_summary: dict[str, Any],
+    upstream_context: Any,
+    case_id: str,
+    gate: dict[str, Any],
+) -> dict[str, Any]:
+    confirmation = gate["confirmation"]
+    public_request = dict(request_summary)
+    if not public_request.get("_hasExplicitCoordinates"):
+        public_request["latitude"] = None
+        public_request["longitude"] = None
+    for key in list(public_request):
+        if key.startswith("_"):
+            public_request.pop(key)
+    trace = _correlate_trace([gate["trace"]], case_id)
+    runtime = {
+        "briefingMode": "not_started",
+        "bedrockRequested": bool(request_summary.get("useBedrock")),
+        "bedrockEnabled": False,
+        "bedrockUsed": False,
+        "fixturePack": None,
+        "fixturePackMode": "location-confirmation-required",
+        "liveApiCalls": False,
+        "subagentExecutionMode": "not_started",
+        "plannerMode": "not_started",
+        "activeAgentMode": "location-confirmation-gate",
+        "modelCallCount": 0,
+        "caseId": case_id,
+        "materialIngestionStatus": "not_started",
+        "materialEvidenceCount": 0,
+        "materialSkippedCount": 0,
+        "harnessOutputSchemaVersion": HARNESS_OUTPUT_SCHEMA_VERSION,
+        "harnessContract": {"contractCompliant": True, "observedSubagents": [], "fallbackCount": 0},
+    }
+    return {
+        "runId": "demo1-local-run",
+        "caseId": case_id,
+        "upstream": upstream_context,
+        "request": public_request,
+        "runtime": runtime,
+        "llmPlan": {},
+        "subagentPlan": {},
+        "subagentOutputs": [],
+        "modelCalls": [],
+        "tokenUsage": {},
+        "fallback": {"status": "not_used", "reason": None},
+        "locationConfirmation": confirmation,
+        "locationCandidates": confirmation["candidates"],
+        "location": None,
+        "scene": None,
+        "hazards": [],
+        "annotations": [],
+        "briefing": {
+            "site": request_summary.get("siteName"),
+            "headline": "Location confirmation is required before report generation.",
+            "summary": [confirmation["message"]],
+            "priority_checks": [],
+            "limitations": ["No site-specific map, evidence, risk, or briefing tools have run yet."],
+        },
+        "evidence": [gate["evidence"]],
+        "sources": [
+            {
+                "id": "user-request",
+                "label": "Submitted location evidence",
+                "kind": "request",
+                "status": "real",
+                "origin": "Request payload",
+                "trustBoundary": "User input",
+                "awsMapping": "DynamoDB run record",
+            },
+            gate["source"],
+        ],
+        "reasoning": {},
+        "materialIngestion": {"status": "not_started", "accepted": 0, "skipped": []},
+        "externalSignals": {"openWeb": {"status": "not_started", "items": [], "warnings": [], "liveCallAttempted": False}},
+        "safety": {
+            "allowed": False,
+            "level": "location_confirmation_required",
+            "message": "Location confirmation is required before non-certified site-specific review output.",
+            "triggeredRules": ["unconfirmed_location"],
+            "requiresHumanReview": True,
+        },
+        "trace": trace,
+        "finalReportStatus": "location_confirmation_required",
+        "reviewGate": {"status": "location_confirmation_required", "message": confirmation["message"]},
+    }
 
 
 def _correlate_trace(trace: list[dict[str, Any]], case_id: str) -> list[dict[str, Any]]:
