@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rams_agent_tools.planner_context import public_upstream_context, redact_for_public_output
+
 from .dogfood_summary import build_dogfood_summary
 from .schemas import (
     Coordinate,
@@ -30,7 +32,7 @@ def build_structured_report(
     request = _dict(run.get("request"))
     runtime = _dict(run.get("runtime"))
     safety = _dict(run.get("safety"))
-    trace = _list(run.get("trace"))
+    trace = _list(redact_for_public_output(run.get("trace")))
     reasoning = _dict(run.get("reasoning"))
 
     dogfood_summary = _dict(run.get("dogfoodSummary")) or build_dogfood_summary(run)
@@ -56,15 +58,15 @@ def build_structured_report(
         reviewGate=_build_review_gate(run, safety, reasoning),
         dataQuality=_build_data_quality(run, runtime, trace, briefing, reasoning),
         dogfoodSummary=dogfood_summary,
-        externalSignals=_dict(run.get("externalSignals")),
-        materialIngestion=_dict(run.get("materialIngestion")),
+        externalSignals=_dict(redact_for_public_output(run.get("externalSignals"))),
+        materialIngestion=_dict(redact_for_public_output(run.get("materialIngestion"))),
         trace=trace,
         reasoning=reasoning,
         llmPlan=_dict(run.get("llmPlan")),
         modelCalls=_list(run.get("modelCalls")),
         tokenUsage=_dict(run.get("tokenUsage")) or None,
         fallback=_dict(run.get("fallback")),
-        architecture=_dict(run.get("architecture")) or None,
+        architecture=_dict(redact_for_public_output(run.get("architecture"))) or None,
     )
     return report.model_dump(mode="json", exclude_none=True)
 
@@ -75,13 +77,13 @@ def _build_intake(run: dict[str, Any], request: dict[str, Any]) -> ReportIntake:
         siteName=request.get("siteName"),
         goal=request.get("goal"),
         fixturePack=request.get("fixturePack"),
-        materials=_list(request.get("materials")),
+        materials=_list(redact_for_public_output(request.get("materials"))),
         includePlanningFixture=bool(request.get("includePlanningFixture")),
         simulateMapFailure=bool(request.get("simulateMapFailure")),
         useBedrock=bool(request.get("useBedrock")),
         agentMode=str(request.get("agentMode") or "llm-planner"),
         additionalRequest=request.get("additionalRequest"),
-        upstream=_dict(run.get("upstream")) or None,
+        upstream=public_upstream_context(run.get("upstream")) or None,
     )
 
 

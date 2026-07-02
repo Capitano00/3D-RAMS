@@ -8,6 +8,7 @@ import urllib.request
 from typing import Any
 
 from .config import RuntimeConfig
+from .planner_context import bounded_planner_context
 
 
 class BedrockAdapterError(RuntimeError):
@@ -131,7 +132,7 @@ def generate_bedrock_subagent_plan(
             "required_evidence": ["short strings"],
             "missing_inputs": ["short strings"],
         },
-        "request": request_summary,
+        "request": bounded_planner_context(request_summary),
         "allowed_subagents": subagent_schemas,
         "planner_policy": {
             "planner_is_required": True,
