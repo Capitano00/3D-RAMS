@@ -143,7 +143,7 @@ sequenceDiagram
     Adapter->>Gateway: Invoke model with structured evidence prompt
     Gateway-->>Adapter: Draft extraction or briefing
     Adapter->>Safety: Check unsafe claims and review requirement
-    Safety-->>A: allow, block, or require approval
+    Safety-->>A: allow, block, or flag for human review
     A->>Obs: Emit trace, latency, status, and evidence ids
 ```
 
@@ -182,11 +182,10 @@ flowchart TB
     Classify -->|"normal pre-visit briefing"| Review["Allow as review-required output"]
     Block --> UIBlock["Show refusal and no annotations"]
     Review --> UIReview["Show briefing, limitations, and human-review boundary"]
-    Review -. "future" .-> HITL["Human approval queue"]
     Classify -. "future" .-> Guardrails["Policy guardrails"]
 ```
 
-The safety gate is deliberately visible. Judges and teammates should be able to see where the agent refuses high-risk claims and where a human review point would sit in production.
+The safety gate is deliberately visible. Judges and teammates should be able to see where the agent refuses high-risk claims and where the human-review boundary is surfaced.
 
 ## Real Vs Mocked Register
 
