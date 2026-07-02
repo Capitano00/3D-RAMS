@@ -114,6 +114,8 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertEqual(agent_input["siteName"], "Lambeth Thames public fixture")
         self.assertEqual(agent_input["latitude"], 51.4908)
         self.assertEqual(agent_input["longitude"], -0.1216)
+        self.assertEqual(agent_input["locationConfirmation"]["status"], "confirmed")
+        self.assertEqual(agent_input["locationCandidate"]["source"], "ASI/entry-agent confirmed intake")
         self.assertEqual(agent_input["fixturePack"], "public-lambeth-thames")
         self.assertFalse(agent_input["useBedrock"])
         self.assertEqual(agent_input["upstream"]["source"], "AGENTVERSE")
@@ -206,6 +208,57 @@ class AgentVerseAdapterTests(unittest.TestCase):
         self.assertTrue(delivery["deepReport"]["visualizationReady"])
         self.assertGreaterEqual(delivery["deepReport"]["evidenceCount"], 1)
         self.assertGreaterEqual(delivery["deepReport"]["traceCount"], 9)
+        self.assertEqual(delivery["locationConfirmation"]["status"], "not_required")
+        self.assertEqual(delivery["locationConfirmation"]["dataMode"], "cached-public-fixture")
+
+    def test_delivery_exposes_location_confirmation_required_payload(self):
+        entry_payload = confirmed_entry_payload()
+        agentcore_response = {
+            "output": {
+                "caseId": "case_test_agentverse_001",
+                "reportStatus": "location_confirmation_required",
+                "workflowMode": "location_confirmation",
+                "locationConfirmation": {
+                    "status": "confirmation_required",
+                    "required": True,
+                    "candidates": [
+                        {
+                            "candidateId": "location-candidate-test",
+                            "label": "Coordinate-only test",
+                            "latitude": 51.5,
+                            "longitude": -0.12,
+                            "source": "User-supplied coordinates",
+                            "confidence": "medium",
+                            "dataMode": "user-supplied",
+                            "reason": "Coordinates need confirmation.",
+                        }
+                    ],
+                },
+                "run": {
+                    "runId": "demo1-local-run",
+                    "caseId": "case_test_agentverse_001",
+                    "locationConfirmation": {
+                        "status": "confirmation_required",
+                        "required": True,
+                        "candidates": [],
+                    },
+                    "briefing": {"headline": "Location confirmation is required."},
+                    "safety": {"message": "Location confirmation is required before review."},
+                    "trace": [],
+                    "evidence": [],
+                },
+            }
+        }
+
+        delivery = build_delivery_payload(agentcore_response, entry_payload=entry_payload)
+
+        self.assertEqual(delivery["status"], "location_confirmation_required")
+        self.assertEqual(delivery["workflowMode"], "location_confirmation")
+        self.assertEqual(delivery["locationConfirmation"]["status"], "confirmation_required")
+        self.assertEqual(
+            delivery["deepReport"]["locationConfirmation"]["candidates"][0]["candidateId"],
+            "location-candidate-test",
+        )
 
     def test_entry_cloud_handoff_invokes_supervisor_runtime(self):
         calls: list[dict] = []

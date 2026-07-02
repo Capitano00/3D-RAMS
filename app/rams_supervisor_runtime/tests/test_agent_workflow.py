@@ -92,9 +92,10 @@ class EnvPatch:
 
 class SiteBriefingAgentTests(unittest.TestCase):
     def test_happy_path_returns_scene_annotations_evidence_and_trace(self):
-        result = run_site_briefing({"latitude": 52.2053, "longitude": -1.6022})
+        result = run_site_briefing({})
 
         self.assertEqual(result["scene"]["provider"], "cesium-local-fixture")
+        self.assertEqual(result["locationConfirmation"]["status"], "not_required")
         self.assertGreaterEqual(len(result["annotations"]), 5)
         self.assertGreaterEqual(len(result["evidence"]), 2)
         self.assertGreaterEqual(len(result["trace"]), 8)
@@ -134,6 +135,70 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertTrue(any(step["name"] == "independent_review_gate" for step in result["trace"]))
         self.assertIn("runOverview", result["architecture"])
         self.assertEqual(result["architecture"]["runOverview"]["briefingMode"], "disabled")
+
+    def test_name_only_arbitrary_site_requires_location_confirmation_without_tools(self):
+        result = run_site_briefing({"siteName": "Example Riverside Yard", "goal": "pre-visit review"})
+
+        self.assertEqual(result["finalReportStatus"], "location_confirmation_required")
+        self.assertEqual(result["runtime"]["fixturePackMode"], "location-confirmation-required")
+        self.assertEqual(result["locationConfirmation"]["status"], "evidence_required")
+        self.assertIsNone(result["request"]["latitude"])
+        self.assertIsNone(result["request"]["longitude"])
+        self.assertIsNone(result["scene"])
+        self.assertEqual(result["hazards"], [])
+        self.assertEqual(result["annotations"], [])
+        self.assertEqual(result["subagentOutputs"], [])
+        self.assertEqual([step["name"] for step in result["trace"]], ["location_confirmation_gate"])
+        self.assertNotIn("resolve_location", [step["name"] for step in result["trace"]])
+
+        candidate = result["locationConfirmation"]["candidates"][0]
+        self.assertEqual(candidate["label"], "Example Riverside Yard")
+        self.assertEqual(candidate["source"], "User-supplied location text")
+        self.assertEqual(candidate["confidence"], "low")
+        self.assertEqual(candidate["dataMode"], "user-supplied")
+        self.assertIn("candidateId", candidate)
+        self.assertIn("postcode", result["locationConfirmation"]["message"])
+        serialized = json.dumps(result)
+        self.assertNotIn("52.2053", serialized)
+        self.assertNotIn("-1.6022", serialized)
+
+    def test_user_supplied_coordinates_require_confirmation_first(self):
+        result = run_site_briefing({"siteName": "Coordinate-only test", "latitude": 51.5, "longitude": -0.12})
+
+        self.assertEqual(result["locationConfirmation"]["status"], "confirmation_required")
+        self.assertIsNone(result["scene"])
+        self.assertEqual(result["subagentOutputs"], [])
+        candidate = result["locationConfirmation"]["candidates"][0]
+        self.assertEqual(candidate["latitude"], 51.5)
+        self.assertEqual(candidate["longitude"], -0.12)
+        self.assertEqual(candidate["source"], "User-supplied coordinates")
+        self.assertEqual(candidate["dataMode"], "user-supplied")
+        self.assertEqual(result["evidence"][0]["candidate"], candidate)
+
+    def test_confirmed_candidate_reaches_normal_supervisor_workflow(self):
+        result = run_site_briefing(
+            {
+                "siteName": "Confirmed coordinate test",
+                "latitude": 51.5,
+                "longitude": -0.12,
+                "locationConfirmation": {"status": "confirmed"},
+                "useBedrock": False,
+            }
+        )
+
+        self.assertEqual(result["locationConfirmation"]["status"], "confirmed")
+        self.assertEqual(result["runtime"]["fixturePackMode"], "confirmed-location-synthetic-features")
+        self.assertEqual(result["scene"]["provider"], "cesium-local-fixture")
+        self.assertGreaterEqual(len(result["subagentOutputs"]), 7)
+        self.assertTrue(any(step["name"] == "resolve_location" for step in result["trace"]))
+        self.assertEqual(result["location"]["sourceIds"], ["user-supplied-coordinate"])
+
+    def test_location_gate_stays_offline_when_map_fallback_requested(self):
+        result = run_site_briefing({"siteName": "Offline location test", "simulateMapFailure": True})
+
+        self.assertEqual(result["locationConfirmation"]["status"], "evidence_required")
+        self.assertFalse(result["externalSignals"]["openWeb"]["liveCallAttempted"])
+        self.assertEqual([step["name"] for step in result["trace"]], ["location_confirmation_gate"])
 
     def test_reasoning_pass_is_mandatory_and_after_subagent_evidence(self):
         result = run_site_briefing({"fixturePack": "public-lambeth-thames", "useBedrock": False})
@@ -196,6 +261,8 @@ class SiteBriefingAgentTests(unittest.TestCase):
         self.assertEqual(result["location"]["authority"], "London Borough of Lambeth")
         self.assertEqual(result["scene"]["provider"], "cesium-local-cached-fixture")
         self.assertEqual(result["scene"]["dataMode"], "cached-public-fixture")
+        self.assertEqual(result["locationConfirmation"]["status"], "not_required")
+        self.assertEqual(result["locationConfirmation"]["dataMode"], "cached-public-fixture")
         self.assertTrue(result["safety"]["allowed"])
 
         source_statuses = {source["id"]: source["status"] for source in result["sources"]}
