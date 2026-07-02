@@ -91,6 +91,9 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(output["persistence"]["status"], "skipped")
         self.assertEqual(output["reportStatus"], "review_passed")
         self.assertEqual(output["workflowMode"], "cached_public_fixture")
+        self.assertEqual(output["dogfoodSummary"], report["dogfoodSummary"])
+        self.assertEqual(output["dogfoodSummary"]["schemaVersion"], "3d-rams.dogfood-summary.v1")
+        self.assertIn("output_quality_gap", output["dogfoodSummary"]["tags"])
         self.assertEqual(output["progress"]["schemaVersion"], "3d-rams.run-progress.v1")
         self.assertEqual(output["progress"]["caseId"], "case_supervisor_test_001")
         self.assertTrue(output["progress"]["runId"].startswith("run_"))
@@ -459,6 +462,10 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(item["progress"]["status"], "completed")
         self.assertTrue(item["progress"]["runId"].startswith("run_"))
         self.assertEqual(item["runSummary"]["runtime"]["fixturePack"], "public-lambeth-thames")
+        self.assertEqual(item["dogfoodSummary"], output["dogfoodSummary"])
+        self.assertEqual(item["runSummary"]["dogfoodSummary"], output["dogfoodSummary"])
+        self.assertEqual(item["run"]["dogfoodSummary"], output["dogfoodSummary"])
+        self.assertEqual(item["structuredReport"]["dogfoodSummary"], output["dogfoodSummary"])
         self.assertEqual(item["runtimeObservability"]["modelPath"], "deterministic-planner")
         self.assertEqual(item["runSummary"]["runtimeObservability"]["modelCallCount"], 0)
         self.assertNotIn("tokenUsage", item["runtimeObservability"])
@@ -556,6 +563,7 @@ class AgentCoreInvocationTests(unittest.TestCase):
         self.assertEqual(lookup_output["progress"]["runId"], output["run"]["runId"])
         self.assertTrue(lookup_output["evidenceSummary"])
         self.assertTrue(lookup_output["citationMetadata"]["sources"])
+        self.assertEqual(lookup_output["dogfoodSummary"], output["dogfoodSummary"])
 
     def test_report_lookup_returns_safe_progress_records(self):
         for status in ("queued", "running", "waiting_for_location_confirmation", "failed"):
