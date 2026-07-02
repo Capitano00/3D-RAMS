@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ENTRY_APP_ROOT = Path(__file__).resolve().parents[1]
@@ -15,9 +16,16 @@ from intake_coordinator import (  # noqa: E402
     build_entry_turn,
     coordinate_intake,
 )
+from llm_intake import openai_intake_model_json, select_model_json  # noqa: E402
 
 
 class IntakeCoordinatorTests(unittest.TestCase):
+    def test_blank_intake_provider_selects_openai_compatible_model(self):
+        with mock.patch.dict("os.environ", {"ENTRY_INTAKE_PROVIDER": "", "ENTRY_INTAKE_MODE": "llm_first"}, clear=False):
+            selected = select_model_json({"runtimeOptions": {"useBedrock": True}}, None)
+
+        self.assertIs(selected, openai_intake_model_json)
+
     def test_missing_location_returns_clarification(self):
         result = coordinate_intake({"message": "Can you help me?", "conversationId": "c1"})
 

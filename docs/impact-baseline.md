@@ -22,7 +22,7 @@ Use the default cached public fixture:
 | Site label | `8 Albert Embankment and land to the rear` |
 | Coordinate | `51.492099, -0.118712` |
 | Fixture pack | `public-lambeth-thames` |
-| App mode | No-AWS deterministic mode unless Bedrock is explicitly being tested |
+| App mode | No-AWS deterministic mode unless the OpenAI-compatible gateway is explicitly being tested |
 
 Manual source set to inspect:
 
@@ -77,7 +77,7 @@ Manual timing starts when the reviewer opens the first source or note page. It e
 | End time |  |
 | Elapsed time |  |
 | Commit hash |  |
-| App mode | `public-lambeth-thames`, Bedrock disabled/fallback/real |
+| App mode | `public-lambeth-thames`, live model disabled/fallback/real |
 | Output inspected | scene, briefing, evidence, trace, visualizer |
 | Missing or uncertain items |  |
 | Human-review/escalation items |  |

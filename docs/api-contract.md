@@ -66,7 +66,7 @@ Known `input` fields:
 | `fixture_pack` | string or null | Backward-compatible alias for `fixturePack`. |
 | `includePlanningFixture` | boolean | Defaults to `true`. Set `false` to test missing planning/context behavior. |
 | `simulateMapFailure` | boolean | Defaults to `false`. Set `true` to force the geospatial fallback path. |
-| `useBedrock` | boolean | Defaults to `true`. Bedrock is used only when runtime environment settings enable it. |
+| `useBedrock` | boolean | Legacy field name. Defaults to `true` and means "request the optional live model path"; the OpenAI-compatible gateway is used only when runtime environment settings enable it. |
 | `additionalRequest` | string | Optional user instruction. Unsafe RAMS/work-approval claims are blocked. |
 | `materials` | array | Optional ASI/ASI:ONE-owned material references or explicit local fixture/mock references. Only bounded metadata is accepted: id, source system, type, label, summary, case id, size, source/evidence ids, and access mode/expiry/status/session plus a safe retrieval marker for URL or API-handle access. Raw files, raw material content, tokens, signed URLs, API handles, retrieval URLs, and credentials are not persisted or returned. |
 | `upstream` | object | Optional upstream metadata from AgentVerse, ASI:ONE, or another entry agent. |
@@ -268,7 +268,7 @@ Important `output.run` fields:
 | `caseId` | Entry-agent generated correlation id echoed from request/upstream metadata. |
 | `upstream` | Optional entry-agent/session metadata passed through the adapter. |
 | `request` | Normalized request summary used by the agent. |
-| `runtime` | Fixture mode, Bedrock mode, fallback reason, and live-call status. |
+| `runtime` | Fixture mode, live-model provider/mode, fallback reason, and live-call status. |
 | `location` | Resolved site label and coordinate. |
 | `scene` | 3D scene configuration for the frontend viewer. |
 | `hazards` | Candidate hazards extracted from cached/synthetic evidence. |

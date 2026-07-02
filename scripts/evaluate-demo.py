@@ -221,13 +221,13 @@ def scenario_definitions() -> list[dict[str, Any]]:
         },
         {
             "id": "bedrock_disabled_request_fallback",
-            "description": "Request asks for Bedrock but local no-AWS mode returns deterministic briefing.",
+            "description": "Request asks for live model mode but local no-credentials mode returns deterministic briefing.",
             "request": {"fixturePack": "public-lambeth-thames", "useBedrock": True},
             "checks": [
                 path_equals("runtime.bedrockRequested", True),
                 path_equals("runtime.bedrockEnabled", False),
                 path_equals("runtime.briefingMode", "disabled"),
-                path_contains("runtime.fallbackReason", "ENABLE_BEDROCK is not true"),
+                path_contains("runtime.fallbackReason", "ENABLE_LIVE_MODEL is not true"),
                 has_trace("generate_bedrock_briefing", "disabled", with_fallback_reason=True),
                 list_length_at_least("briefing.priority_checks", 1),
             ],
@@ -344,9 +344,9 @@ def build_report() -> dict[str, Any]:
     return {
         "schemaVersion": "3d-rams.demo-evaluation.v1",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "mode": "deterministic-no-live-aws",
+        "mode": "deterministic-no-live-model",
         "environmentControls": {
-            "ENABLE_BEDROCK": os.environ["ENABLE_BEDROCK"],
+            "ENABLE_LIVE_MODEL": os.environ["ENABLE_LIVE_MODEL"],
             "BEDROCK_MOCK_RESPONSE": "unset",
             "BEDROCK_MOCK_UNSAFE_RESPONSE": "unset",
             "BEDROCK_SIMULATE_FAILURE": "unset",
@@ -362,6 +362,7 @@ def build_report() -> dict[str, Any]:
 
 
 def configure_deterministic_environment() -> None:
+    os.environ["ENABLE_LIVE_MODEL"] = "false"
     os.environ["ENABLE_BEDROCK"] = "false"
     os.environ.pop("BEDROCK_MOCK_RESPONSE", None)
     os.environ.pop("BEDROCK_MOCK_UNSAFE_RESPONSE", None)

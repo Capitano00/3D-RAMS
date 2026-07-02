@@ -5,7 +5,9 @@ from typing import Any
 def load_model() -> Any:
     """Get the supervisor model client using runtime environment credentials."""
     provider = os.getenv("RAMS_LLM_PROVIDER", "").strip().lower()
-    if provider == "openai" or (not provider and os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY")):
+    if provider != "bedrock":
+        if not os.getenv("OPENAI_BASE_URL") or not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_BASE_URL and OPENAI_API_KEY are required for the OpenAI-compatible supervisor model.")
         from strands.models.openai import OpenAIModel
 
         return OpenAIModel(

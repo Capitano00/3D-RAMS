@@ -92,7 +92,7 @@ RAMS_HOSTED_ENTRY_URL=https://<signed-proxy-domain>/invoke \
 python3 scripts/hosted-agentcore-asio-smoke.py
 ```
 
-Add `--bedrock-fallback` to also verify the Bedrock-requested fallback behavior. This hosted smoke covers Amplify app-shell loading when `RAMS_HOSTED_FRONTEND_URL` is set, entry clarification, confirmed supervisor launch, report-store write, identity-bound lookup, authorized/denied material references, runtime mode assertions, and public-safe output. Amplify page-load verification alone is not enough to prove the hosted AgentCore + ASI topology.
+Add `--live-model` only when the hosted OpenAI-compatible gateway is configured and you want the smoke to require OpenAI-compatible provider metadata. This hosted smoke covers Amplify app-shell loading when `RAMS_HOSTED_FRONTEND_URL` is set, entry clarification, confirmed supervisor launch, report-store write, identity-bound lookup, authorized/denied material references, runtime mode assertions, and public-safe output. Amplify page-load verification alone is not enough to prove the hosted AgentCore + ASI topology.
 
 ## Legacy Manual ZIP Deploy
 

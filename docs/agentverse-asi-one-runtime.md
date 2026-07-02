@@ -89,7 +89,7 @@ The proof-of-concept thread established these operational details:
 - IAM needs both `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` for the current headers.
 - IAM resources need both the runtime ARN and the `runtime-endpoint/DEFAULT` ARN.
 - AgentVerse should have only one chat protocol registration. If `agent.py` imports `hosted_adapter.agent`, it should not also define its own `ChatMessage` handlers.
-- The first successful end-to-end path was `ASI:ONE -> AgentVerse hosted adapter -> AWS AgentCore asi_one_entry_agent -> Bedrock Nova Micro -> ASI:ONE`.
+- Historical note: the first successful end-to-end path used Bedrock Nova Micro. Current live model configuration should use the team's OpenAI-compatible hosted gateway; remaining `bedrock-agentcore` names in this document are AWS AgentCore service/API names.
 
 ## Registration
 
