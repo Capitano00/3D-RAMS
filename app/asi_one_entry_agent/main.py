@@ -5,6 +5,7 @@ import os
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from agentcore_client import invoke_runtime_json
@@ -154,6 +155,7 @@ def handle_invocation(
         if intake_result["status"] != "launch_ready":
             if intake_result["status"] == "confirmation_required" and isinstance(intake_result.get("intake"), dict):
                 _PENDING_INTAKES[conversation_id] = intake_result["intake"]
+            progress = _entry_waiting_progress(intake_result, conversation_id)
             _remember_intake_state(conversation_id, conversation_route or "intake", intake_result)
             return {
                 "output": {
@@ -161,6 +163,7 @@ def handle_invocation(
                     "delivery": None,
                     "run": None,
                     "structuredReport": None,
+                    "progress": progress,
                     "reportStatus": "entry_pending",
                     "workflowMode": "entry_intake",
                     "assistantMessage": intake_result["assistantMessage"],
@@ -203,6 +206,7 @@ def handle_invocation(
                 "reportStatus": output.get("reportStatus") or delivery.get("status"),
                 "workflowMode": output.get("workflowMode") or delivery.get("workflowMode"),
                 "persistence": output.get("persistence"),
+                "progress": output.get("progress"),
                 "assistantMessage": assistant_message,
                 "entryAgent": {
                     "mode": "cloud-supervisor-handoff",
@@ -510,6 +514,7 @@ def _blocked_entry_output(payload: dict[str, Any], reason: str) -> dict[str, Any
             "delivery": None,
             "run": None,
             "structuredReport": None,
+            "progress": _entry_failed_progress(payload, conversation_id, reason),
             "reportStatus": "blocked",
             "workflowMode": "entry_intake",
             "assistantMessage": assistant_message,
@@ -833,6 +838,34 @@ def _safe_public_entry_agent_model_id() -> str | None:
 
 def _entry_model_id() -> str:
     return os.getenv("OPENAI_MODEL") or os.getenv("ENTRY_INTAKE_MODEL_ID") or os.getenv("ENTRY_AGENT_MODEL_ID") or "amazon.nova-micro-v1:0"
+
+
+def _entry_waiting_progress(intake_result: dict[str, Any], conversation_id: str) -> dict[str, Any]:
+    case_id = intake_result.get("caseId")
+    status = str(intake_result.get("status") or "")
+    current_step = "confirm_location_before_launch" if status == "confirmation_required" else "collect_location_before_launch"
+    return _entry_progress(case_id, conversation_id, "waiting_for_location_confirmation", current_step)
+
+
+def _entry_failed_progress(payload: dict[str, Any], conversation_id: str, reason: str) -> dict[str, Any]:
+    return {
+        **_entry_progress(payload.get("caseId"), conversation_id, "failed", "entry_payload_validation_failed"),
+        "errorSummary": reason[:280],
+    }
+
+
+def _entry_progress(case_id: Any, conversation_id: str, status: str, current_step: str) -> dict[str, Any]:
+    resolved_case_id = str(case_id) if case_id else None
+    seed = resolved_case_id or conversation_id
+    return {
+        "schemaVersion": "3d-rams.run-progress.v1",
+        "caseId": resolved_case_id,
+        "runId": f"run_{uuid.uuid5(uuid.NAMESPACE_URL, f'3d-rams-entry-progress:{seed}').hex[:12]}",
+        "status": status,
+        "currentStep": current_step,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "modelCallCount": 0,
+    }
 
 
 def _delivery_assistant_message(delivery: dict[str, Any]) -> str:

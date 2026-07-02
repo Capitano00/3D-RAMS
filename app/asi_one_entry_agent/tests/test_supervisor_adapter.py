@@ -494,10 +494,15 @@ class AgentVerseAdapterTests(unittest.TestCase):
         )
 
         entry = response["output"]["entryAgent"]
+        progress = response["output"]["progress"]
         self.assertEqual(entry["status"], "confirmation_required")
         self.assertEqual(entry["mode"], "llm-first-intake")
         self.assertEqual(entry["intakeMode"], "llm")
         self.assertEqual(entry["intake"]["locationText"], "Model Parsed Site")
+        self.assertEqual(progress["schemaVersion"], "3d-rams.run-progress.v1")
+        self.assertEqual(progress["status"], "waiting_for_location_confirmation")
+        self.assertEqual(progress["currentStep"], "confirm_location_before_launch")
+        self.assertTrue(progress["runId"].startswith("run_"))
         self.assertIn("Model Parsed Site", self.assert_user_readable_response(response))
 
     def test_entry_selects_openai_compatible_intake_from_env(self):
